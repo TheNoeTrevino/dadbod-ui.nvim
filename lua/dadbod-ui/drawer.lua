@@ -9,21 +9,37 @@ local icons_mod = require('dadbod-ui.icons')
 
 local INDENT = 2
 
+local HELP_LINES = {
+  '" o - Open/Toggle selected item',
+  '" S - Open/Toggle selected item in vertical split',
+  '" d - Delete selected item',
+  '" R - Redraw',
+  '" A - Add connection',
+  '" H - Toggle database details',
+  '" r - Rename/Edit buffer/connection/saved query',
+  '" q - Close drawer',
+  '" <C-j>/<C-k> - Go to last/first sibling',
+  '" K/J - Go to prev/next sibling',
+  '" <C-p>/<C-n> - Go to parent/child node',
+}
+
 local M = {}
 
 ---@class DadbodUI.Drawer
 ---@field instance DadbodUI.Instance
----@field icons table
----@field config table
----@field content table[]  line N -> node
+---@field icons DadbodUI.Icons
+---@field config DadbodUI.Config
+---@field content DadbodUI.Node[]  line N -> node
 ---@field groups table<string, { expanded: boolean }>
----@field bufnr integer|nil
----@field winid integer|nil
+---@field show_help boolean
+---@field show_details boolean
+---@field bufnr? integer
+---@field winid? integer
 local Drawer = {}
 Drawer.__index = Drawer
 
 --- Create a drawer over `instance` (defaults to the session singleton).
----@param instance DadbodUI.Instance|nil
+---@param instance? DadbodUI.Instance
 ---@return DadbodUI.Drawer
 function M.new(instance)
   instance = instance or require('dadbod-ui.state').get()
@@ -33,11 +49,15 @@ function M.new(instance)
     config = instance.config,
     content = {},
     groups = {},
+    show_help = false,
+    show_details = false,
     bufnr = nil,
     winid = nil,
   }, Drawer)
 end
 
+---@param name string
+---@return { expanded: boolean }
 function Drawer:group_state(name)
   if self.groups[name] == nil then
     self.groups[name] = { expanded = self.config.expand_groups and true or false }
@@ -45,12 +65,14 @@ function Drawer:group_state(name)
   return self.groups[name]
 end
 
+---@return boolean
 function Drawer:is_open()
   return self.winid ~= nil and vim.api.nvim_win_is_valid(self.winid)
 end
 
 --- Open the drawer window, or focus it if already open.
----@param mods string|nil  command modifiers (e.g. 'tab')
+---@param mods? string  command modifiers (e.g. 'tab')
+---@return DadbodUI.Drawer
 function Drawer:open(mods)
   if self:is_open() then
     vim.api.nvim_set_current_win(self.winid)
@@ -87,6 +109,7 @@ function Drawer:open(mods)
   return self
 end
 
+---@return nil
 function Drawer:close()
   if self:is_open() then
     vim.api.nvim_win_close(self.winid, true)
@@ -97,6 +120,7 @@ end
 
 Drawer.quit = Drawer.close
 
+---@return nil
 function Drawer:toggle()
   if self:is_open() then
     self:close()
@@ -105,21 +129,31 @@ function Drawer:toggle()
   end
 end
 
+---@param node DadbodUI.Node
 function Drawer:add(node)
   self.content[#self.content + 1] = node
 end
 
+---@param kind string
+---@param expanded boolean
+---@return string
 function Drawer:toggle_icon(kind, expanded)
   return expanded and self.icons.expanded[kind] or self.icons.collapsed[kind]
 end
 
 --- Rebuild `content` from the instance and write the buffer lines.
+---@return DadbodUI.Drawer
 function Drawer:render()
   if not self:is_open() then
     return self
   end
   self.content = {}
+  self:render_help()
   self:render_dbs()
+  if #self.instance.dbs_list == 0 then
+    self:add({ label = '" No connections', icon = '', level = 0, type = 'help', action = 'noaction' })
+    self:add({ label = 'Add connection', icon = self.icons.add_connection, level = 0, type = 'add_connection', action = 'call_method' })
+  end
 
   local lines = {}
   for _, node in ipairs(self.content) do
@@ -135,6 +169,33 @@ function Drawer:render()
   return self
 end
 
+---@return nil
+function Drawer:render_help()
+  if self.config.show_help then
+    self:add({ label = '" Press ? for help', icon = '', level = 0, type = 'help', action = 'noaction' })
+    self:add({ label = '', icon = '', level = 0, type = 'help', action = 'noaction' })
+  end
+  if self.show_help then
+    for _, line in ipairs(HELP_LINES) do
+      self:add({ label = line, icon = '', level = 0, type = 'help', action = 'noaction' })
+    end
+    self:add({ label = '', icon = '', level = 0, type = 'help', action = 'noaction' })
+  end
+end
+
+---@return DadbodUI.Drawer
+function Drawer:toggle_help()
+  self.show_help = not self.show_help
+  return self:render()
+end
+
+---@return DadbodUI.Drawer
+function Drawer:toggle_details()
+  self.show_details = not self.show_details
+  return self:render()
+end
+
+---@return nil
 function Drawer:render_dbs()
   local last_group = nil
   for _, record in ipairs(self.instance.dbs_list) do
@@ -163,10 +224,21 @@ function Drawer:render_dbs()
   end
 end
 
+---@param record DadbodUI.ConnectionRecord
+---@param level integer
 function Drawer:render_db(record, level)
   local entry = self.instance.dbs[record.key_name]
+  local label = record.name
+  if entry.conn_error and entry.conn_error ~= '' then
+    label = label .. ' ' .. self.icons.connection_error
+  elseif entry.conn and entry.conn ~= '' then
+    label = label .. ' ' .. self.icons.connection_ok
+  end
+  if self.show_details then
+    label = label .. string.format(' (%s - %s)', entry.scheme, entry.source)
+  end
   self:add({
-    label = record.name,
+    label = label,
     icon = self:toggle_icon('db', entry.expanded),
     level = level,
     type = 'db',
@@ -179,6 +251,8 @@ function Drawer:render_db(record, level)
   end
 end
 
+---@param entry DadbodUI.ConnectionEntry
+---@param level integer
 function Drawer:render_db_sections(entry, level)
   for _, section in ipairs(self.config.drawer_sections) do
     if section == 'new_query' then
@@ -195,10 +269,12 @@ function Drawer:render_db_sections(entry, level)
   end
 end
 
+---@return integer
 function Drawer:current_line()
   return vim.api.nvim_win_get_cursor(self.winid)[1]
 end
 
+---@param line integer
 function Drawer:set_cursor(line)
   line = math.max(1, math.min(line, #self.content))
   local col = vim.api.nvim_win_get_cursor(self.winid)[2]
@@ -206,7 +282,7 @@ function Drawer:set_cursor(line)
 end
 
 --- The node under the cursor (or nil).
----@return table|nil
+---@return DadbodUI.Node|nil
 function Drawer:get_current_item()
   if not self:is_open() then
     return nil
@@ -216,6 +292,7 @@ end
 
 --- Act on the node under the cursor: toggle groups/dbs (open actions for
 --- queries/buffers are handled once the query module lands).
+---@return DadbodUI.Drawer|nil
 function Drawer:toggle_line()
   local item = self:get_current_item()
   if item == nil or item.action == 'noaction' then
@@ -235,7 +312,8 @@ end
 --- Move to a sibling at the same tree level. `direction` is
 --- 'first' | 'last' | 'next' | 'prev'. Stops at level boundaries and at the
 --- top-level separators (level 0 with an empty label).
----@param direction string
+---@param direction string  'first' | 'last' | 'next' | 'prev'
+---@return nil
 function Drawer:goto_sibling(direction)
   local line = self:current_line()
   local n = #self.content
@@ -284,6 +362,7 @@ end
 --- Move to the parent node (level - 1) or the first child (level + 1).
 --- A collapsed node is expanded first when descending.
 ---@param direction string  'parent' | 'child'
+---@return nil
 function Drawer:goto_node(direction)
   local line = self:current_line()
   local item = self.content[line]
@@ -310,14 +389,21 @@ function Drawer:goto_node(direction)
   self:set_cursor(line + 1)
 end
 
+---@return nil
 function Drawer:setup_mappings()
-  if self.config.disable_mappings or self.config.disable_mappings_dbui then
-    return
-  end
+  ---@param lhs string
+  ---@param fn fun()
   local function map(lhs, fn)
     vim.keymap.set('n', lhs, function()
       fn()
     end, { buffer = self.bufnr, nowait = true, silent = true })
+  end
+  -- help toggle is always available, matching the original
+  map('?', function()
+    self:toggle_help()
+  end)
+  if self.config.disable_mappings or self.config.disable_mappings_dbui then
+    return
   end
   map('o', function()
     self:toggle_line()
@@ -327,6 +413,9 @@ function Drawer:setup_mappings()
   end)
   map('q', function()
     self:quit()
+  end)
+  map('H', function()
+    self:toggle_details()
   end)
   map('<C-k>', function()
     self:goto_sibling('first')

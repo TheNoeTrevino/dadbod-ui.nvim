@@ -4,7 +4,7 @@ local config = require('dadbod-ui.config')
 
 -- array form keeps a deterministic order
 local function make_drawer()
-  local cfg = config.resolve({ save_location = '/tmp/dbui_nav' })
+  local cfg = config.resolve({ save_location = '/tmp/dbui_nav', show_help = false })
   local instance = state.new(cfg):populate({
     env = {},
     g_dbs = {
