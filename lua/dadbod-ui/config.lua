@@ -27,6 +27,8 @@ M.defaults = {
   show_help = true,
   show_database_icon = false,
   use_nerd_fonts = false,
+  ---@type table  icon overrides (see dadbod-ui.icons)
+  icons = {},
   use_postgres_views = true,
   hide_schemas = {},
   bind_param_pattern = ':\\w\\+',
