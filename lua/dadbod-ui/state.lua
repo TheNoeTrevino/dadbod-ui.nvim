@@ -7,6 +7,7 @@
 
 local connections = require('dadbod-ui.connections')
 local bridge = require('dadbod-ui.bridge')
+local config_mod = require('dadbod-ui.config')
 
 local M = {}
 
@@ -48,6 +49,7 @@ local function make_entry(record, save_path)
     db_name = db_name ~= '' and db_name or record.name,
     save_path = save_path ~= '' and (save_path .. '/' .. save_name) or '',
     conn = nil, -- live connection handle, set when connected (later milestone)
+    expanded = false, -- drawer expand/collapse state
   }
 end
 
@@ -94,4 +96,44 @@ function Instance:connections_list()
 end
 
 M.Instance = Instance
+
+-- Singleton: the current session's config and instance. This module is the
+-- single source of truth other modules reach via `state.get()`; it never
+-- requires drawer/query/dbout, so the dependency graph stays acyclic.
+local current_config = nil
+local current_instance = nil
+
+--- Resolve and store config for the session, dropping any built instance so the
+--- new config takes effect on next `get()`. Returns the resolved config.
+---@param opts? table
+---@return DadbodUI.Config
+function M.setup(opts)
+  current_config = config_mod.resolve(opts)
+  current_instance = nil
+  return current_config
+end
+
+--- The session config (resolved from defaults/globals on first access).
+---@return DadbodUI.Config
+function M.config()
+  if current_config == nil then
+    current_config = config_mod.resolve()
+  end
+  return current_config
+end
+
+--- The session instance, built from discovery and cached on first access.
+---@return DadbodUI.Instance
+function M.get()
+  if current_instance == nil then
+    current_instance = M.new(M.config()):populate()
+  end
+  return current_instance
+end
+
+--- Drop the cached instance (next `get()` rebuilds). Used by tests/cleanup.
+function M.reset()
+  current_instance = nil
+end
+
 return M

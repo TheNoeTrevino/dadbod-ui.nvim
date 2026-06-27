@@ -1,46 +1,67 @@
 ---@mod dadbod-ui  Lua port of vim-dadbod-ui
 ---
---- A Neovim-native UI on top of vim-dadbod (the query engine). This is the
---- public entry point; `setup()` will grow as subsystems are ported. The
---- dadbod engine boundary lives entirely in `dadbod-ui.bridge`.
+--- Public entry point / facade. Session state lives in `dadbod-ui.state` (the
+--- single source of truth); the dadbod engine boundary lives in
+--- `dadbod-ui.bridge`. Sibling modules are required lazily so startup cost stays
+--- near zero and the dependency graph stays acyclic.
+
+local state = require('dadbod-ui.state')
 
 local M = {}
-
-local config = require('dadbod-ui.config')
-local state = require('dadbod-ui.state')
 
 --- The vim-dadbod boundary (see `lua/dadbod-ui/bridge.lua`).
 M.bridge = require('dadbod-ui.bridge')
 
----@type table  resolved configuration (defaults < legacy globals < setup opts)
-M.config = config.resolve()
+---@type DadbodUI.Config  resolved config, exposed for inspection (SSOT is dadbod-ui.state)
+M.config = state.config()
 
----@type DadbodUI.Instance|nil  built lazily on first use, reset by setup()
-M._instance = nil
+local _drawer = nil
 
---- The central instance, populated from discovery on first access.
----@return DadbodUI.Instance
-local function instance()
-  if M._instance == nil then
-    M._instance = state.new(M.config):populate()
+---@return DadbodUI.Drawer
+local function drawer()
+  if _drawer == nil then
+    _drawer = require('dadbod-ui.drawer').new(state.get())
   end
-  return M._instance
+  return _drawer
 end
 
---- Configure the plugin: resolve options, install the dadbod scheme aliases, and
---- reset the instance so the new config takes effect on next use.
----@param opts table|nil
+--- Configure the plugin: resolve options, install dadbod scheme aliases, and
+--- drop the cached instance/drawer so the new config takes effect.
+---@param opts? table
+---@return table
 function M.setup(opts)
-  M.config = config.resolve(opts)
+  M.config = state.setup(opts)
   M.bridge.ensure_adapters()
-  M._instance = nil
+  _drawer = nil
   return M
+end
+
+--- Open the drawer (accepts command modifiers, e.g. `:tab`).
+---@param mods? string
+function M.open(mods)
+  drawer():open(mods)
+end
+
+--- Toggle the drawer open/closed.
+function M.toggle()
+  drawer():toggle()
+end
+
+--- Close the drawer.
+function M.close()
+  drawer():close()
 end
 
 --- All discovered connections with their connection state.
 ---@return DadbodUI.ConnectionInfo[]
 function M.connections_list()
-  return instance():connections_list()
+  return state.get():connections_list()
+end
+
+--- Reset session state (drops the cached instance and drawer). For tests/cleanup.
+function M.reset()
+  state.reset()
+  _drawer = nil
 end
 
 return M
