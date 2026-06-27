@@ -195,14 +195,23 @@ function Drawer:render_db_sections(entry, level)
   end
 end
 
+function Drawer:current_line()
+  return vim.api.nvim_win_get_cursor(self.winid)[1]
+end
+
+function Drawer:set_cursor(line)
+  line = math.max(1, math.min(line, #self.content))
+  local col = vim.api.nvim_win_get_cursor(self.winid)[2]
+  vim.api.nvim_win_set_cursor(self.winid, { line, col })
+end
+
 --- The node under the cursor (or nil).
 ---@return table|nil
 function Drawer:get_current_item()
   if not self:is_open() then
     return nil
   end
-  local line = vim.api.nvim_win_get_cursor(self.winid)[1]
-  return self.content[line]
+  return self.content[self:current_line()]
 end
 
 --- Act on the node under the cursor: toggle groups/dbs (open actions for
@@ -223,6 +232,84 @@ function Drawer:toggle_line()
   end
 end
 
+--- Move to a sibling at the same tree level. `direction` is
+--- 'first' | 'last' | 'next' | 'prev'. Stops at level boundaries and at the
+--- top-level separators (level 0 with an empty label).
+---@param direction string
+function Drawer:goto_sibling(direction)
+  local line = self:current_line()
+  local n = #self.content
+  local item = self.content[line]
+  if item == nil then
+    return
+  end
+  local level = item.level
+  local is_up = direction == 'first' or direction == 'prev'
+  local is_down = not is_up
+  local is_edge = direction == 'first' or direction == 'last'
+  local is_prev_or_next = not is_edge
+  local last_same = line
+
+  local idx = line
+  while (is_up and idx >= 1) or (is_down and idx <= n) do
+    local adj = is_up and idx - 1 or idx + 1
+    if adj < 1 or adj > n then
+      return
+    end
+    local adjacent = self.content[adj]
+    local on_edge = (is_up and adj == 1) or (is_down and adj == n)
+    if adjacent.level == 0 and adjacent.label == '' then
+      return self:set_cursor(idx)
+    end
+    if is_prev_or_next then
+      if adjacent.level == level then
+        return self:set_cursor(adj)
+      end
+      if adjacent.level < level then
+        return
+      end
+    end
+    if is_edge then
+      if adjacent.level == level then
+        last_same = adj
+      end
+      if adjacent.level < level or on_edge then
+        return self:set_cursor(last_same)
+      end
+    end
+    idx = adj
+  end
+end
+
+--- Move to the parent node (level - 1) or the first child (level + 1).
+--- A collapsed node is expanded first when descending.
+---@param direction string  'parent' | 'child'
+function Drawer:goto_node(direction)
+  local line = self:current_line()
+  local item = self.content[line]
+  if item == nil then
+    return
+  end
+  if direction == 'parent' then
+    local idx = line
+    while idx >= 1 do
+      idx = idx - 1
+      local adjacent = self.content[idx]
+      if adjacent == nil or adjacent.level < item.level then
+        break
+      end
+    end
+    return self:set_cursor(idx)
+  end
+  if item.action ~= 'toggle' then
+    return
+  end
+  if not item.expanded then
+    self:toggle_line()
+  end
+  self:set_cursor(line + 1)
+end
+
 function Drawer:setup_mappings()
   if self.config.disable_mappings or self.config.disable_mappings_dbui then
     return
@@ -240,6 +327,24 @@ function Drawer:setup_mappings()
   end)
   map('q', function()
     self:quit()
+  end)
+  map('<C-k>', function()
+    self:goto_sibling('first')
+  end)
+  map('<C-j>', function()
+    self:goto_sibling('last')
+  end)
+  map('K', function()
+    self:goto_sibling('prev')
+  end)
+  map('J', function()
+    self:goto_sibling('next')
+  end)
+  map('<C-p>', function()
+    self:goto_node('parent')
+  end)
+  map('<C-n>', function()
+    self:goto_node('child')
   end)
 end
 
