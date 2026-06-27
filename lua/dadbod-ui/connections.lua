@@ -186,6 +186,85 @@ function M.read_file(path)
   return decoded
 end
 
+--- Write a connections list to `path` as a json array, creating the parent
+--- directory. Entries are plain `{ name, url, group? }`.
+---@param path string
+---@param list DadbodUI.FileConnection[]
+function M.write_file(path, list)
+  local dir = vim.fn.fnamemodify(path, ':h')
+  if vim.fn.isdirectory(dir) == 0 then
+    vim.fn.mkdir(dir, 'p')
+  end
+  vim.fn.writefile({ vim.json.encode(list) }, path)
+end
+
+-- Two stored connections are "the same" when names match (case-insensitive) and
+-- their urls resolve equal -- mirrors the original delete/rename matching.
+---@param conn DadbodUI.FileConnection
+---@param name string
+---@param resolved_url string
+---@return boolean
+local function same_conn(conn, name, resolved_url)
+  return conn.name:lower() == name:lower() and bridge.resolve(conn.url):lower() == resolved_url
+end
+
+--- Append a connection. Returns `(new_list, nil)` or `(nil, err)` when a
+--- connection with that name already exists (case-insensitive).
+---@param list DadbodUI.FileConnection[]
+---@param name string
+---@param url string
+---@return DadbodUI.FileConnection[]|nil, string|nil
+function M.add_connection(list, name, url)
+  for _, conn in ipairs(list) do
+    if conn.name:lower() == name:lower() then
+      return nil, 'Connection with that name already exists. Please enter different name.'
+    end
+  end
+  local out = vim.deepcopy(list)
+  out[#out + 1] = { name = name, url = url }
+  return out, nil
+end
+
+--- Remove the connection matching (name, url). Returns a new list.
+---@param list DadbodUI.FileConnection[]
+---@param name string
+---@param url string
+---@return DadbodUI.FileConnection[]
+function M.delete_connection(list, name, url)
+  local resolved = bridge.resolve(url):lower()
+  local out = {}
+  for _, conn in ipairs(list) do
+    if not same_conn(conn, name, resolved) then
+      out[#out + 1] = conn
+    end
+  end
+  return out
+end
+
+--- Replace the connection matching (old_name, old_url) with (new_name, new_url),
+--- preserving its group. Returns a new list (unchanged when no match).
+---@param list DadbodUI.FileConnection[]
+---@param old_name string
+---@param old_url string
+---@param new_name string
+---@param new_url string
+---@return DadbodUI.FileConnection[]
+function M.rename_connection(list, old_name, old_url, new_name, new_url)
+  local resolved = bridge.resolve(old_url):lower()
+  local out = vim.deepcopy(list)
+  for i, conn in ipairs(out) do
+    if same_conn(conn, old_name, resolved) then
+      local entry = { name = new_name, url = new_url }
+      if conn.group ~= nil and conn.group ~= '' then
+        entry.group = conn.group
+      end
+      out[i] = entry
+      break
+    end
+  end
+  return out
+end
+
 --- Discover all connections, merged in precedence order with duplicates dropped.
 --- `inputs` lets callers (and tests) inject sources; anything omitted is read
 --- from the live environment / globals / file.
