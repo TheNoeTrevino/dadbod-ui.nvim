@@ -107,3 +107,38 @@ describe('connections: rename_connection', function()
     assert.equals('postgres://h/new', list[1].url)
   end)
 end)
+
+describe('connections: set_group', function()
+  it('assigns a group to a connection', function()
+    local base = { { name = 'a', url = 'postgres://h/a' } }
+    local list, err = connections.set_group(base, 'a', 'postgres://h/a', 'Local')
+    assert.is_nil(err)
+    assert.equals('Local', list[1].group)
+    assert.is_nil(base[1].group) -- input untouched
+  end)
+
+  it('joins an existing group (two connections share the name)', function()
+    local base = {
+      { name = 'a', url = 'postgres://h/a', group = 'Local' },
+      { name = 'b', url = 'postgres://h/b' },
+    }
+    local list = connections.set_group(base, 'b', 'postgres://h/b', 'Local')
+    assert.equals('Local', list[2].group)
+  end)
+
+  it('clears the group when given an empty name', function()
+    local base = { { name = 'a', url = 'postgres://h/a', group = 'Local' } }
+    local list = connections.set_group(base, 'a', 'postgres://h/a', '')
+    assert.is_nil(list[1].group)
+  end)
+
+  it('rejects grouping onto a same-name connection already in that group', function()
+    local base = {
+      { name = 'dev', url = 'postgres://h/a', group = 'Local' },
+      { name = 'dev', url = 'postgres://h/b' },
+    }
+    local list, err = connections.set_group(base, 'dev', 'postgres://h/b', 'Local')
+    assert.is_nil(list)
+    assert.is_truthy(err)
+  end)
+end)
