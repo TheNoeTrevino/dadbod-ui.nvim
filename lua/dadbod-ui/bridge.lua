@@ -194,7 +194,7 @@ end
 ---@param mode string|nil  'interactive' (default) | 'filter'
 ---@return string[]
 function M.command(url, mode)
-  return fn['db#adapter#dispatch'](M.resolve(url), mode or 'interactive')
+  return M.dispatch(url, mode or 'interactive')
 end
 
 --- Run many commands concurrently and join when ALL finish (non-blocking).
