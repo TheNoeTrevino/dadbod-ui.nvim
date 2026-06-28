@@ -75,10 +75,22 @@ end
 ---@return DadbodUI.Instance
 function Instance:populate(inputs)
   self._inputs = inputs
+  local previous = self.dbs
   self.dbs_list = connections.discover(self.config, inputs)
   self.dbs = {}
   for _, record in ipairs(self.dbs_list) do
-    self.dbs[record.key_name] = make_entry(record, self.save_path)
+    local entry = make_entry(record, self.save_path)
+    -- Carry forward interactive/runtime state for connections that are
+    -- unchanged (same key_name and url), mirroring the original's
+    -- populate_dbs: a connection edit elsewhere must not collapse the tree or
+    -- drop a live handle here.
+    local prev = previous[record.key_name]
+    if prev ~= nil and prev.url == record.url then
+      entry.expanded = prev.expanded
+      entry.conn = prev.conn
+      entry.conn_error = prev.conn_error
+    end
+    self.dbs[record.key_name] = entry
   end
   return self
 end
