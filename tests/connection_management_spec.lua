@@ -98,6 +98,19 @@ describe('connection management: add', function()
     assert.is_truthy(notifications.get_last_msg():find('save location'))
   end)
 
+  it('refuses to overwrite a corrupt connections.json on add', function()
+    vim.fn.mkdir(dir, 'p')
+    local path = dir .. '/connections.json'
+    vim.fn.writefile({ '{ corrupt not an array' }, path)
+    d = make_drawer({ save_location = dir, inputs = { 'sqlite:' .. dir .. '/qa.db', 'qa' } })
+    d:add_connection()
+
+    -- the original corrupt bytes are still on disk, untouched
+    assert.equals('{ corrupt not an array', vim.fn.readfile(path)[1])
+    assert.is_nil(entry_named(d, 'qa'))
+    assert.is_truthy(notifications.get_last_msg():find('refusing to overwrite'))
+  end)
+
   it('makes the empty-state Add connection node functional', function()
     d = make_drawer({ save_location = dir, inputs = { 'sqlite:' .. dir .. '/qa.db', 'qa' } })
     d:open()
@@ -238,5 +251,37 @@ describe('connection management: redraw', function()
       d:redraw()
     end)
     assert.is_not_nil(entry_named(d, 'dev'))
+  end)
+
+  it('preserves an expanded connection across a redraw', function()
+    d = make_drawer({ save_location = dir, g_dbs = { dev = 'postgres://h/dev' } })
+    d:open()
+    entry_named(d, 'dev').expanded = true
+    vim.api.nvim_win_set_cursor(d.winid, { 1, 0 })
+    d:redraw()
+    assert.is_true(entry_named(d, 'dev').expanded)
+  end)
+end)
+
+describe('connection management: preserves state across an edit', function()
+  local d, dir
+  before_each(function()
+    dir = vim.fn.tempname()
+  end)
+  after_each(function()
+    if d then
+      d:close()
+      d = nil
+    end
+    vim.fn.delete(dir, 'rf')
+  end)
+
+  it('keeps an unrelated connection expanded after adding another', function()
+    d = make_drawer({ save_location = dir, g_dbs = { dev = 'postgres://h/dev' }, inputs = { 'sqlite:' .. dir .. '/qa.db', 'qa' } })
+    d:open()
+    entry_named(d, 'dev').expanded = true
+    d:add_connection()
+    assert.is_not_nil(entry_named(d, 'qa')) -- the add landed
+    assert.is_true(entry_named(d, 'dev').expanded) -- and dev stayed open
   end)
 end)
