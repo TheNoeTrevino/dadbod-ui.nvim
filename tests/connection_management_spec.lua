@@ -185,6 +185,66 @@ describe('connection management: rename', function()
   end)
 end)
 
+describe('connection management: group', function()
+  local d, dir
+  before_each(function()
+    dir = vim.fn.tempname()
+  end)
+  after_each(function()
+    if d then
+      d:close()
+      d = nil
+    end
+    vim.fn.delete(dir, 'rf')
+  end)
+
+  local function lines(drawer)
+    return vim.api.nvim_buf_get_lines(drawer.bufnr, 0, -1, false)
+  end
+
+  it('assigns a file connection to a group: drawer header + json both update', function()
+    local seed = { { name = 'qa', url = 'sqlite:' .. dir .. '/qa.db' } }
+    connections.write_file(dir .. '/connections.json', seed)
+    d = make_drawer({ save_location = dir, file_entries = seed, inputs = { 'Local' } })
+    d:open()
+    d:set_group(entry_named(d, 'qa'))
+
+    assert.equals('Local', stored(d.instance.connections_path)[1].group)
+    assert.equals('Local', entry_named(d, 'qa').group)
+    -- a group header now precedes the connection in the tree
+    local l = lines(d)
+    assert.is_truthy(l[1]:find('Local'))
+    assert.is_truthy(vim.tbl_contains(l, '  ▸ qa'))
+  end)
+
+  it('refuses to group a non-file connection', function()
+    d = make_drawer({ save_location = dir, g_dbs = { dev = 'postgres://h/dev' } })
+    d:set_group(entry_named(d, 'dev'))
+    assert.is_truthy(notifications.get_last_msg():find('via variables'))
+  end)
+
+  it('shows the group with its icon under details (H)', function()
+    local seed = { { name = 'qa', url = 'sqlite:' .. dir .. '/qa.db', group = 'Local' } }
+    connections.write_file(dir .. '/connections.json', seed)
+    d = make_drawer({ save_location = dir, file_entries = seed })
+    d:open()
+    d.groups['Local'] = { expanded = true }
+    d:toggle_details()
+    local qa_line
+    for _, l in ipairs(lines(d)) do
+      if l:find('qa %(') then
+        qa_line = l
+      end
+    end
+    assert.is_truthy(qa_line)
+    assert.is_truthy(qa_line:find('sqlite'))
+    assert.is_truthy(qa_line:find('Local'))
+    assert.is_truthy(qa_line:find(d.icons.group, 1, true))
+    -- the group header itself is labelled as a group under details
+    assert.is_truthy(vim.tbl_contains(lines(d), '▾ Local (Group)'))
+  end)
+end)
+
 describe('connection management: delete', function()
   local d, dir
   before_each(function()
