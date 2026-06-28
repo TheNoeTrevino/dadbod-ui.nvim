@@ -60,7 +60,7 @@ end
 ---@return { expanded: boolean }
 function Drawer:group_state(name)
   if self.groups[name] == nil then
-    self.groups[name] = { expanded = self.config.expand_groups and true or false }
+    self.groups[name] = { expanded = self.config.expand_groups }
   end
   return self.groups[name]
 end
@@ -394,9 +394,7 @@ function Drawer:setup_mappings()
   ---@param lhs string
   ---@param fn fun()
   local function map(lhs, fn)
-    vim.keymap.set('n', lhs, function()
-      fn()
-    end, { buffer = self.bufnr, nowait = true, silent = true })
+    vim.keymap.set('n', lhs, fn, { buffer = self.bufnr, nowait = true, silent = true })
   end
   -- help toggle is always available, matching the original
   map('?', function()
