@@ -128,11 +128,11 @@ end
 ---@param entries DadbodUI.FileConnection[]
 ---@return DadbodUI.ConnectionRecord[]
 function M.from_file(entries)
-  local out = {}
-  for _, conn in ipairs(entries) do
-    out[#out + 1] = record(conn.name, conn.url, 'file', conn.group)
-  end
-  return out
+  return vim.iter(entries)
+    :map(function(conn)
+      return record(conn.name, conn.url, 'file', conn.group)
+    end)
+    :totable()
 end
 
 --- Deduplicate by (name, source, group); first occurrence wins. `on_dup` is
@@ -218,10 +218,11 @@ end
 ---@param url string
 ---@return DadbodUI.FileConnection[]|nil, string|nil
 function M.add_connection(list, name, url)
-  for _, conn in ipairs(list) do
-    if conn.name:lower() == name:lower() then
-      return nil, 'Connection with that name already exists. Please enter different name.'
-    end
+  local exists = vim.iter(list):any(function(conn)
+    return conn.name:lower() == name:lower()
+  end)
+  if exists then
+    return nil, 'Connection with that name already exists. Please enter different name.'
   end
   local out = vim.deepcopy(list)
   out[#out + 1] = { name = name, url = url }
@@ -235,13 +236,11 @@ end
 ---@return DadbodUI.FileConnection[]
 function M.delete_connection(list, name, url)
   local resolved = bridge.resolve(url):lower()
-  local out = {}
-  for _, conn in ipairs(list) do
-    if not same_conn(conn, name, resolved) then
-      out[#out + 1] = conn
-    end
-  end
-  return out
+  return vim.iter(list)
+    :filter(function(conn)
+      return not same_conn(conn, name, resolved)
+    end)
+    :totable()
 end
 
 --- Replace the connection matching (old_name, old_url) with (new_name, new_url),

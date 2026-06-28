@@ -164,12 +164,13 @@ function Drawer:render()
     self:add({ label = 'Add connection', icon = self.icons.add_connection, level = 0, type = 'add_connection', action = 'call_method' })
   end
 
-  local lines = {}
-  for _, node in ipairs(self.content) do
-    local indent = string.rep(' ', INDENT * node.level)
-    local sep = node.icon ~= '' and ' ' or ''
-    lines[#lines + 1] = indent .. node.icon .. sep .. node.label
-  end
+  local lines = vim.iter(self.content)
+    :map(function(node)
+      local indent = string.rep(' ', INDENT * node.level)
+      local sep = node.icon ~= '' and ' ' or ''
+      return indent .. node.icon .. sep .. node.label
+    end)
+    :totable()
 
   local bo = vim.bo[self.bufnr]
   bo.modifiable = true
@@ -211,8 +212,9 @@ end
 --- members can be interleaved with other entries).
 ---@return nil
 function Drawer:render_dbs()
+  local dbs = self.instance.dbs_list
   local seen_groups = {}
-  for _, record in ipairs(self.instance.dbs_list) do
+  for _, record in ipairs(dbs) do
     local group = record.group or ''
     if group == '' then
       self:render_db(record, 0)
@@ -230,11 +232,13 @@ function Drawer:render_dbs()
         expanded = gs.expanded,
       })
       if gs.expanded then
-        for _, member in ipairs(self.instance.dbs_list) do
-          if (member.group or '') == group then
+        vim.iter(dbs)
+          :filter(function(member)
+            return (member.group or '') == group
+          end)
+          :each(function(member)
             self:render_db(member, 1)
-          end
-        end
+          end)
       end
     end
   end
