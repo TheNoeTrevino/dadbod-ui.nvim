@@ -65,13 +65,11 @@ end
 function M.resolve(config)
   local icons = base_set(config.use_nerd_fonts)
   local user = vim.deepcopy(config.icons or {})
-  if user.expanded ~= nil then
-    apply_toggle_override(icons, 'expanded', user.expanded)
-    user.expanded = nil
-  end
-  if user.collapsed ~= nil then
-    apply_toggle_override(icons, 'collapsed', user.collapsed)
-    user.collapsed = nil
+  for _, key in ipairs({ 'expanded', 'collapsed' }) do
+    if user[key] ~= nil then
+      apply_toggle_override(icons, key, user[key])
+      user[key] = nil
+    end
   end
   return vim.tbl_deep_extend('force', icons, user)
 end

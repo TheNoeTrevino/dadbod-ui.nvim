@@ -58,8 +58,7 @@ end
 ---@param url string
 ---@return string
 local function last_segment(url)
-  local parts = vim.split(url, '/', { plain = true })
-  return parts[#parts]
+  return url:match('[^/]*$')
 end
 
 --- Records from `g:db` (single) and `g:dbs` (dict or array; urls may be
