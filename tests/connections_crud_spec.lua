@@ -12,6 +12,31 @@ describe('connections: write_file / read_file round-trip', function()
   end)
 end)
 
+describe('connections: read_file on corrupt content', function()
+  it('returns {} and fires on_error for non-array / invalid json', function()
+    local dir = vim.fn.tempname()
+    local path = dir .. '/connections.json'
+    vim.fn.mkdir(dir, 'p')
+    vim.fn.writefile({ '{ this is not valid json array' }, path)
+    local hit = false
+    local list = connections.read_file(path, function()
+      hit = true
+    end)
+    assert.same({}, list)
+    assert.is_true(hit)
+    vim.fn.delete(dir, 'rf')
+  end)
+
+  it('does not fire on_error for a missing file', function()
+    local hit = false
+    local list = connections.read_file(vim.fn.tempname() .. '/nope.json', function()
+      hit = true
+    end)
+    assert.same({}, list)
+    assert.is_false(hit)
+  end)
+end)
+
 describe('connections: add_connection', function()
   it('appends a new connection', function()
     local list, err = connections.add_connection({}, 'dev', 'postgres://h/dev')

@@ -347,6 +347,24 @@ local function validate_url(url)
   return result, nil
 end
 
+--- Read the connections.json store, refusing to proceed when it is present but
+--- corrupt -- so a CRUD action can't silently overwrite a file we failed to
+--- parse. Returns the list, or nil when the store is unreadable.
+---@return DadbodUI.FileConnection[]|nil
+function Drawer:read_store()
+  local corrupt = false
+  local list = connections.read_file(self.instance.connections_path, function()
+    corrupt = true
+  end)
+  if corrupt then
+    require('dadbod-ui.notifications').error(
+      'Could not read connections file; refusing to overwrite it. Fix or remove: ' .. (self.instance.connections_path or '')
+    )
+    return nil
+  end
+  return list
+end
+
 --- Persist `connections.json`, re-discover, and re-render.
 ---@param list DadbodUI.FileConnection[]
 ---@return nil
@@ -384,7 +402,11 @@ function Drawer:add_connection()
       if name == '' then
         return notify.error('Please enter valid name.')
       end
-      local list, add_err = connections.add_connection(connections.read_file(self.instance.connections_path), name, resolved)
+      local store = self:read_store()
+      if store == nil then
+        return
+      end
+      local list, add_err = connections.add_connection(store, name, resolved)
       if list == nil then
         return notify.error(add_err or 'Could not add connection.')
       end
@@ -419,7 +441,11 @@ function Drawer:rename_connection(entry)
       if name == '' then
         return notify.error('Please enter valid name.')
       end
-      local list, rename_err = connections.rename_connection(connections.read_file(self.instance.connections_path), entry.name, entry.url, name, resolved)
+      local store = self:read_store()
+      if store == nil then
+        return
+      end
+      local list, rename_err = connections.rename_connection(store, entry.name, entry.url, name, resolved)
       if list == nil then
         return notify.error(rename_err or 'Could not rename connection.')
       end
@@ -453,7 +479,11 @@ function Drawer:delete_connection(entry)
   if not self.confirm(string.format('Are you sure you want to delete connection %s?', entry.name)) then
     return
   end
-  local list = connections.delete_connection(connections.read_file(self.instance.connections_path), entry.name, entry.url)
+  local store = self:read_store()
+  if store == nil then
+    return
+  end
+  local list = connections.delete_connection(store, entry.name, entry.url)
   self:commit_connections(list)
 end
 
@@ -479,11 +509,11 @@ function Drawer:redraw()
     return
   end
   local notify = require('dadbod-ui.notifications')
-  if item.level == 0 or item.key_name == nil then
-    notify.info('Refreshing all databases...')
-  else
+  if item.type == 'db' and item.key_name ~= nil then
     local entry = self.instance.dbs[item.key_name]
     notify.info(string.format('Refreshing database %s...', entry and entry.name or ''))
+  else
+    notify.info('Refreshing all databases...')
   end
   self.instance:repopulate()
   self:render()
