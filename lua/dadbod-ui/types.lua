@@ -3,6 +3,7 @@
 --- never `require`d at runtime (lua_ls reads it from the workspace).
 
 ---@alias DadbodUI.Source 'g:dbs' | 'env' | 'dotenv' | 'file'
+---@alias DadbodUI.NotifyKind 'info' | 'warning' | 'error'
 ---@alias DadbodUI.BufferNameGenerator fun(opts: { label: string, table?: string, schema?: string, filetype: string }): string
 ---@alias DadbodUI.TableNameSorter fun(tables: string[]): string[]
 
@@ -82,6 +83,12 @@
 ---@field g_dbs? any
 ---@field file_entries? DadbodUI.FileConnection[]
 ---@field on_dup? fun(name: string, source: string)
+
+--- Per-call options for dadbod-ui.notifications.
+---@class DadbodUI.NotifyOpts
+---@field echo? boolean   force the :echo backend for this call
+---@field title? string   override the '[DBUI]' title
+---@field delay? integer  notify timeout in ms (honored by nvim-notify)
 
 --- The effective icon set (dadbod-ui.icons).
 ---@class DadbodUI.Icons
