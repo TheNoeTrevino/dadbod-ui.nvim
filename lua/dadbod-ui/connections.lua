@@ -281,6 +281,42 @@ function M.rename_connection(list, old_name, old_url, new_name, new_url)
   return out, nil
 end
 
+--- Set (or clear) the group of the connection matching (name, url). An empty
+--- `group` removes it from its group. Returns `(new_list, nil)`, or `(nil, err)`
+--- when another connection of the same name already lives in the target group
+--- (which would merge them under one `key_name` on the next discover). The list
+--- is returned unchanged (no error) when nothing matches.
+---@param list DadbodUI.FileConnection[]
+---@param name string
+---@param url string
+---@param group string
+---@return DadbodUI.FileConnection[]|nil, string|nil
+function M.set_group(list, name, url, group)
+  local resolved = bridge.resolve(url):lower()
+  local match_idx = nil
+  for i, conn in ipairs(list) do
+    if same_conn(conn, name, resolved) then
+      match_idx = i
+      break
+    end
+  end
+  for i, conn in ipairs(list) do
+    local conn_group = conn.group or ''
+    if i ~= match_idx and conn.name:lower() == name:lower() and conn_group:lower() == group:lower() then
+      return nil, 'A connection with that name already exists in that group. Please choose a different group.'
+    end
+  end
+  local out = vim.deepcopy(list)
+  if match_idx ~= nil then
+    if group == '' then
+      out[match_idx].group = nil
+    else
+      out[match_idx].group = group
+    end
+  end
+  return out, nil
+end
+
 --- Discover all connections, merged in precedence order with duplicates dropped.
 --- `inputs` lets callers (and tests) inject sources; anything omitted is read
 --- from the live environment / globals / file.
