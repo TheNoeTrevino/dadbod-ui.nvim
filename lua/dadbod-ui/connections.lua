@@ -128,11 +128,11 @@ end
 ---@param entries DadbodUI.FileConnection[]
 ---@return DadbodUI.ConnectionRecord[]
 function M.from_file(entries)
-  local out = {}
-  for _, conn in ipairs(entries) do
-    out[#out + 1] = record(conn.name, conn.url, 'file', conn.group)
-  end
-  return out
+  return vim.iter(entries)
+    :map(function(conn)
+      return record(conn.name, conn.url, 'file', conn.group)
+    end)
+    :totable()
 end
 
 --- Deduplicate by (name, source, group); first occurrence wins. `on_dup` is
@@ -167,20 +167,24 @@ function M.connections_path(save_location)
   return folder .. '/connections.json'
 end
 
---- Read a connections.json array. Returns `{}` when missing or not a valid json
---- array (the original also warns; that surfaces once notifications land).
+--- Read a connections.json array. Returns `{}` when missing or when the content
+--- is not a valid json array. A missing file is normal (no callback); a present
+--- but corrupt file invokes `on_error` so the caller can warn and avoid
+--- overwriting it (the original warns here too).
 ---@param path string|nil
+---@param on_error? fun(msg: string)
 ---@return DadbodUI.FileConnection[]
-function M.read_file(path)
+function M.read_file(path, on_error)
   if path == nil or vim.fn.filereadable(path) == 0 then
     return {}
   end
   local ok, decoded = pcall(vim.json.decode, table.concat(vim.fn.readfile(path), '\n'))
-  if not ok or type(decoded) ~= 'table' then
+  local is_array = ok and type(decoded) == 'table' and (vim.islist(decoded) or vim.tbl_isempty(decoded))
+  if not is_array then
+    if on_error then
+      on_error('Could not read connections file. Please make sure it contains a valid JSON array.')
+    end
     return {}
-  end
-  if not vim.islist(decoded) and not vim.tbl_isempty(decoded) then
-    return {} -- a json object, not an array
   end
   return decoded
 end
@@ -214,10 +218,11 @@ end
 ---@param url string
 ---@return DadbodUI.FileConnection[]|nil, string|nil
 function M.add_connection(list, name, url)
-  for _, conn in ipairs(list) do
-    if conn.name:lower() == name:lower() then
-      return nil, 'Connection with that name already exists. Please enter different name.'
-    end
+  local exists = vim.iter(list):any(function(conn)
+    return conn.name:lower() == name:lower()
+  end)
+  if exists then
+    return nil, 'Connection with that name already exists. Please enter different name.'
   end
   local out = vim.deepcopy(list)
   out[#out + 1] = { name = name, url = url }
@@ -231,37 +236,84 @@ end
 ---@return DadbodUI.FileConnection[]
 function M.delete_connection(list, name, url)
   local resolved = bridge.resolve(url):lower()
-  local out = {}
-  for _, conn in ipairs(list) do
-    if not same_conn(conn, name, resolved) then
-      out[#out + 1] = conn
-    end
-  end
-  return out
+  return vim.iter(list)
+    :filter(function(conn)
+      return not same_conn(conn, name, resolved)
+    end)
+    :totable()
 end
 
 --- Replace the connection matching (old_name, old_url) with (new_name, new_url),
---- preserving its group. Returns a new list (unchanged when no match).
+--- preserving its group. Returns `(new_list, nil)`, or `(nil, err)` when
+--- `new_name` collides with a *different* connection (case-insensitive) -- which
+--- would otherwise merge two entries under one `key_name` on the next discover.
+--- The list is returned unchanged (with no error) when nothing matches.
 ---@param list DadbodUI.FileConnection[]
 ---@param old_name string
 ---@param old_url string
 ---@param new_name string
 ---@param new_url string
----@return DadbodUI.FileConnection[]
+---@return DadbodUI.FileConnection[]|nil, string|nil
 function M.rename_connection(list, old_name, old_url, new_name, new_url)
   local resolved = bridge.resolve(old_url):lower()
-  local out = vim.deepcopy(list)
-  for i, conn in ipairs(out) do
+  local match_idx = nil
+  for i, conn in ipairs(list) do
     if same_conn(conn, old_name, resolved) then
-      local entry = { name = new_name, url = new_url }
-      if conn.group ~= nil and conn.group ~= '' then
-        entry.group = conn.group
-      end
-      out[i] = entry
+      match_idx = i
       break
     end
   end
-  return out
+  for i, conn in ipairs(list) do
+    if i ~= match_idx and conn.name:lower() == new_name:lower() then
+      return nil, 'Connection with that name already exists. Please enter different name.'
+    end
+  end
+  local out = vim.deepcopy(list)
+  if match_idx ~= nil then
+    local entry = { name = new_name, url = new_url }
+    local conn = out[match_idx]
+    if conn.group ~= nil and conn.group ~= '' then
+      entry.group = conn.group
+    end
+    out[match_idx] = entry
+  end
+  return out, nil
+end
+
+--- Set (or clear) the group of the connection matching (name, url). An empty
+--- `group` removes it from its group. Returns `(new_list, nil)`, or `(nil, err)`
+--- when another connection of the same name already lives in the target group
+--- (which would merge them under one `key_name` on the next discover). The list
+--- is returned unchanged (no error) when nothing matches.
+---@param list DadbodUI.FileConnection[]
+---@param name string
+---@param url string
+---@param group string
+---@return DadbodUI.FileConnection[]|nil, string|nil
+function M.set_group(list, name, url, group)
+  local resolved = bridge.resolve(url):lower()
+  local match_idx = nil
+  for i, conn in ipairs(list) do
+    if same_conn(conn, name, resolved) then
+      match_idx = i
+      break
+    end
+  end
+  for i, conn in ipairs(list) do
+    local conn_group = conn.group or ''
+    if i ~= match_idx and conn.name:lower() == name:lower() and conn_group:lower() == group:lower() then
+      return nil, 'A connection with that name already exists in that group. Please choose a different group.'
+    end
+  end
+  local out = vim.deepcopy(list)
+  if match_idx ~= nil then
+    if group == '' then
+      out[match_idx].group = nil
+    else
+      out[match_idx].group = group
+    end
+  end
+  return out, nil
 end
 
 --- Discover all connections, merged in precedence order with duplicates dropped.

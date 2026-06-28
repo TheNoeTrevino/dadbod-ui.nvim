@@ -18,6 +18,7 @@ local M = {}
 ---@field tmp_location string      resolved tmp-query dir ('' when unset)
 ---@field dbs_list DadbodUI.ConnectionRecord[]  discovered connection records
 ---@field dbs table<string, DadbodUI.ConnectionEntry>  entries keyed by key_name
+---@field _inputs? DadbodUI.DiscoverInputs  inputs last populated with (for repopulate)
 local Instance = {}
 Instance.__index = Instance
 
@@ -73,12 +74,38 @@ end
 ---@param inputs? DadbodUI.DiscoverInputs
 ---@return DadbodUI.Instance
 function Instance:populate(inputs)
+  self._inputs = inputs
+  local previous = self.dbs
   self.dbs_list = connections.discover(self.config, inputs)
   self.dbs = {}
   for _, record in ipairs(self.dbs_list) do
-    self.dbs[record.key_name] = make_entry(record, self.save_path)
+    local entry = make_entry(record, self.save_path)
+    -- Carry forward interactive/runtime state for connections that are
+    -- unchanged (same key_name and url), mirroring the original's
+    -- populate_dbs: a connection edit elsewhere must not collapse the tree or
+    -- drop a live handle here.
+    local prev = previous[record.key_name]
+    if prev ~= nil and prev.url == record.url then
+      entry.expanded = prev.expanded
+      entry.conn = prev.conn
+      entry.conn_error = prev.conn_error
+    end
+    self.dbs[record.key_name] = entry
   end
   return self
+end
+
+--- Re-discover and rebuild the entry map after the connections.json store
+--- changed on disk. Reuses any injected env/globals from the last `populate`
+--- (so tests stay deterministic) but forces the file to be re-read.
+---@return DadbodUI.Instance
+function Instance:repopulate()
+  local inputs = {}
+  if self._inputs ~= nil then
+    inputs = vim.tbl_extend('force', {}, self._inputs)
+  end
+  inputs.file_entries = nil
+  return self:populate(inputs)
 end
 
 --- List connections with their connection state.
