@@ -204,30 +204,37 @@ function Drawer:toggle_details()
   return self:render()
 end
 
+--- Render the connection list. Ungrouped connections render in place; a group
+--- gets a single header at the position of its first member, with *all* members
+--- gathered under it -- even when they are not contiguous in dbs_list (an
+--- interactive `G` leaves a connection in its original file position, so group
+--- members can be interleaved with other entries).
 ---@return nil
 function Drawer:render_dbs()
-  local last_group = nil
+  local seen_groups = {}
   for _, record in ipairs(self.instance.dbs_list) do
     local group = record.group or ''
     if group == '' then
-      last_group = nil
       self:render_db(record, 0)
-    else
-      if group ~= last_group then
-        local gs = self:group_state(group)
-        self:add({
-          label = group,
-          icon = self:toggle_icon('group', gs.expanded),
-          level = 0,
-          type = 'group',
-          action = 'toggle',
-          group = group,
-          expanded = gs.expanded,
-        })
-        last_group = group
-      end
-      if self:group_state(group).expanded then
-        self:render_db(record, 1)
+    elseif not seen_groups[group] then
+      seen_groups[group] = true
+      local gs = self:group_state(group)
+      local label = self.show_details and (group .. ' (Group)') or group
+      self:add({
+        label = label,
+        icon = self:toggle_icon('group', gs.expanded),
+        level = 0,
+        type = 'group',
+        action = 'toggle',
+        group = group,
+        expanded = gs.expanded,
+      })
+      if gs.expanded then
+        for _, member in ipairs(self.instance.dbs_list) do
+          if (member.group or '') == group then
+            self:render_db(member, 1)
+          end
+        end
       end
     end
   end

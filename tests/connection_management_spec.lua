@@ -217,6 +217,32 @@ describe('connection management: group', function()
     assert.is_truthy(vim.tbl_contains(l, '  ▸ qa'))
   end)
 
+  it('renders one header per group even when members are not contiguous', function()
+    -- group members interleaved with an ungrouped connection of the same name
+    local seed = {
+      { name = 'Geekom', url = 'sqlite:' .. dir .. '/a.db', group = 'Test' },
+      { name = 'Geekom', url = 'sqlite:' .. dir .. '/b.db' },
+      { name = 'post', url = 'sqlite:' .. dir .. '/c.db', group = 'Test' },
+    }
+    connections.write_file(dir .. '/connections.json', seed)
+    d = make_drawer({ save_location = dir, file_entries = seed })
+    d.groups['Test'] = { expanded = true }
+    d:open()
+    local l = lines(d)
+    -- exactly one "Test" header, with both grouped members under it
+    local headers = 0
+    for _, line in ipairs(l) do
+      if line == '▾ Test' or line == '▸ Test' then
+        headers = headers + 1
+      end
+    end
+    assert.equals(1, headers)
+    assert.is_truthy(vim.tbl_contains(l, '  ▸ Geekom'))
+    assert.is_truthy(vim.tbl_contains(l, '  ▸ post'))
+    -- the ungrouped Geekom still renders at top level
+    assert.is_truthy(vim.tbl_contains(l, '▸ Geekom'))
+  end)
+
   it('refuses to group a non-file connection', function()
     d = make_drawer({ save_location = dir, g_dbs = { dev = 'postgres://h/dev' } })
     d:set_group(entry_named(d, 'dev'))
