@@ -167,20 +167,24 @@ function M.connections_path(save_location)
   return folder .. '/connections.json'
 end
 
---- Read a connections.json array. Returns `{}` when missing or not a valid json
---- array (the original also warns; that surfaces once notifications land).
+--- Read a connections.json array. Returns `{}` when missing or when the content
+--- is not a valid json array. A missing file is normal (no callback); a present
+--- but corrupt file invokes `on_error` so the caller can warn and avoid
+--- overwriting it (the original warns here too).
 ---@param path string|nil
+---@param on_error? fun(msg: string)
 ---@return DadbodUI.FileConnection[]
-function M.read_file(path)
+function M.read_file(path, on_error)
   if path == nil or vim.fn.filereadable(path) == 0 then
     return {}
   end
   local ok, decoded = pcall(vim.json.decode, table.concat(vim.fn.readfile(path), '\n'))
-  if not ok or type(decoded) ~= 'table' then
+  local is_array = ok and type(decoded) == 'table' and (vim.islist(decoded) or vim.tbl_isempty(decoded))
+  if not is_array then
+    if on_error then
+      on_error('Could not read connections file. Please make sure it contains a valid JSON array.')
+    end
     return {}
-  end
-  if not vim.islist(decoded) and not vim.tbl_isempty(decoded) then
-    return {} -- a json object, not an array
   end
   return decoded
 end
