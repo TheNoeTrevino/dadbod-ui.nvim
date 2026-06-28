@@ -8,6 +8,8 @@
 local connections = require('dadbod-ui.connections')
 local bridge = require('dadbod-ui.bridge')
 local config_mod = require('dadbod-ui.config')
+local schemas = require('dadbod-ui.schemas')
+local table_helpers = require('dadbod-ui.table_helpers')
 
 local M = {}
 
@@ -31,13 +33,38 @@ local function expand_dir(path)
   return (vim.fn.fnamemodify(path, ':p'):gsub('/$', ''))
 end
 
---- Build a data entry for a discovered connection. Schema/UI fields are added by
---- later milestones; this captures identity, scheme, db name and save path.
+--- The query-buffer filetype for an adapter: the schema metadata's own filetype
+--- if it declares one, else dadbod's input extension (mongodb's `js` is mapped
+--- to `javascript`), defaulting to `sql`. Mirrors the original's
+--- `populate_schema_info`.
+---@param url string
+---@param scheme_info DadbodUI.SchemaAdapter
+---@return string
+local function resolve_filetype(url, scheme_info)
+  local filetype = scheme_info.filetype
+  if filetype == nil or filetype == '' then
+    local ok, ext = pcall(bridge.input_extension, url)
+    filetype = (ok and ext ~= '') and ext or 'sql'
+  end
+  if filetype == 'js' then
+    return 'javascript'
+  end
+  return filetype
+end
+
+--- Build a data entry for a discovered connection. Captures identity, scheme,
+--- db name, save path and the adapter's schema metadata (schema support, quote
+--- rules, default scheme, filetype, table helpers). The schema/table *contents*
+--- are introspected lazily by the drawer on expand; here we only seed the empty
+--- containers.
 ---@param record DadbodUI.ConnectionRecord
 ---@param save_path string
+---@param config DadbodUI.Config
 ---@return DadbodUI.ConnectionEntry
-local function make_entry(record, save_path)
+local function make_entry(record, save_path, config)
   local parsed = bridge.parse_url(record.url)
+  local scheme = parsed.scheme or ''
+  local scheme_info = schemas.get(scheme, config)
   local db_name = (parsed.path or ''):gsub('^/', '')
   local save_name = record.group ~= '' and (record.group .. '_' .. record.name) or record.name
   return {
@@ -46,11 +73,19 @@ local function make_entry(record, save_path)
     name = record.name,
     group = record.group,
     key_name = record.key_name,
-    scheme = parsed.scheme or '',
+    scheme = scheme,
     db_name = db_name ~= '' and db_name or record.name,
     save_path = save_path ~= '' and (save_path .. '/' .. save_name) or '',
-    conn = nil, -- live connection handle, set when connected (later milestone)
+    conn = nil, -- live connection handle, set when connected
+    conn_tried = false,
     expanded = false, -- drawer expand/collapse state
+    schema_support = schemas.supports_schemes(scheme_info, parsed),
+    quote = scheme_info.quote ~= nil and scheme_info.quote ~= 0,
+    default_scheme = scheme_info.default_scheme or '',
+    filetype = resolve_filetype(record.url, scheme_info),
+    table_helpers = table_helpers.get(scheme, config),
+    tables = { expanded = false, list = {}, items = {} },
+    schemas = { expanded = false, list = {}, items = {} },
   }
 end
 
@@ -79,18 +114,18 @@ function Instance:populate(inputs)
   self.dbs_list = connections.discover(self.config, inputs)
   self.dbs = {}
   for _, record in ipairs(self.dbs_list) do
-    local entry = make_entry(record, self.save_path)
-    -- Carry forward interactive/runtime state for connections that are
-    -- unchanged (same key_name and url), mirroring the original's
-    -- populate_dbs: a connection edit elsewhere must not collapse the tree or
-    -- drop a live handle here.
+    -- An unchanged connection (same key_name and url) keeps its existing entry
+    -- as-is: the static metadata is a pure function of (url, config) and the
+    -- interactive state (expanded, live handle, introspected schemas/tables)
+    -- must survive an unrelated edit. Only new or url-changed connections are
+    -- rebuilt -- which also avoids re-running make_entry's bridge calls for
+    -- every connection on each repopulate. Mirrors the original populate_dbs.
     local prev = previous[record.key_name]
     if prev ~= nil and prev.url == record.url then
-      entry.expanded = prev.expanded
-      entry.conn = prev.conn
-      entry.conn_error = prev.conn_error
+      self.dbs[record.key_name] = prev
+    else
+      self.dbs[record.key_name] = make_entry(record, self.save_path, self.config)
     end
-    self.dbs[record.key_name] = entry
   end
   return self
 end
