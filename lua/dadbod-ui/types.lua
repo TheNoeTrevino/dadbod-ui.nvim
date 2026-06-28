@@ -7,6 +7,13 @@
 ---@alias DadbodUI.BufferNameGenerator fun(opts: { label: string, table?: string, schema?: string, filetype: string }): string
 ---@alias DadbodUI.TableNameSorter fun(tables: string[]): string[]
 
+--- A prompt function (vim.ui.input-shaped); injectable so specs drive the
+--- interactive flows without a real UI. `on_confirm` receives nil on cancel.
+---@alias DadbodUI.UiInput fun(opts: { prompt: string, default?: string }, on_confirm: fun(value: string|nil))
+
+--- A yes/no prompt (notifications.confirm-shaped); injectable for the same reason.
+---@alias DadbodUI.Confirm fun(msg: string): boolean
+
 --- Parsed connection URL (vim-dadbod's db#url#parse). Network urls carry
 --- host/port/user/password/path; file-style urls (sqlite) carry opaque instead.
 ---@class DadbodUI.ParsedUrl
