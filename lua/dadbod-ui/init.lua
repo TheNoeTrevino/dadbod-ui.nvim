@@ -25,13 +25,12 @@ local function drawer()
   return _drawer
 end
 
---- Configure the plugin: resolve options, install dadbod scheme aliases, and
---- drop the cached instance/drawer so the new config takes effect.
+--- Configure the plugin: resolve options and drop the cached instance/drawer so
+--- the new config takes effect.
 ---@param opts? table
 ---@return table
 function M.setup(opts)
   M.config = state.setup(opts)
-  M.bridge.ensure_adapters()
   _drawer = nil
   return M
 end

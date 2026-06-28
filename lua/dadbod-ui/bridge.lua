@@ -16,35 +16,20 @@
 ---                     indicator and the result rendering.
 ---
 --- Scheme resolution note: `db#url#parse` returns the RAW scheme (`postgres`,
---- not `postgresql`). dadbod canonicalizes via `g:db_adapters` during
---- `db#resolve`, and the adapter *function* prefix is selected via
---- `g:db_adapter_<scheme>` -- which the original vimscript UI sets, not dadbod.
---- Therefore the bridge (a) installs those aliases via `ensure_adapters()` and
---- (b) resolves URLs before any adapter call.
+--- not `postgresql`), but no adapter is ever dispatched on a raw scheme here.
+--- `db#resolve` canonicalizes the scheme via `g:db_adapters` (e.g.
+--- `postgres`->`postgresql`, `sqlite3`->`sqlite`) before dispatch, dadbod ships
+--- the canonical adapter files (`postgresql.vim`, `sqlite.vim`), and every
+--- adapter call in this module resolves the URL first. So no scheme-alias
+--- globals (`g:db_adapter_<scheme>`) are needed -- and deliberately NOT setting
+--- them keeps `db#adapter#schemes()` canonical: it enumerates `g:db_adapter_*`
+--- keys, so aliases would inject phantom non-canonical entries (`postgres`,
+--- `sqlite3`) alongside the real ones.
 
 local fn = vim.fn
 local api = vim.api
 
 local M = {}
-
-local adapters_ready = false
-
---- Mirror the scheme->adapter-function aliases the vimscript UI installs, so
---- that `postgres://` and `sqlite3:` URLs reach the correct adapter functions.
---- Idempotent; safe to call on every entry point.
----@return nil
-function M.ensure_adapters()
-  if adapters_ready then
-    return
-  end
-  if vim.g.db_adapter_postgres == nil then
-    vim.g.db_adapter_postgres = 'db#adapter#postgresql#'
-  end
-  if vim.g.db_adapter_sqlite3 == nil then
-    vim.g.db_adapter_sqlite3 = 'db#adapter#sqlite#'
-  end
-  adapters_ready = true
-end
 
 --- True when vim-dadbod is installed (its autoload is on the runtimepath).
 ---@return boolean
@@ -110,7 +95,6 @@ end
 ---@param name string
 ---@return boolean
 function M.supports(url, name)
-  M.ensure_adapters()
   return fn['db#adapter#supports'](M.resolve(url), name) == 1
 end
 
@@ -123,7 +107,6 @@ end
 ---@param default any|nil
 ---@return any
 function M.adapter_call(url, name, args, default)
-  M.ensure_adapters()
   url = M.resolve(url)
   args = args or {}
   if default ~= nil then
@@ -137,7 +120,6 @@ end
 ---@param name string
 ---@return any
 function M.dispatch(url, name, ...)
-  M.ensure_adapters()
   return fn['db#adapter#dispatch'](M.resolve(url), name, ...)
 end
 
@@ -163,7 +145,6 @@ end
 ---@return string
 function M.connect(url)
   require_dadbod()
-  M.ensure_adapters()
   return fn['db#connect'](url)
 end
 
@@ -213,7 +194,6 @@ end
 ---@param mode string|nil  'interactive' (default) | 'filter'
 ---@return string[]
 function M.command(url, mode)
-  M.ensure_adapters()
   return fn['db#adapter#dispatch'](M.resolve(url), mode or 'interactive')
 end
 
@@ -279,7 +259,6 @@ end
 ---@param sql string  the query text (single statement)
 function M.execute(url, sql)
   require_dadbod()
-  M.ensure_adapters()
   vim.cmd(string.format('DB %s %s', fn.fnameescape(url), sql))
 end
 
