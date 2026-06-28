@@ -41,6 +41,41 @@
 ---@field url string
 ---@field group? string
 
+--- Expand state for a single table node.
+---@class DadbodUI.TableItem
+---@field expanded boolean
+
+--- A tables collection (the original's `{ expanded, list, items }`).
+---@class DadbodUI.TablesNode
+---@field expanded boolean
+---@field list string[]
+---@field items table<string, DadbodUI.TableItem>
+
+--- A single schema and the tables under it.
+---@class DadbodUI.SchemaItem
+---@field expanded boolean
+---@field tables DadbodUI.TablesNode
+
+--- The schemas collection for a connection.
+---@class DadbodUI.SchemasNode
+---@field expanded boolean
+---@field list string[]
+---@field items table<string, DadbodUI.SchemaItem>
+
+--- Per-adapter introspection metadata (dadbod-ui.schemas). Mirrors the original
+--- `s:schemas[scheme]` dict; M6 uses the schema/table listing fields, later
+--- milestones use the foreign-key / select fields.
+---@class DadbodUI.SchemaAdapter
+---@field args? string[]              extra argv appended to the adapter command
+---@field schemes_query? string       SQL listing schema names
+---@field schemes_tables_query? string  SQL listing (schema, table) pairs
+---@field parse_results? fun(results: string[], min_len: integer): any[]
+---@field default_scheme? string
+---@field quote? integer
+---@field filetype? string
+---@field requires_stdin? boolean
+---@field callable? string            'interactive' (default) | 'filter'
+
 --- Per-connection state entry held by the instance.
 ---@class DadbodUI.ConnectionEntry
 ---@field url string
@@ -48,12 +83,20 @@
 ---@field name string
 ---@field group string
 ---@field key_name string
----@field scheme string  canonical adapter scheme
+---@field scheme string  raw adapter scheme
 ---@field db_name string
 ---@field save_path string
 ---@field conn? string  live connection handle, set when connected
 ---@field conn_error? string  last connection error, if any
+---@field conn_tried boolean  whether a connection was attempted
 ---@field expanded boolean  drawer expand state
+---@field schema_support boolean  does the adapter expose schemas
+---@field quote boolean  whether the adapter quotes identifiers (used by M8)
+---@field default_scheme string  the adapter's default schema name
+---@field filetype string  query-buffer filetype for this adapter
+---@field table_helpers table<string, string>  helper name -> SQL template
+---@field tables DadbodUI.TablesNode
+---@field schemas DadbodUI.SchemasNode
 
 --- Public connection summary (connections_list()).
 ---@class DadbodUI.ConnectionInfo
@@ -67,11 +110,15 @@
 ---@field label string
 ---@field icon string
 ---@field level integer
----@field type string  'group'|'db'|'query'|'help'|'add_connection'|...
+---@field type string  'group'|'db'|'query'|'schemas'|'tables'|'schema'|'table'|'table_helper'|'help'|'add_connection'|...
 ---@field action string  'toggle'|'open'|'call_method'|'noaction'
 ---@field key_name? string
 ---@field group? string
 ---@field expanded? boolean
+---@field toggle_state? { expanded: boolean }  node whose `expanded` flips on toggle
+---@field table? string  table name (table / table_helper nodes)
+---@field schema? string  schema name (table / table_helper nodes)
+---@field content? string  helper SQL template (table_helper nodes)
 
 --- A command spec for the bridge concurrency helpers.
 ---@class DadbodUI.CommandSpec
