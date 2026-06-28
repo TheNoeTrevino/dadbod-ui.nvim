@@ -6,7 +6,12 @@ local config = require('dadbod-ui.config')
 local function make_drawer(g_dbs, overrides)
   local cfg = config.resolve(vim.tbl_extend('force', { save_location = '/tmp/dbui_drawer', show_help = false }, overrides or {}))
   local instance = state.new(cfg):populate({ env = {}, g_dbs = g_dbs, file_entries = {} })
-  return drawer_mod.new(instance)
+  local d = drawer_mod.new(instance)
+  -- Keep render specs offline: expanding a connection would otherwise connect.
+  d.connector = function()
+    return ''
+  end
+  return d
 end
 
 local function lines(d)
