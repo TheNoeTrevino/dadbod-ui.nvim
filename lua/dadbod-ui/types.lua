@@ -105,6 +105,7 @@
 ---@field new_query string
 ---@field tables string
 ---@field buffers string
+---@field group string  standalone group/folder glyph (shown in the details line)
 ---@field add_connection string
 ---@field connection_ok string
 ---@field connection_error string

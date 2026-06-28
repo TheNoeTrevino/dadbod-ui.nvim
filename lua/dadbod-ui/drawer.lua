@@ -17,6 +17,7 @@ local HELP_LINES = {
   '" d - Delete selected item',
   '" R - Redraw',
   '" A - Add connection',
+  '" G - Add/remove connection to a group',
   '" H - Toggle database details',
   '" r - Rename/Edit buffer/connection/saved query',
   '" q - Close drawer',
@@ -243,7 +244,11 @@ function Drawer:render_db(record, level)
     label = label .. ' ' .. self.icons.connection_ok
   end
   if self.show_details then
-    label = label .. string.format(' (%s - %s)', entry.scheme, entry.source)
+    if entry.group ~= '' then
+      label = label .. string.format(' (%s - %s - %s %s)', entry.scheme, entry.source, self.icons.group, entry.group)
+    else
+      label = label .. string.format(' (%s - %s)', entry.scheme, entry.source)
+    end
   end
   self:add({
     label = label,
@@ -454,6 +459,45 @@ function Drawer:rename_connection(entry)
   end)
 end
 
+--- Assign a connection to a group (or clear it). A group is just a shared name:
+--- entering an existing group joins it, a new name creates it, and an empty
+--- entry ungroups. Only file-source connections are editable.
+---@param entry DadbodUI.ConnectionEntry
+---@return nil
+function Drawer:set_group(entry)
+  local notify = require('dadbod-ui.notifications')
+  if entry.source ~= 'file' then
+    return notify.error('Cannot edit connections added via variables.')
+  end
+  self.input({ prompt = 'Enter group name: ', default = entry.group }, function(group)
+    if group == nil then
+      return
+    end
+    group = vim.trim(group)
+    local store = self:read_store()
+    if store == nil then
+      return
+    end
+    local list, err = connections.set_group(store, entry.name, entry.url, group)
+    if list == nil then
+      return notify.error(err or 'Could not set group.')
+    end
+    self:commit_connections(list)
+  end)
+end
+
+--- Group the connection under the cursor (`G`).
+---@return nil
+function Drawer:set_group_line()
+  local item = self:get_current_item()
+  if item == nil then
+    return
+  end
+  if item.type == 'db' then
+    return self:set_group(self.instance.dbs[item.key_name])
+  end
+end
+
 --- Delete the connection under the cursor (`d`). Only file-source connections
 --- can be deleted; others are refused. Asks for confirmation first.
 ---@return nil
@@ -633,6 +677,9 @@ function Drawer:setup_mappings()
   end)
   map('R', function()
     self:redraw()
+  end)
+  map('G', function()
+    self:set_group_line()
   end)
   map('H', function()
     self:toggle_details()
