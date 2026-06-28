@@ -141,6 +141,30 @@ describe('connection management: rename', function()
     assert.is_nil(entry_named(d, 'old'))
   end)
 
+  it('refuses to rename onto an existing connection name and writes nothing', function()
+    local seed = {
+      { name = 'Geekom', url = 'sqlite:' .. dir .. '/a.db' },
+      { name = 'Geekom2', url = 'sqlite:' .. dir .. '/b.db' },
+    }
+    connections.write_file(dir .. '/connections.json', seed)
+    d = make_drawer({ save_location = dir, file_entries = seed })
+    d.input = (function()
+      local q = { 'sqlite:' .. dir .. '/b.db', 'Geekom' }
+      local i = 0
+      return function(_, cb)
+        i = i + 1
+        cb(q[i])
+      end
+    end)()
+
+    d:rename_connection(entry_named(d, 'Geekom2'))
+    local file = stored(d.instance.connections_path)
+    assert.equals(2, #file) -- nothing merged or dropped
+    assert.is_not_nil(entry_named(d, 'Geekom'))
+    assert.is_not_nil(entry_named(d, 'Geekom2'))
+    assert.is_truthy(notifications.get_last_msg():find('already exists'))
+  end)
+
   it('refuses to rename a non-file connection', function()
     d = make_drawer({ save_location = dir, g_dbs = { dev = 'postgres://h/dev' } })
     d:rename_connection(entry_named(d, 'dev'))

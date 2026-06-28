@@ -241,27 +241,40 @@ function M.delete_connection(list, name, url)
 end
 
 --- Replace the connection matching (old_name, old_url) with (new_name, new_url),
---- preserving its group. Returns a new list (unchanged when no match).
+--- preserving its group. Returns `(new_list, nil)`, or `(nil, err)` when
+--- `new_name` collides with a *different* connection (case-insensitive) -- which
+--- would otherwise merge two entries under one `key_name` on the next discover.
+--- The list is returned unchanged (with no error) when nothing matches.
 ---@param list DadbodUI.FileConnection[]
 ---@param old_name string
 ---@param old_url string
 ---@param new_name string
 ---@param new_url string
----@return DadbodUI.FileConnection[]
+---@return DadbodUI.FileConnection[]|nil, string|nil
 function M.rename_connection(list, old_name, old_url, new_name, new_url)
   local resolved = bridge.resolve(old_url):lower()
-  local out = vim.deepcopy(list)
-  for i, conn in ipairs(out) do
+  local match_idx = nil
+  for i, conn in ipairs(list) do
     if same_conn(conn, old_name, resolved) then
-      local entry = { name = new_name, url = new_url }
-      if conn.group ~= nil and conn.group ~= '' then
-        entry.group = conn.group
-      end
-      out[i] = entry
+      match_idx = i
       break
     end
   end
-  return out
+  for i, conn in ipairs(list) do
+    if i ~= match_idx and conn.name:lower() == new_name:lower() then
+      return nil, 'Connection with that name already exists. Please enter different name.'
+    end
+  end
+  local out = vim.deepcopy(list)
+  if match_idx ~= nil then
+    local entry = { name = new_name, url = new_url }
+    local conn = out[match_idx]
+    if conn.group ~= nil and conn.group ~= '' then
+      entry.group = conn.group
+    end
+    out[match_idx] = entry
+  end
+  return out, nil
 end
 
 --- Discover all connections, merged in precedence order with duplicates dropped.
