@@ -63,4 +63,22 @@ describe('connections: rename_connection', function()
     local list = connections.rename_connection(base, 'zzz', 'postgres://h/zzz', 'x', 'postgres://h/x')
     assert.equals('a', list[1].name)
   end)
+
+  it('rejects renaming onto another connection name (case-insensitive)', function()
+    local base = {
+      { name = 'Geekom', url = 'postgres://h/a' },
+      { name = 'Geekom2', url = 'postgres://h/b' },
+    }
+    local list, err = connections.rename_connection(base, 'Geekom2', 'postgres://h/b', 'geekom', 'postgres://h/b')
+    assert.is_nil(list)
+    assert.is_truthy(err)
+    assert.equals(2, #base) -- input untouched
+  end)
+
+  it('allows a rename that keeps its own name (editing only the url)', function()
+    local base = { { name = 'a', url = 'postgres://h/a' } }
+    local list, err = connections.rename_connection(base, 'a', 'postgres://h/a', 'a', 'postgres://h/new')
+    assert.is_nil(err)
+    assert.equals('postgres://h/new', list[1].url)
+  end)
 end)

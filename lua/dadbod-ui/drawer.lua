@@ -419,7 +419,10 @@ function Drawer:rename_connection(entry)
       if name == '' then
         return notify.error('Please enter valid name.')
       end
-      local list = connections.rename_connection(connections.read_file(self.instance.connections_path), entry.name, entry.url, name, resolved)
+      local list, rename_err = connections.rename_connection(connections.read_file(self.instance.connections_path), entry.name, entry.url, name, resolved)
+      if list == nil then
+        return notify.error(rename_err or 'Could not rename connection.')
+      end
       self:commit_connections(list)
     end)
   end)
