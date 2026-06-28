@@ -21,3 +21,7 @@ end, { nargs = 0, desc = 'Toggle the dadbod-ui drawer' })
 command('DBUIClose', function()
   require('dadbod-ui').close()
 end, { nargs = 0, desc = 'Close the dadbod-ui drawer' })
+
+command('DBUIAddConnection', function()
+  require('dadbod-ui').add_connection()
+end, { nargs = 0, desc = 'Add a dadbod-ui connection' })
