@@ -351,12 +351,13 @@ end
 function M.normalize_table_list(scheme, raw)
   local lower = scheme:lower()
   if lower:match('^sqlite') then
-    local flattened = {}
-    for _, chunk in ipairs(raw) do
-      for _, name in ipairs(vim.split(chunk, '%s+', { trimempty = true })) do
-        flattened[#flattened + 1] = vim.trim(name)
-      end
-    end
+    local flattened = vim.iter(raw)
+      :map(function(chunk)
+        return vim.split(chunk, '%s+', { trimempty = true })
+      end)
+      :flatten()
+      :map(vim.trim)
+      :totable()
     table.sort(flattened)
     return flattened
   end

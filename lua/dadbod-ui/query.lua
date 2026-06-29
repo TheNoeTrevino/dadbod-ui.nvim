@@ -385,12 +385,11 @@ end
 ---@return nil
 local function prompt_params(input, names, known, on_done)
   local values = vim.deepcopy(known)
-  local pending = {}
-  for _, name in ipairs(names) do
-    if values[name] == nil then
-      pending[#pending + 1] = name
-    end
-  end
+  local pending = vim.iter(names)
+    :filter(function(name)
+      return values[name] == nil
+    end)
+    :totable()
   local i = 0
   local function step()
     i = i + 1

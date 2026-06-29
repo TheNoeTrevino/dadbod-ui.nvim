@@ -19,12 +19,9 @@ end
 ---@param full_path string
 ---@return integer
 function M.loaded_bufnr(full_path)
-  for _, b in ipairs(vim.api.nvim_list_bufs()) do
-    if vim.api.nvim_buf_is_loaded(b) and vim.api.nvim_buf_get_name(b) == full_path then
-      return b
-    end
-  end
-  return -1
+  return vim.iter(vim.api.nvim_list_bufs()):find(function(b)
+    return vim.api.nvim_buf_is_loaded(b) and vim.api.nvim_buf_get_name(b) == full_path
+  end) or -1
 end
 
 --- Whether `path` exists and is a regular file.
