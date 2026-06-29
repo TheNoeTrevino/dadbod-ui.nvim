@@ -15,8 +15,14 @@ describe('schemas: get', function()
     assert.equals(pg.default_scheme, pgsql.default_scheme)
   end)
 
-  it('returns an empty table for adapters without schema support (sqlite)', function()
-    assert.same({}, schemas.get('sqlite'))
+  it('returns an empty table for an unknown scheme', function()
+    assert.same({}, schemas.get('nosuchdb'))
+  end)
+
+  it('returns dbout-only metadata for sqlite (no schema support)', function()
+    local s = schemas.get('sqlite')
+    assert.is_nil(s.schemes_query) -- still the tables-only path
+    assert.is_not_nil(s.foreign_key_query) -- but the FK jump is supported
   end)
 
   it('honors use_postgres_views when building the tables query', function()
