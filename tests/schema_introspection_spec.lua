@@ -42,9 +42,8 @@ describe('schema introspection: apply_schemas', function()
 
   it('folds schemas and (schema, table) rows into the entry', function()
     d = make_drawer({ dev = 'postgres://h/dev' })
-    d:open()
     local entry = entry_named(d, 'dev')
-    d:apply_schemas(entry, { 'public', 'app' }, {
+    d:introspect():apply_schemas(entry, { 'public', 'app' }, {
       { 'public', 'users' },
       { 'public', 'posts' },
       { 'app', 'tasks' },
@@ -60,9 +59,8 @@ describe('schema introspection: apply_schemas', function()
 
   it('drops schemas and tables matching hide_schemas', function()
     d = make_drawer({ dev = 'postgres://h/dev' }, { hide_schemas = { 'information_schema', 'pg_' } })
-    d:open()
     local entry = entry_named(d, 'dev')
-    d:apply_schemas(entry, { 'public', 'information_schema', 'pg_catalog' }, {
+    d:introspect():apply_schemas(entry, { 'public', 'information_schema', 'pg_catalog' }, {
       { 'public', 'users' },
       { 'information_schema', 'tables' },
       { 'pg_catalog', 'pg_class' },
@@ -139,7 +137,7 @@ describe('schema introspection: connect', function()
       return 'postgres://h/dev'
     end
     d:open()
-    d:connect(entry_named(d, 'dev'))
+    d:introspect():connect(entry_named(d, 'dev'))
     assert.is_truthy(notifications.get_last_msg():match('Took %d+ms to connect%.'))
   end)
 end)
@@ -179,9 +177,9 @@ describe('schema introspection: sqlite end-to-end (guarded)', function()
     d.connector = require('dadbod-ui.bridge').connect -- real connect for sqlite (offline)
     d:open()
     local entry = entry_named(d, 'qa')
-    d:connect(entry)
+    d:introspect():connect(entry)
     assert.is_truthy(entry.conn ~= nil and entry.conn ~= '')
-    d:populate_tables(entry)
+    d:introspect():populate_tables(entry)
     assert.is_true(vim.tbl_contains(entry.tables.list, 'contacts'))
     assert.is_true(vim.tbl_contains(entry.tables.list, 'notes'))
   end)
