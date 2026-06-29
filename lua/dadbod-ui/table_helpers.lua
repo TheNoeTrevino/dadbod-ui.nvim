@@ -279,4 +279,39 @@ function M.get(scheme, config)
   return result
 end
 
+-- Canonical display order for table helpers. `List` always comes first; the
+-- rest follow a fixed, schema-independent sequence. Names not listed here
+-- (adapter extras like `Constraints`/`Describe`, and any user-added helper)
+-- sort alphabetically after these, so the drawer order is fully deterministic
+-- regardless of `pairs()` iteration order.
+local helper_order = { 'List', 'Columns', 'Indexes', 'Primary Keys', 'Foreign Keys', 'References' }
+
+--- The names in `helper_map`, ordered for display: the canonical sequence
+--- above first (only those actually present), then any remaining helpers
+--- alphabetically.
+---@param helper_map table<string, string>
+---@return string[]
+function M.ordered_names(helper_map)
+  local is_canonical = {} -- name -> true, for the "is this a known helper" test
+  for _, name in ipairs(helper_order) do
+    is_canonical[name] = true
+  end
+  -- Canonical names that are present, kept in `helper_order` sequence.
+  local ordered = vim
+    .iter(helper_order)
+    :filter(function(name)
+      return helper_map[name] ~= nil
+    end)
+    :totable()
+  -- Everything else (adapter extras, user-added helpers), sorted alphabetically.
+  local extras = vim
+    .iter(vim.tbl_keys(helper_map))
+    :filter(function(name)
+      return not is_canonical[name]
+    end)
+    :totable()
+  table.sort(extras)
+  return vim.list_extend(ordered, extras)
+end
+
 return M
