@@ -47,3 +47,18 @@ describe('db_ui#get_conn_info', function()
     assert.same({}, dadbod_ui.get_conn_info('does-not-exist'))
   end)
 end)
+
+describe('public execute API', function()
+  it('execute_query routes to the dadbod bridge; execute_selection is exposed', function()
+    local bridge = require('dadbod-ui.bridge')
+    local saved = bridge.execute_buffer
+    local called = false
+    bridge.execute_buffer = function()
+      called = true
+    end
+    pcall(dadbod_ui.execute_query)
+    bridge.execute_buffer = saved
+    assert.is_true(called)
+    assert.is_function(dadbod_ui.execute_selection)
+  end)
+end)
