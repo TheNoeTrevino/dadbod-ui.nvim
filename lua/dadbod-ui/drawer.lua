@@ -34,6 +34,8 @@ local HELP_LINES = {
   '" <C-j>/<C-k> - Go to last/first sibling',
   '" K/J - Go to prev/next sibling',
   '" <C-p>/<C-n> - Go to parent/child node',
+  '" <Leader>W - (sql) Save currently opened query',
+  '" <Leader>S - (sql) Execute query in visual or normal mode',
 }
 
 local M = {}
@@ -361,10 +363,11 @@ function Drawer:render_db_sections(entry, level)
       })
     elseif section == 'buffers' and #entry.buffers.list > 0 then
       self:render_buffers_section(entry, level)
+    elseif section == 'saved_queries' then
+      self:render_saved_queries_section(entry, level)
     elseif section == 'schemas' then
       self:render_schemas_section(entry, level)
     end
-    -- saved_queries renders once its data lands (later slice)
   end
 end
 
@@ -427,6 +430,50 @@ function Drawer:render_buffers_section(entry, level)
       key_name = entry.key_name,
       file_path = buffer,
     })
+  end
+end
+
+--- Render the Saved queries section: a toggle header with the on-disk count, and
+--- on expand each saved query as an `open` node carrying its file path. Port of
+--- `s:drawer._render_saved_queries_section`.
+---@param entry DadbodUI.ConnectionEntry
+---@param level integer
+---@return nil
+function Drawer:render_saved_queries_section(entry, level)
+  self:add({
+    label = string.format('Saved queries (%d)', #entry.saved_queries.list),
+    icon = self:toggle_icon('saved_queries', entry.saved_queries.expanded),
+    level = level,
+    type = 'saved_queries',
+    action = 'toggle',
+    key_name = entry.key_name,
+    expanded = entry.saved_queries.expanded,
+    toggle_state = entry.saved_queries,
+  })
+  if not entry.saved_queries.expanded then
+    return
+  end
+  for _, saved in ipairs(entry.saved_queries.list) do
+    self:add({
+      label = vim.fn.fnamemodify(saved, ':t'),
+      icon = self.icons.saved_query,
+      level = level + 1,
+      type = 'saved_query',
+      action = 'open',
+      key_name = entry.key_name,
+      file_path = saved,
+      saved = true,
+    })
+  end
+end
+
+--- Refresh `entry.saved_queries.list` from the files on disk under its save_path.
+--- Port of `s:drawer.load_saved_queries`.
+---@param entry DadbodUI.ConnectionEntry
+---@return nil
+function Drawer:load_saved_queries(entry)
+  if entry.save_path ~= '' then
+    entry.saved_queries.list = vim.fn.glob(entry.save_path .. '/*', true, true)
   end
 end
 
@@ -652,6 +699,7 @@ end
 ---@param entry DadbodUI.ConnectionEntry
 ---@return nil
 function Drawer:expand_db(entry)
+  self:load_saved_queries(entry)
   self:connect(entry)
   if not is_connected(entry) then
     return
@@ -1014,7 +1062,60 @@ function Drawer:delete_line()
     end
     return self:delete_connection(entry)
   end
-  -- buffer / saved-query deletion lands with the query milestone
+  if item.action == 'open' and (item.type == 'buffer' or item.type == 'saved_query') then
+    return self:delete_buffer(item)
+  end
+end
+
+--- Delete a saved query or tmp query buffer (the file and all its tracking),
+--- after confirmation. Saved queries leave file connections' disk store; tmp
+--- buffers only exist in the tmp location. Port of the buffer branch of
+--- `s:drawer.delete_line`.
+---@param item DadbodUI.Node
+---@return nil
+function Drawer:delete_buffer(item)
+  local notify = require('dadbod-ui.notifications')
+  local entry = self.instance.dbs[item.key_name]
+  local file = item.file_path
+  if entry == nil or file == nil then
+    return
+  end
+  local function drop(list)
+    return vim.tbl_filter(function(v)
+      return v ~= file
+    end, list)
+  end
+  if item.saved then
+    if not self.confirm('Are you sure you want to delete this saved query?') then
+      return
+    end
+    vim.fn.delete(file)
+    entry.saved_queries.list = drop(entry.saved_queries.list)
+    entry.buffers.list = drop(entry.buffers.list)
+    notify.info('Deleted.')
+  elseif self.instance:is_tmp_location_buffer(entry, file) then
+    if not self.confirm('Are you sure you want to delete query?') then
+      return
+    end
+    vim.fn.delete(file)
+    entry.buffers.list = drop(entry.buffers.list)
+    notify.info('Deleted.')
+  else
+    return
+  end
+  local bufnr = vim.fn.bufnr(file)
+  if bufnr > -1 then
+    local win = vim.fn.bufwinnr(bufnr)
+    if win > -1 then
+      vim.cmd(win .. 'wincmd w')
+      vim.cmd('silent! b#')
+    end
+    vim.cmd('silent! bwipeout! ' .. bufnr)
+  end
+  if self:is_open() then
+    vim.api.nvim_set_current_win(self.winid)
+  end
+  self:render()
 end
 
 --- Confirm, then remove a file-source connection.
@@ -1033,16 +1134,96 @@ function Drawer:delete_connection(entry)
 end
 
 --- Rename the node under the cursor (`r`). Connections route to
---- `rename_connection`; buffers/saved queries land in a later milestone.
+--- `rename_connection`; open buffers and saved queries route to `rename_buffer`.
 ---@return nil
 function Drawer:rename_line()
   local item = self:get_current_item()
   if item == nil then
     return
   end
+  if item.type == 'buffer' or item.type == 'saved_query' then
+    return self:rename_buffer(item.file_path, item.key_name, item.saved or false)
+  end
   if item.type == 'db' then
     return self:rename_connection(self.instance.dbs[item.key_name])
   end
+end
+
+--- Rename a written query file on disk and move its buffer tracking to the new
+--- name, transferring the buffer-local contract. Saved queries keep their bare
+--- name; tmp buffers are re-prefixed with the connection slug. Port of
+--- `s:drawer.rename_buffer` (callback-shaped for our async prompt backend).
+---@param buffer string  the file being renamed
+---@param key_name string  the owning connection's key
+---@param is_saved_query boolean
+---@return nil
+function Drawer:rename_buffer(buffer, key_name, is_saved_query)
+  local notify = require('dadbod-ui.notifications')
+  if vim.fn.filereadable(buffer) ~= 1 then
+    return notify.error('Only written queries can be renamed.')
+  end
+  if key_name == nil or key_name == '' then
+    return notify.error('Buffer not attached to any database')
+  end
+  local entry = self.instance.dbs[key_name]
+  if entry == nil then
+    return notify.error('Buffer not attached to any database')
+  end
+  local db_slug = self:_slug(entry.name)
+  local is_saved = is_saved_query or not self.instance:is_tmp_location_buffer(entry, buffer)
+  local old_name = self:get_buffer_name(entry, buffer)
+  self.input({ prompt = 'Enter new name: ', default = old_name }, function(new_name)
+    if new_name == nil then
+      return
+    end
+    new_name = vim.trim(new_name)
+    if new_name == '' then
+      return notify.error('Valid name must be provided.')
+    end
+    local dir = vim.fn.fnamemodify(buffer, ':p:h')
+    local new
+    if is_saved then
+      new = string.format('%s/%s', dir, new_name)
+    else
+      new = string.format('%s/%s-%s', dir, db_slug, new_name)
+      table.insert(entry.buffers.tmp, new)
+    end
+    vim.fn.rename(buffer, new)
+
+    local bufnr = vim.fn.bufnr(buffer)
+    local bufwin = bufnr > -1 and vim.fn.bufwinnr(bufnr) or -1
+    local new_bufnr = -1
+    if bufwin > -1 then
+      self:query():open_buffer(entry, new, 'edit')
+      new_bufnr = vim.api.nvim_get_current_buf()
+    elseif bufnr > -1 then
+      vim.cmd('badd ' .. vim.fn.fnameescape(new))
+      new_bufnr = vim.fn.bufnr(new)
+      table.insert(entry.buffers.list, new)
+    else
+      local idx = vim.fn.index(entry.buffers.list, buffer)
+      if idx > -1 then
+        table.insert(entry.buffers.list, idx + 1, new)
+      end
+    end
+    entry.buffers.list = vim.tbl_filter(function(v)
+      return v ~= buffer
+    end, entry.buffers.list)
+
+    if new_bufnr > -1 then
+      vim.fn.setbufvar(new_bufnr, 'dbui_db_key_name', entry.key_name)
+      vim.fn.setbufvar(new_bufnr, 'db', entry.conn)
+      vim.fn.setbufvar(new_bufnr, 'dbui_table_name', vim.fn.getbufvar(buffer, 'dbui_table_name'))
+      vim.fn.setbufvar(new_bufnr, 'dbui_bind_params', vim.fn.getbufvar(buffer, 'dbui_bind_params'))
+    end
+
+    vim.cmd('silent! bwipeout! ' .. vim.fn.fnameescape(buffer))
+    self:load_saved_queries(entry)
+    if self:is_open() then
+      vim.api.nvim_set_current_win(self.winid)
+    end
+    self:render()
+  end)
 end
 
 --- Refresh the tree (`R`): re-discover connections from disk and re-render.

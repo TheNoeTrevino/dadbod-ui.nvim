@@ -237,6 +237,7 @@ function Query:setup_buffer(entry, opts, name)
     vim.cmd('setlocal noswapfile nowrap nospell modifiable filetype=' .. entry.filetype)
   end
   local is_sql = vim.bo.filetype == entry.filetype
+  local is_tmp = self.instance:is_tmp_location_buffer(entry, name)
   local bufnr = vim.api.nvim_get_current_buf()
 
   if not (self.config.disable_mappings or self.config.disable_mappings_sql) then
@@ -246,7 +247,11 @@ function Query:setup_buffer(entry, opts, name)
     vim.keymap.set('v', '<Leader>S', function()
       self:execute_query(true)
     end, { buffer = bufnr, silent = true })
-    -- <Leader>W (save tmp query) is wired with save_query in a later slice.
+    if is_tmp and is_sql then
+      vim.keymap.set('n', '<Leader>W', function()
+        self:save_query()
+      end, { buffer = bufnr, silent = true })
+    end
   end
 
   local group = vim.api.nvim_create_augroup('dadbod_ui_query_' .. bufnr, { clear = true })
@@ -324,6 +329,42 @@ function Query:remove_buffer(bufnr)
   entry.buffers.list = vim.tbl_filter(keep, entry.buffers.list)
   entry.buffers.tmp = vim.tbl_filter(keep, entry.buffers.tmp)
   self.drawer:render()
+end
+
+--- Save the current query buffer to the connection's save_path under a name the
+--- user provides, then reopen it as a saved query. Rejects a blank name or an
+--- existing file. Port of `s:query.save_query` (callback-shaped for our async
+--- prompt backend).
+---@return nil
+function Query:save_query()
+  local notify = require('dadbod-ui.notifications')
+  local entry = self.instance.dbs[vim.b.dbui_db_key_name]
+  if entry == nil then
+    return notify.error('Buffer not attached to any database')
+  end
+  if entry.save_path == '' then
+    return notify.error('Save location is empty. Please provide valid directory to g:db_ui_save_location')
+  end
+  if vim.fn.isdirectory(entry.save_path) == 0 then
+    vim.fn.mkdir(entry.save_path, 'p')
+  end
+  self.input({ prompt = 'Save as: ' }, function(name)
+    if name == nil then
+      return
+    end
+    name = vim.trim(name)
+    if name == '' then
+      return notify.error('No valid name provided.')
+    end
+    local full_name = string.format('%s/%s', entry.save_path, name)
+    if vim.fn.filereadable(full_name) == 1 then
+      return notify.error('That file already exists. Please choose another name.')
+    end
+    vim.cmd('write ' .. vim.fn.fnameescape(full_name))
+    self.drawer:load_saved_queries(entry)
+    self.drawer:render()
+    self:open_buffer(entry, full_name, 'edit')
+  end)
 end
 
 --- The last executed query and its (M11) timing. Port of
