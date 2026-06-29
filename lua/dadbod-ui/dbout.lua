@@ -131,9 +131,8 @@ function M.save_dbout(file)
     return
   end
   local content = ''
-  local db = vim.fn.getbufvar(file, 'db')
-  local input = type(db) == 'table' and db.input or nil
-  if input ~= nil and input ~= '' and vim.fn.filereadable(input) == 1 then
+  local input = bridge.dbout_input(file)
+  if input ~= nil and vim.fn.filereadable(input) == 1 then
     content = (vim.fn.readfile(input, '', 1)[1]) or ''
     if #content > 30 then
       content = content:sub(1, 31) .. '...'
