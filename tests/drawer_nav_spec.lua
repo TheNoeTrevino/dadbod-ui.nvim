@@ -14,7 +14,12 @@ local function make_drawer()
     },
     file_entries = {},
   })
-  return drawer_mod.new(instance)
+  local d = drawer_mod.new(instance)
+  -- Keep navigation specs offline: expansion would otherwise try to connect.
+  d.connector = function()
+    return ''
+  end
+  return d
 end
 
 local function cursor_line(d)
