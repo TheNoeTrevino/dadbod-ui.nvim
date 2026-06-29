@@ -10,6 +10,7 @@ local bridge = require('dadbod-ui.bridge')
 local config_mod = require('dadbod-ui.config')
 local schemas = require('dadbod-ui.schemas')
 local table_helpers = require('dadbod-ui.table_helpers')
+local utils = require('dadbod-ui.utils')
 
 local M = {}
 
@@ -64,7 +65,7 @@ end
 local function buffers_for(old_buffers, name)
   local prefix = '^' .. vim.pesc(name) .. '%-'
   return vim.tbl_filter(function(path)
-    local tail = vim.fn.fnamemodify(path, ':t')
+    local tail = vim.fs.basename(path)
     local ext = vim.fn.fnamemodify(path, ':e')
     return tail:find(prefix) ~= nil or ext:find(prefix) ~= nil
   end, old_buffers)
@@ -121,7 +122,7 @@ function M.new(config)
   local tmp_location = expand_dir(config.tmp_query_location)
   local old_buffers = {}
   if tmp_location ~= '' then
-    if vim.fn.isdirectory(tmp_location) == 0 then
+    if not utils.is_dir(tmp_location) then
       vim.fn.mkdir(tmp_location, 'p')
     end
     old_buffers = vim.fn.glob(tmp_location .. '/*', true, true)

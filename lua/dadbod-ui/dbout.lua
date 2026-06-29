@@ -149,8 +149,10 @@ end
 ---@param b string
 ---@return boolean
 function M.sort_dbout(a, b)
-  local na = tonumber(vim.fn.fnamemodify(a, ':t:r')) or 0
-  local nb = tonumber(vim.fn.fnamemodify(b, ':t:r')) or 0
+  -- basename without its last extension (`:t:r`); the `(.)%.` guard keeps a
+  -- leading-dot name intact, matching Vim's `:r` (which never strips a dotfile).
+  local na = tonumber((vim.fs.basename(a):gsub('(.)%.[^.]*$', '%1'))) or 0
+  local nb = tonumber((vim.fs.basename(b):gsub('(.)%.[^.]*$', '%1'))) or 0
   if attached ~= nil and attached.config.dbout_list_sort == 'desc' then
     return na > nb
   end

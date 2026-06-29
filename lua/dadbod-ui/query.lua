@@ -124,7 +124,7 @@ function Query:generate_buffer_name(entry, opts)
   if self.instance.tmp_location ~= '' then
     return string.format('%s/%s', self.instance.tmp_location, buffer_name)
   end
-  local tmp_name = string.format('%s/%s', vim.fn.fnamemodify(vim.fn.tempname(), ':p:h'), buffer_name)
+  local tmp_name = string.format('%s/%s', vim.fs.dirname(vim.fn.tempname()), buffer_name)
   table.insert(entry.buffers.tmp, tmp_name)
   return tmp_name
 end
@@ -559,7 +559,7 @@ function Query:save_query()
   if entry.save_path == '' then
     return notify.error('Save location is empty. Please provide valid directory to g:db_ui_save_location')
   end
-  if vim.fn.isdirectory(entry.save_path) == 0 then
+  if not utils.is_dir(entry.save_path) then
     vim.fn.mkdir(entry.save_path, 'p')
   end
   self.input({ prompt = 'Save as: ' }, function(name)
@@ -571,7 +571,7 @@ function Query:save_query()
       return notify.error('No valid name provided.')
     end
     local full_name = string.format('%s/%s', entry.save_path, name)
-    if vim.fn.filereadable(full_name) == 1 then
+    if utils.is_file(full_name) then
       return notify.error('That file already exists. Please choose another name.')
     end
     vim.cmd('write ' .. vim.fn.fnameescape(full_name))

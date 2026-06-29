@@ -8,6 +8,7 @@
 --- by group so the same name can exist in different groups.
 
 local bridge = require('dadbod-ui.bridge')
+local utils = require('dadbod-ui.utils')
 
 local M = {}
 
@@ -175,7 +176,7 @@ end
 ---@param on_error? fun(msg: string)
 ---@return DadbodUI.FileConnection[]
 function M.read_file(path, on_error)
-  if path == nil or vim.fn.filereadable(path) == 0 then
+  if path == nil or not utils.is_file(path) then
     return {}
   end
   local ok, decoded = pcall(vim.json.decode, table.concat(vim.fn.readfile(path), '\n'))
@@ -194,8 +195,8 @@ end
 ---@param path string
 ---@param list DadbodUI.FileConnection[]
 function M.write_file(path, list)
-  local dir = vim.fn.fnamemodify(path, ':h')
-  if vim.fn.isdirectory(dir) == 0 then
+  local dir = vim.fs.dirname(path)
+  if not utils.is_dir(dir) then
     vim.fn.mkdir(dir, 'p')
   end
   vim.fn.writefile({ vim.json.encode(list) }, path)

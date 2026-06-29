@@ -303,7 +303,7 @@ function Drawer:render_dbout_list()
   table.sort(files, dbout.sort_dbout)
   for _, file in ipairs(files) do
     local content = self.instance.dbout_list[file]
-    local label = vim.fn.fnamemodify(file, ':t')
+    local label = vim.fs.basename(file)
     if content ~= nil and content ~= '' then
       label = label .. string.format(' (%s)', content)
     end
@@ -379,7 +379,7 @@ end
 ---@param buffer string
 ---@return string
 function Drawer:get_buffer_name(entry, buffer)
-  local name = vim.fn.fnamemodify(buffer, ':t')
+  local name = vim.fs.basename(buffer)
   if not self.instance:is_tmp_location_buffer(entry, buffer) then
     return name
   end
@@ -448,7 +448,7 @@ function Drawer:render_saved_queries_section(entry, level)
   end
   for _, saved in ipairs(entry.saved_queries.list) do
     self:add({
-      label = vim.fn.fnamemodify(saved, ':t'),
+      label = vim.fs.basename(saved),
       icon = self.icons.saved_query,
       level = level + 1,
       type = 'saved_query',
@@ -1152,7 +1152,7 @@ end
 ---@return nil
 function Drawer:rename_buffer(buffer, key_name, is_saved_query)
   local notify = require('dadbod-ui.notifications')
-  if vim.fn.filereadable(buffer) ~= 1 then
+  if not utils.is_file(buffer) then
     return notify.error('Only written queries can be renamed.')
   end
   if key_name == nil or key_name == '' then
