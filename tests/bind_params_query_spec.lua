@@ -32,19 +32,15 @@ describe('bind params: execute flow', function()
   local calls
 
   before_each(function()
-    calls = { buffer = 0, range = 0, files = {} }
+    calls = { buffer = 0, files = {} }
     saved = {
       execute_buffer = bridge.execute_buffer,
-      execute_range = bridge.execute_range,
       execute_file = bridge.execute_file,
       input_extension = bridge.input_extension,
       can_cancel = bridge.can_cancel,
     }
     bridge.execute_buffer = function()
       calls.buffer = calls.buffer + 1
-    end
-    bridge.execute_range = function()
-      calls.range = calls.range + 1
     end
     bridge.execute_file = function(file, url)
       table.insert(calls.files, vim.fn.readfile(file))
@@ -86,6 +82,19 @@ describe('bind params: execute flow', function()
     d:query():execute_query()
     assert.equals(1, calls.buffer)
     assert.equals(0, #calls.files)
+  end)
+
+  it('runs a visual selection from a temp file (no marks, no %DB)', function()
+    d = make_drawer()
+    open_query({ 'SELECT 1', 'SELECT 2' })
+    -- select the first line; leaving visual sets '<'/'>' so get_lines reads it
+    vim.api.nvim_win_set_cursor(0, { 1, 0 })
+    vim.cmd('normal! V')
+    vim.cmd('normal! \27')
+    d:query():execute_query(true)
+    assert.equals(0, calls.buffer) -- never goes through %DB
+    assert.same({ { 'SELECT 1' } }, calls.files)
+    assert.equals(entry_named(d, 'qa').conn, calls.last_url)
   end)
 
   it('prompts for a placeholder, persists it, and runs the substituted query', function()
