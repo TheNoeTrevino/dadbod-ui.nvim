@@ -12,6 +12,7 @@
 --- spinner in the buffer itself. Both are gated by `disable_progress_bar`.
 
 local bridge = require('dadbod-ui.bridge')
+local utils = require('dadbod-ui.utils')
 
 local M = {}
 
@@ -89,7 +90,7 @@ function M._show(output_file)
   if attached == nil or attached.config.disable_progress_bar then
     return
   end
-  local buf = vim.fn.bufnr(output_file)
+  local buf = utils.loaded_bufnr(output_file)
   if buf < 0 then
     return
   end

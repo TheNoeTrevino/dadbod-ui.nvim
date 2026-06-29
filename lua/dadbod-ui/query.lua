@@ -29,20 +29,6 @@ local function subst(s, key, val)
   end))
 end
 
---- The number of a loaded buffer whose name is exactly `full_path`, else -1.
---- Used instead of `vim.fn.bufnr`, whose pattern matching can falsely match an
---- unrelated buffer (the `.`/`*` in a path are treated as regex).
----@param full_path string
----@return integer
-local function loaded_bufnr(full_path)
-  for _, b in ipairs(vim.api.nvim_list_bufs()) do
-    if vim.api.nvim_buf_is_loaded(b) and vim.api.nvim_buf_get_name(b) == full_path then
-      return b
-    end
-  end
-  return -1
-end
-
 ---@class DadbodUI.Query
 ---@field drawer DadbodUI.Drawer
 ---@field instance DadbodUI.Instance
@@ -185,7 +171,7 @@ function Query:open_buffer(entry, name, edit_action, opts)
   -- An already-open buffer is shown as-is (don't clobber its contents). When the
   -- window can't be reused -- e.g. 'nohidden' with a modified buffer in it -- the
   -- switch is a no-op, so we fall through to the split fallback below.
-  local is_existing = loaded_bufnr(full) > -1
+  local is_existing = utils.loaded_bufnr(full) > -1
   if is_existing then
     pcall(vim.cmd, 'silent! buffer ' .. vim.fn.fnameescape(full))
     if vim.api.nvim_buf_get_name(0) == full then

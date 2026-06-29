@@ -1136,7 +1136,7 @@ function Drawer:delete_buffer(item)
   else
     return
   end
-  local bufnr = vim.fn.bufnr(file)
+  local bufnr = utils.loaded_bufnr(file)
   if bufnr > -1 then
     local win = vim.fn.bufwinnr(bufnr)
     if win > -1 then

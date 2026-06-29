@@ -13,6 +13,20 @@ function M.slug(str)
   return (str:gsub('[^%w_%-]', ''))
 end
 
+--- The number of a loaded buffer whose name is exactly `full_path`, else -1.
+--- Used instead of `vim.fn.bufnr`, whose pattern matching can falsely match an
+--- unrelated buffer (the `.`/`*` in a path are treated as regex).
+---@param full_path string
+---@return integer
+function M.loaded_bufnr(full_path)
+  for _, b in ipairs(vim.api.nvim_list_bufs()) do
+    if vim.api.nvim_buf_is_loaded(b) and vim.api.nvim_buf_get_name(b) == full_path then
+      return b
+    end
+  end
+  return -1
+end
+
 --- Whether `path` exists and is a regular file.
 ---@param path string
 ---@return boolean
