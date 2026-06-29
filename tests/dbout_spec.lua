@@ -114,7 +114,7 @@ describe('dbout: execute on save (sqlite)', function()
     if vim.fn.executable('sqlite3') ~= 1 then
       return pending('sqlite3 not installed')
     end
-    d = make_drawer({ qa = 'sqlite:' .. fixture })
+    d = make_drawer({ qa = 'sqlite:' .. fixture }, { execute_on_save = true })
     d.connector = require('dadbod-ui.bridge').connect -- real connection
     d:open()
     local entry

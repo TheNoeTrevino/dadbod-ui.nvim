@@ -63,6 +63,18 @@ function M.connections_list()
   return state.get():connections_list()
 end
 
+--- Execute the current query buffer through dadbod (the whole buffer).
+---@return nil
+function M.execute_query()
+  drawer():query():execute_query(false)
+end
+
+--- Execute the current visual selection through dadbod.
+---@return nil
+function M.execute_selection()
+  drawer():query():execute_query(true)
+end
+
 --- Connection info for `key_name`, mirroring the original `db_ui#get_conn_info`.
 --- Backs the `db_ui#get_conn_info` autoload shim that third-party integrations
 --- (e.g. vim-dadbod-completion) call. Returns the resolved url, the live
