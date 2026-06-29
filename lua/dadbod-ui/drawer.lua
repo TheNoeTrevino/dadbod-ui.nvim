@@ -49,6 +49,8 @@ local M = {}
 ---@field input DadbodUI.UiInput  prompt backend (injectable for specs)
 ---@field confirm DadbodUI.Confirm  yes/no backend (injectable for specs)
 ---@field connector fun(url: string): string  connect backend (injectable for specs)
+---@field show_dbout_list boolean  whether the Query results section is expanded
+---@field _query? DadbodUI.Query  lazily-built query controller
 ---@field bufnr? integer
 ---@field winid? integer
 local Drawer = {}
@@ -72,9 +74,21 @@ function M.new(instance)
       return require('dadbod-ui.notifications').confirm(msg)
     end,
     connector = bridge.connect,
+    show_dbout_list = false,
+    _query = nil,
     bufnr = nil,
     winid = nil,
   }, Drawer)
+end
+
+--- The query controller (lazily built; sibling module, required on first use to
+--- keep the dependency graph acyclic and startup cheap).
+---@return DadbodUI.Query
+function Drawer:query()
+  if self._query == nil then
+    self._query = require('dadbod-ui.query').new(self)
+  end
+  return self._query
 end
 
 ---@param name string
@@ -300,10 +314,74 @@ function Drawer:render_db_sections(entry, level)
         action = 'open',
         key_name = entry.key_name,
       })
+    elseif section == 'buffers' and #entry.buffers.list > 0 then
+      self:render_buffers_section(entry, level)
     elseif section == 'schemas' then
       self:render_schemas_section(entry, level)
     end
-    -- buffers / saved_queries render once their data lands (later slices)
+    -- saved_queries renders once its data lands (later slice)
+  end
+end
+
+--- The drawer label for a buffer file: its basename, with the connection's
+--- `<slug>-` prefix (and the legacy `db_ui.` wrapper) stripped for tmp buffers.
+--- Port of `s:drawer.get_buffer_name`.
+---@param entry DadbodUI.ConnectionEntry
+---@param buffer string
+---@return string
+function Drawer:get_buffer_name(entry, buffer)
+  local name = vim.fn.fnamemodify(buffer, ':t')
+  if not self.instance:is_tmp_location_buffer(entry, buffer) then
+    return name
+  end
+  if vim.fn.fnamemodify(name, ':r') == 'db_ui' then
+    name = vim.fn.fnamemodify(name, ':e')
+  end
+  return (name:gsub('^' .. vim.pesc(self:_slug(entry.name)) .. '%-', ''))
+end
+
+--- Strip everything but `[A-Za-z0-9_-]` (port of `db_ui#utils#slug`), used for
+--- matching the tmp-buffer name prefix.
+---@param str string
+---@return string
+function Drawer:_slug(str)
+  return (str:gsub('[^%w_%-]', ''))
+end
+
+--- Render the Buffers section: a toggle header with the open-buffer count, and
+--- on expand each buffer as an `open` node (tmp buffers flagged with ` *`). Port
+--- of `s:drawer._render_buffers_section`.
+---@param entry DadbodUI.ConnectionEntry
+---@param level integer
+---@return nil
+function Drawer:render_buffers_section(entry, level)
+  self:add({
+    label = string.format('Buffers (%d)', #entry.buffers.list),
+    icon = self:toggle_icon('buffers', entry.buffers.expanded),
+    level = level,
+    type = 'buffers',
+    action = 'toggle',
+    key_name = entry.key_name,
+    expanded = entry.buffers.expanded,
+    toggle_state = entry.buffers,
+  })
+  if not entry.buffers.expanded then
+    return
+  end
+  for _, buffer in ipairs(entry.buffers.list) do
+    local label = self:get_buffer_name(entry, buffer)
+    if self.instance:is_tmp_location_buffer(entry, buffer) then
+      label = label .. ' *'
+    end
+    self:add({
+      label = label,
+      icon = self.icons.buffers,
+      level = level + 1,
+      type = 'buffer',
+      action = 'open',
+      key_name = entry.key_name,
+      file_path = buffer,
+    })
   end
 end
 
@@ -428,10 +506,12 @@ function Drawer:get_current_item()
   return self.content[self:current_line()]
 end
 
---- Act on the node under the cursor: toggle groups/dbs (open actions for
---- queries/buffers are handled once the query module lands).
+--- Act on the node under the cursor. Toggles groups/dbs/sections; opens query,
+--- buffer, saved-query and table-helper nodes through the query controller (in
+--- `edit_action`, defaulting to `edit`); previews dbout result files.
+---@param edit_action? string  'edit' | 'vertical … split' (default 'edit')
 ---@return DadbodUI.Drawer|nil
-function Drawer:toggle_line()
+function Drawer:toggle_line(edit_action)
   local item = self:get_current_item()
   if item == nil or item.action == 'noaction' then
     return
@@ -439,7 +519,19 @@ function Drawer:toggle_line()
   if item.action == 'call_method' then
     if item.type == 'add_connection' then
       self:add_connection()
+    elseif item.type == 'dbout_list' then
+      self.show_dbout_list = not self.show_dbout_list
+      return self:render()
     end
+    return
+  end
+  if item.action == 'open' then
+    if item.type == 'dbout' then
+      self:query():focus_window()
+      vim.cmd('silent! pedit ' .. vim.fn.fnameescape(item.file_path))
+      return
+    end
+    self:query():open(item, edit_action or 'edit')
     return
   end
   if item.type == 'group' then
@@ -1031,6 +1123,10 @@ function Drawer:setup_mappings()
   end)
   map('<CR>', function()
     self:toggle_line()
+  end)
+  map('S', function()
+    local pos = self.config.win_position == 'left' and 'botright' or 'topleft'
+    self:toggle_line('vertical ' .. pos .. ' split')
   end)
   map('q', function()
     self:quit()
