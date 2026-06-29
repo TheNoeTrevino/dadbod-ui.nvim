@@ -15,6 +15,8 @@
 
 local bridge = require('dadbod-ui.bridge')
 local schemas = require('dadbod-ui.schemas')
+local spinner = require('dadbod-ui.spinner')
+local spinners = require('dadbod-ui.spinners')
 local state = require('dadbod-ui.state')
 
 local M = {}
@@ -23,19 +25,23 @@ local M = {}
 ---@field config DadbodUI.Config
 ---@field connector fun(url: string): string  connect backend (injectable for specs)
 ---@field render fun(): nil  re-render callback (the drawer's render)
+---@field repaint fun(key_name: string, frame: string): nil  single-line db-node repaint (the drawer's repaint_db_node); animates the loading spinner without a full render
 local Introspect = {}
 Introspect.__index = Introspect
 
 --- Build an introspection controller. `connector` is dadbod's connect (injectable
 --- so specs run offline); `render` is invoked after async schema/table data lands
---- (connecting and saved-query refresh never render).
----@param opts { config: DadbodUI.Config, connector: fun(url: string): string, render: fun(): nil }
+--- (connecting and saved-query refresh never render). `repaint` drives the
+--- per-frame loading animation on a single db node (defaults to a no-op so a
+--- controller built without it -- e.g. the query controller -- never crashes).
+---@param opts { config: DadbodUI.Config, connector: fun(url: string): string, render: fun(): nil, repaint?: fun(key_name: string, frame: string): nil }
 ---@return DadbodUI.Introspect
 function M.new(opts)
   return setmetatable({
     config = opts.config,
     connector = opts.connector,
     render = opts.render,
+    repaint = opts.repaint or function() end,
   }, Introspect)
 end
 
@@ -47,8 +53,9 @@ function Introspect:connect(entry)
   if state.is_connected(entry) then
     return entry
   end
+  -- No "Connecting..." notification: the drawer's inline loading indicator on
+  -- the db node communicates progress instead (the success/error notify stay).
   local notify = require('dadbod-ui.notifications')
-  notify.info(string.format('Connecting to db %s...', entry.name))
   local started = vim.uv.hrtime()
   local ok, conn = pcall(self.connector, entry.url)
   if ok then
@@ -78,24 +85,33 @@ function Introspect:populate(entry)
   end
 end
 
---- Connect then introspect a connection on expand.
+--- Connect then introspect a connection on expand. `bridge.connect` is
+--- SYNCHRONOUS and blocks Neovim, so we paint the static loading indicator first
+--- (mark `loading` + render) and only THEN `vim.schedule` the blocking connect --
+--- the same deferral the tables path already used -- so the frame is visible
+--- before the freeze. The animated spinner can only run during the async
+--- `run_many` window of `populate_schemas`; the blocking connect + sqlite table
+--- fetch show the static frame only (a timer can't tick while the loop is blocked).
 ---@param entry DadbodUI.ConnectionEntry
 ---@return nil
 function Introspect:expand_db(entry)
   self:load_saved_queries(entry)
-  self:connect(entry)
-  if not state.is_connected(entry) then
-    return
-  end
-  if entry.schema_support then
-    self:populate_schemas(entry)
-  else
-    -- Defer so the initial expand render paints before the (blocking) adapter
-    -- call; keeps the keypress responsive even for the tables-only path.
-    vim.schedule(function()
+  entry.loading = true
+  self.render()
+  vim.schedule(function()
+    self:connect(entry)
+    if not state.is_connected(entry) then
+      entry.loading = false
+      spinner.stop(entry.key_name)
+      self.render()
+      return
+    end
+    if entry.schema_support then
+      self:populate_schemas(entry)
+    else
       self:populate_tables(entry)
-    end)
-  end
+    end
+  end)
 end
 
 --- Refresh `entry.saved_queries.list` from the files on disk under its save_path.
@@ -138,6 +154,8 @@ end
 ---@return nil
 function Introspect:populate_schemas(entry)
   if not state.is_connected(entry) then
+    entry.loading = false
+    spinner.stop(entry.key_name)
     return
   end
   local scheme_info = schemas.get(entry.scheme, self.config)
@@ -145,7 +163,17 @@ function Introspect:populate_schemas(entry)
     schemas.command_spec(entry.conn, scheme_info, scheme_info.schemes_query),
     schemas.command_spec(entry.conn, scheme_info, scheme_info.schemes_tables_query),
   }
+  -- The async `run_many` window is the only time a timer can tick, so this is
+  -- where we ANIMATE: each frame repaints just the db node's line (no full
+  -- render). Stopped on the render that lands the data below. Set loading here
+  -- too so a redraw of an already-expanded db (no preceding expand_db) animates.
+  entry.loading = true
+  spinner.start(entry.key_name, spinners.dots, function(frame)
+    self.repaint(entry.key_name, frame)
+  end)
   bridge.run_many(specs, function(results)
+    spinner.stop(entry.key_name)
+    entry.loading = false
     local schema_list = scheme_info.parse_results(schemas.result_lines(results[1]), 1)
     local table_rows = scheme_info.parse_results(schemas.result_lines(results[2]), 2)
     self:apply_schemas(entry, schema_list, table_rows)
@@ -199,11 +227,17 @@ end
 function Introspect:populate_tables(entry)
   entry.tables.list = {}
   if not state.is_connected(entry) then
+    entry.loading = false
+    spinner.stop(entry.key_name)
     return
   end
+  -- The adapter `tables` call is BLOCKING, so no animation is possible here: the
+  -- static loading frame painted on expand is the indicator until the rows land.
   local raw = bridge.adapter_call(entry.conn, 'tables', { entry.conn }, {})
   entry.tables.list = schemas.normalize_table_list(entry.scheme, raw)
   self:populate_table_items(entry.tables)
+  entry.loading = false
+  spinner.stop(entry.key_name)
   self.render()
 end
 

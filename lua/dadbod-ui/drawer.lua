@@ -18,6 +18,8 @@
 local icons_mod = require('dadbod-ui.icons')
 local bridge = require('dadbod-ui.bridge')
 local highlights = require('dadbod-ui.highlights')
+local spinner = require('dadbod-ui.spinner')
+local spinners = require('dadbod-ui.spinners')
 local utils = require('dadbod-ui.utils')
 
 local INDENT = 2
@@ -122,6 +124,9 @@ function Drawer:introspect()
       render = function()
         self:render()
       end,
+      repaint = function(key_name, frame)
+        self:repaint_db_node(key_name, frame)
+      end,
     })
   end
   return self._introspect
@@ -207,6 +212,13 @@ end
 
 ---@return nil
 function Drawer:close()
+  -- Stop any in-flight db loading animations (keyed by entry key_name) so closing
+  -- the drawer mid-load never leaks a timer or repaints a wiped buffer. dbout's
+  -- result-buffer spinners are keyed by file path, so they are untouched.
+  for key_name, entry in pairs(self.instance.dbs) do
+    spinner.stop(key_name)
+    entry.loading = false
+  end
   if self:is_open() then
     vim.api.nvim_win_close(self.winid, true)
   end
@@ -253,14 +265,27 @@ function Drawer:build_content()
   return self.content
 end
 
---- Paint a node list into `bufnr`: map each node to its display string
---- (indent + icon + separator + label), overwrite the buffer under a
---- `modifiable` toggle, then re-apply the per-node highlights as extmarks in the
---- `dadbod_ui` namespace (cleared first). The only render half that requires a
---- buffer; the highlight ranges come from the pure `highlights.highlights_for`,
---- mirroring the `build_content`/`paint` purity split. Standalone (no `self`) so
---- the paint seam stays decoupled from instance state; `icons` is threaded in for
---- the connection ok/error glyph lookup.
+--- The display string for a single node: indent + icon + separator + label. The
+--- single source of truth for a rendered line, shared by the full `paint` and
+--- the targeted `repaint_db_node` so an animated spinner frame lands identically
+--- to a full render. Standalone (no `self`).
+---@param node DadbodUI.Node
+---@return string
+local function line_for(node)
+  local indent = string.rep(' ', INDENT * node.level)
+  local sep = node.icon ~= '' and ' ' or ''
+  local trailer = node.loading_frame and (' ' .. node.loading_frame) or ''
+  return indent .. node.icon .. sep .. node.label .. trailer
+end
+
+--- Paint a node list into `bufnr`: map each node to its display string (via
+--- `line_for`), overwrite the buffer under a `modifiable` toggle, then re-apply
+--- the per-node highlights as extmarks in the `dadbod_ui` namespace (cleared
+--- first). The only render half that requires a buffer; the highlight ranges come
+--- from the pure `highlights.highlights_for`, mirroring the `build_content`/
+--- `paint` purity split. Standalone (no `self`) so the paint seam stays decoupled
+--- from instance state; `icons` is threaded in for the connection ok/error glyph
+--- lookup.
 ---@param bufnr integer
 ---@param nodes DadbodUI.Node[]
 ---@param icons DadbodUI.Icons
@@ -270,9 +295,7 @@ local function paint(bufnr, nodes, icons)
   ---@type DadbodUI.Highlight[][]
   local line_hls = {}
   for i, node in ipairs(nodes) do
-    local indent = string.rep(' ', INDENT * node.level)
-    local sep = node.icon ~= '' and ' ' or ''
-    local text = indent .. node.icon .. sep .. node.label
+    local text = line_for(node)
     lines[i] = text
     line_hls[i] = highlights.highlights_for(node, text, icons)
   end
@@ -303,6 +326,38 @@ function Drawer:render()
   local bufnr = assert(self.bufnr)
   paint(bufnr, self:build_content(), self.icons)
   return self
+end
+
+--- Repaint a SINGLE db node's line in place, setting its icon to `frame` -- the
+--- cheap path the loading spinner drives at 80ms instead of a full `render()`.
+--- Scans the live `self.content` for the `type == 'db'` node with `key_name`
+--- (rescanning each tick rather than caching a line index, so a mid-load toggle
+--- can never repaint the wrong line) and rewrites only that line. No-ops when the
+--- drawer is closed or the node has been collapsed away.
+---
+--- The frame is set as the node's trailing `loading_frame` (rendered by
+--- `line_for`) rather than swapped into its icon: the db's fold icon + name stay
+--- fixed while only the appended spinner animates, so the node doesn't jitter as
+--- frames cycle. The next full `render()` rebuilds without `loading_frame` (the
+--- `loading` marker having cleared), dropping the trailer.
+---@param key_name string
+---@param frame string
+---@return nil
+function Drawer:repaint_db_node(key_name, frame)
+  if not self:is_open() then
+    return
+  end
+  local bufnr = assert(self.bufnr)
+  for idx, node in ipairs(self.content) do
+    if node.type == 'db' and node.key_name == key_name then
+      node.loading_frame = frame
+      local bo = vim.bo[bufnr]
+      bo.modifiable = true
+      pcall(vim.api.nvim_buf_set_lines, bufnr, idx - 1, idx, false, { line_for(node) })
+      bo.modifiable = false
+      return
+    end
+  end
 end
 
 ---@return nil
@@ -429,9 +484,15 @@ function Drawer:render_db(record, level)
       label = label .. string.format(' (%s - %s)', entry.scheme, entry.source)
     end
   end
+  -- While connecting/introspecting the db node keeps its own fold icon and name
+  -- fixed; the loading state shows as a spinner APPENDED after the label (a
+  -- static first frame here, animated in place by `repaint_db_node` over the
+  -- async window). The transient `loading` marker is cleared by the introspect
+  -- controller on data-land/error, dropping the trailer on the next render.
   self:add({
     label = label,
     icon = self:toggle_icon('db', entry.expanded),
+    loading_frame = entry.loading and spinners.dots[1] or nil,
     level = level,
     type = 'db',
     action = 'toggle',
@@ -745,8 +806,18 @@ function Drawer:toggle_line(edit_action)
   -- opens the node, never on collapse.
   if item.toggle_state ~= nil then
     item.toggle_state.expanded = not item.toggle_state.expanded
-    if item.toggle_state.expanded and item.on_expand ~= nil then
-      item.on_expand()
+    if item.toggle_state.expanded then
+      if item.on_expand ~= nil then
+        item.on_expand()
+      end
+    elseif item.type == 'db' and item.key_name ~= nil then
+      -- Collapsing a db that may still be mid-load: stop its loading animation
+      -- and drop the marker so no timer leaks and no stale spinner reappears.
+      spinner.stop(item.key_name)
+      local entry = self.instance.dbs[item.key_name]
+      if entry ~= nil then
+        entry.loading = false
+      end
     end
     return self:render()
   end
@@ -1124,6 +1195,9 @@ function Drawer:setup_mappings()
     self:goto_node('child')
   end)
 end
+
+-- Exposed for the line-render spec (asserts line_for matches a full paint).
+M._line_for = line_for
 
 M.Drawer = Drawer
 return M
