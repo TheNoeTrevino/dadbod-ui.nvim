@@ -51,6 +51,19 @@
 ---@field list string[]
 ---@field items table<string, DadbodUI.TableItem>
 
+--- A connection's open query buffers (the original's `db.buffers`). `list` holds
+--- full buffer file paths; `tmp` is the subset living in the tmp-query location.
+---@class DadbodUI.BuffersNode
+---@field expanded boolean
+---@field list string[]
+---@field tmp string[]
+
+--- A connection's persisted saved queries (the original's `db.saved_queries`).
+--- `list` holds full file paths under the connection's save_path.
+---@class DadbodUI.SavedQueriesNode
+---@field expanded boolean
+---@field list string[]
+
 --- A single schema and the tables under it.
 ---@class DadbodUI.SchemaItem
 ---@field expanded boolean
@@ -97,6 +110,8 @@
 ---@field table_helpers table<string, string>  helper name -> SQL template
 ---@field tables DadbodUI.TablesNode
 ---@field schemas DadbodUI.SchemasNode
+---@field buffers DadbodUI.BuffersNode  open query buffers for this connection
+---@field saved_queries DadbodUI.SavedQueriesNode  persisted saved queries
 
 --- Public connection summary (connections_list()).
 ---@class DadbodUI.ConnectionInfo
@@ -110,7 +125,7 @@
 ---@field label string
 ---@field icon string
 ---@field level integer
----@field type string  'group'|'db'|'query'|'schemas'|'tables'|'schema'|'table'|'table_helper'|'help'|'add_connection'|...
+---@field type string  'group'|'db'|'query'|'schemas'|'tables'|'schema'|'table'|'table_helper'|'buffer'|'saved_query'|'buffers'|'saved_queries'|'dbout'|'dbout_list'|'help'|'add_connection'|...
 ---@field action string  'toggle'|'open'|'call_method'|'noaction'
 ---@field key_name? string
 ---@field group? string
@@ -119,6 +134,8 @@
 ---@field table? string  table name (table / table_helper nodes)
 ---@field schema? string  schema name (table / table_helper nodes)
 ---@field content? string  helper SQL template (table_helper nodes)
+---@field file_path? string  on-disk path (buffer / saved_query / dbout nodes)
+---@field saved? boolean  true for saved-query nodes (vs tmp/open buffers)
 
 --- A command spec for the bridge concurrency helpers.
 ---@class DadbodUI.CommandSpec
