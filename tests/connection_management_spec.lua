@@ -65,7 +65,7 @@ describe('connection management: add', function()
   it('adds a connection: writes connections.json and shows it in the drawer', function()
     d = make_drawer({ save_location = dir, inputs = { 'sqlite:' .. dir .. '/qa.db', 'qa' } })
     d:open()
-    d:add_connection()
+    d:connections():add_connection()
 
     local file = stored(d.instance.connections_path)
     assert.equals(1, #file)
@@ -77,7 +77,7 @@ describe('connection management: add', function()
   it('rejects a duplicate name and writes nothing', function()
     connections.write_file(dir .. '/connections.json', { { name = 'qa', url = 'sqlite:' .. dir .. '/qa.db' } })
     d = make_drawer({ save_location = dir, inputs = { 'sqlite:' .. dir .. '/other.db', 'qa' } })
-    d:add_connection()
+    d:connections():add_connection()
 
     local file = stored(d.instance.connections_path)
     assert.equals(1, #file)
@@ -87,14 +87,14 @@ describe('connection management: add', function()
 
   it('rejects a blank name and writes nothing', function()
     d = make_drawer({ save_location = dir, inputs = { 'sqlite:' .. dir .. '/qa.db', '   ' } })
-    d:add_connection()
+    d:connections():add_connection()
     assert.equals(0, #stored(d.instance.connections_path))
     assert.is_truthy(notifications.get_last_msg():find('valid name'))
   end)
 
   it('refuses with no save location set', function()
     d = make_drawer({ save_location = '', inputs = { 'sqlite:/x.db', 'x' } })
-    d:add_connection()
+    d:connections():add_connection()
     assert.is_truthy(notifications.get_last_msg():find('save location'))
   end)
 
@@ -103,7 +103,7 @@ describe('connection management: add', function()
     local path = dir .. '/connections.json'
     vim.fn.writefile({ '{ corrupt not an array' }, path)
     d = make_drawer({ save_location = dir, inputs = { 'sqlite:' .. dir .. '/qa.db', 'qa' } })
-    d:add_connection()
+    d:connections():add_connection()
 
     -- the original corrupt bytes are still on disk, untouched
     assert.equals('{ corrupt not an array', vim.fn.readfile(path)[1])
@@ -147,7 +147,7 @@ describe('connection management: rename', function()
       end
     end)()
 
-    d:rename_connection(entry_named(d, 'old'))
+    d:connections():rename_connection(entry_named(d, 'old'))
     local file = stored(d.instance.connections_path)
     assert.equals('new', file[1].name)
     assert.is_not_nil(entry_named(d, 'new'))
@@ -170,7 +170,7 @@ describe('connection management: rename', function()
       end
     end)()
 
-    d:rename_connection(entry_named(d, 'Geekom2'))
+    d:connections():rename_connection(entry_named(d, 'Geekom2'))
     local file = stored(d.instance.connections_path)
     assert.equals(2, #file) -- nothing merged or dropped
     assert.is_not_nil(entry_named(d, 'Geekom'))
@@ -180,7 +180,7 @@ describe('connection management: rename', function()
 
   it('refuses to rename a non-file connection', function()
     d = make_drawer({ save_location = dir, g_dbs = { dev = 'postgres://h/dev' } })
-    d:rename_connection(entry_named(d, 'dev'))
+    d:connections():rename_connection(entry_named(d, 'dev'))
     assert.is_truthy(notifications.get_last_msg():find('via variables'))
   end)
 end)
@@ -204,7 +204,7 @@ describe('connection management: duplicate', function()
     -- prompts: name, url, group (ungrouped here)
     d = make_drawer({ save_location = dir, file_entries = seed, inputs = { 'analytics', 'sqlite:' .. dir .. '/analytics.db', '' } })
 
-    d:duplicate_connection(entry_named(d, 'main'))
+    d:connections():duplicate_connection(entry_named(d, 'main'))
     local file = stored(d.instance.connections_path)
     assert.equals(2, #file)
     assert.is_not_nil(entry_named(d, 'main')) -- source kept
@@ -226,7 +226,7 @@ describe('connection management: duplicate', function()
       end
     end)()
 
-    d:duplicate_connection(entry_named(d, 'pg'))
+    d:connections():duplicate_connection(entry_named(d, 'pg'))
     local copy = vim.tbl_filter(function(c)
       return c.name == 'pg2'
     end, stored(d.instance.connections_path))[1]
@@ -239,7 +239,7 @@ describe('connection management: duplicate', function()
     -- keep the name, change only the group: geekom/postgres -> pi/postgres
     d = make_drawer({ save_location = dir, file_entries = seed, inputs = { 'postgres', 'postgres://pi/db', 'pi' } })
 
-    d:duplicate_connection(entry_named(d, 'postgres'))
+    d:connections():duplicate_connection(entry_named(d, 'postgres'))
     local file = stored(d.instance.connections_path)
     assert.equals(2, #file)
     local groups = vim.tbl_map(function(c)
@@ -254,14 +254,14 @@ describe('connection management: duplicate', function()
     connections.write_file(dir .. '/connections.json', seed)
     d = make_drawer({ save_location = dir, file_entries = seed, inputs = { 'a', 'sqlite:' .. dir .. '/b.db', '' } })
 
-    d:duplicate_connection(entry_named(d, 'a'))
+    d:connections():duplicate_connection(entry_named(d, 'a'))
     assert.equals(1, #stored(d.instance.connections_path))
     assert.is_truthy(notifications.get_last_msg():find('already exists'))
   end)
 
   it('can duplicate a variable-source connection into an editable file one', function()
     d = make_drawer({ save_location = dir, g_dbs = { dev = 'postgres://h/dev' }, inputs = { 'dev_file', 'postgres://h/dev', '' } })
-    d:duplicate_connection(entry_named(d, 'dev'))
+    d:connections():duplicate_connection(entry_named(d, 'dev'))
     local file = stored(d.instance.connections_path)
     assert.equals(1, #file)
     assert.equals('dev_file', file[1].name)
@@ -290,7 +290,7 @@ describe('connection management: group', function()
     connections.write_file(dir .. '/connections.json', seed)
     d = make_drawer({ save_location = dir, file_entries = seed, inputs = { 'Local' } })
     d:open()
-    d:set_group(entry_named(d, 'qa'))
+    d:connections():set_group(entry_named(d, 'qa'))
 
     assert.equals('Local', stored(d.instance.connections_path)[1].group)
     assert.equals('Local', entry_named(d, 'qa').group)
@@ -328,7 +328,7 @@ describe('connection management: group', function()
 
   it('refuses to group a non-file connection', function()
     d = make_drawer({ save_location = dir, g_dbs = { dev = 'postgres://h/dev' } })
-    d:set_group(entry_named(d, 'dev'))
+    d:connections():set_group(entry_named(d, 'dev'))
     assert.is_truthy(notifications.get_last_msg():find('via variables'))
   end)
 
@@ -374,7 +374,7 @@ describe('connection management: delete', function()
       file_entries = { { name = 'qa', url = 'sqlite:' .. dir .. '/qa.db' } },
       confirm = true,
     })
-    d:delete_connection(entry_named(d, 'qa'))
+    d:connections():delete_connection(entry_named(d, 'qa'))
     assert.equals(0, #stored(d.instance.connections_path))
     assert.is_nil(entry_named(d, 'qa'))
   end)
@@ -386,7 +386,7 @@ describe('connection management: delete', function()
       file_entries = { { name = 'qa', url = 'sqlite:' .. dir .. '/qa.db' } },
       confirm = false,
     })
-    d:delete_connection(entry_named(d, 'qa'))
+    d:connections():delete_connection(entry_named(d, 'qa'))
     assert.equals(1, #stored(d.instance.connections_path))
   end)
 
@@ -449,7 +449,7 @@ describe('connection management: preserves state across an edit', function()
     d = make_drawer({ save_location = dir, g_dbs = { dev = 'postgres://h/dev' }, inputs = { 'sqlite:' .. dir .. '/qa.db', 'qa' } })
     d:open()
     entry_named(d, 'dev').expanded = true
-    d:add_connection()
+    d:connections():add_connection()
     assert.is_not_nil(entry_named(d, 'qa')) -- the add landed
     assert.is_true(entry_named(d, 'dev').expanded) -- and dev stayed open
   end)

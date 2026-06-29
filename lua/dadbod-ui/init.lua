@@ -54,7 +54,7 @@ end
 --- Add a connection interactively (prompts for url + name), independent of
 --- whether the drawer is open. Backs `:DBUIAddConnection`.
 function M.add_connection()
-  drawer():add_connection()
+  drawer():connections():add_connection()
 end
 
 --- All discovered connections with their connection state.
