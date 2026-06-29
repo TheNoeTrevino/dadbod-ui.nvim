@@ -114,12 +114,9 @@ end
 ---@param schema_name string
 ---@return boolean
 function Introspect:_is_schema_ignored(schema_name)
-  for _, pattern in ipairs(self.config.hide_schemas) do
-    if vim.fn.match(schema_name, pattern) > -1 then
-      return true
-    end
-  end
-  return false
+  return vim.iter(self.config.hide_schemas):any(function(pattern)
+    return vim.fn.match(schema_name, pattern) > -1
+  end)
 end
 
 --- Ensure every table in `tables.list` has an expand-state item, preserving the
