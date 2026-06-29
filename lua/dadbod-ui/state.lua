@@ -190,6 +190,16 @@ function Instance:is_tmp_location_buffer(entry, buf)
   return self.tmp_location ~= '' and buf:find('^' .. vim.pesc(self.tmp_location)) ~= nil
 end
 
+--- Whether an entry holds a live connection. The `conn` field is `nil` before
+--- any attempt, `''` after a FAILED attempt, and the live handle once
+--- connected -- so "connected" is the non-nil, non-empty case. A failed attempt
+--- must NOT report as connected.
+---@param entry DadbodUI.ConnectionEntry
+---@return boolean
+function M.is_connected(entry)
+  return entry.conn ~= nil and entry.conn ~= ''
+end
+
 --- List connections with their connection state.
 ---@return DadbodUI.ConnectionInfo[]
 function Instance:connections_list()
@@ -198,7 +208,7 @@ function Instance:connections_list()
     return {
       name = r.name,
       url = r.url,
-      is_connected = entry ~= nil and entry.conn ~= nil,
+      is_connected = entry ~= nil and M.is_connected(entry),
       source = r.source,
     }
   end, self.dbs_list)
