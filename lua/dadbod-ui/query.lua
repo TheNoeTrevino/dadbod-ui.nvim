@@ -5,10 +5,13 @@
 --- backends) and owns the SQL buffers: opening a `New query` or a table-helper
 --- buffer, setting the buffer-local contract verbatim (`b:dbui_db_key_name`,
 --- `b:db`, `b:dbui_table_name`, `b:dbui_schema_name`), and executing on save
---- through the bridge's async `:DB` path. Bind parameters land in M9; the
---- in-buffer loading symbol and result tracking live in `dadbod-ui.dbout`.
+--- through the bridge's async `:DB` path. Bind parameters (M9) are detected on
+--- execute, prompted for, persisted in `b:dbui_bind_params`, and substituted
+--- before the SQL reaches the engine; the in-buffer loading symbol and result
+--- tracking live in `dadbod-ui.dbout`.
 
 local bridge = require('dadbod-ui.bridge')
+local bind_params = require('dadbod-ui.bind_params')
 local utils = require('dadbod-ui.utils')
 
 local M = {}
@@ -45,6 +48,7 @@ end
 ---@field instance DadbodUI.Instance
 ---@field config DadbodUI.Config
 ---@field input DadbodUI.UiInput  prompt backend (shared with the drawer; injectable)
+---@field select DadbodUI.UiSelect  picker backend for the edit flow (injectable)
 ---@field last_query string[]  lines of the most recently executed query
 local Query = {}
 Query.__index = Query
@@ -58,6 +62,7 @@ function M.new(drawer)
     instance = drawer.instance,
     config = drawer.config,
     input = drawer.input,
+    select = vim.ui.select,
     last_query = {},
   }, Query)
 end
@@ -274,6 +279,9 @@ function Query:setup_buffer(entry, opts, name)
     vim.keymap.set('v', '<Leader>S', function()
       self:execute_query(true)
     end, { buffer = bufnr, silent = true })
+    vim.keymap.set('n', '<Leader>E', function()
+      self:edit_bind_parameters()
+    end, { buffer = bufnr, silent = true })
     if is_tmp and is_sql then
       vim.keymap.set('n', '<Leader>W', function()
         self:save_query()
@@ -329,24 +337,193 @@ local function clean_execute_error(err)
   return s:match('Vim%b():(.+)$') or s:match('DB:.+$') or s
 end
 
---- Execute the current query buffer (or visual selection) through dadbod. Bind
---- parameters are handled in M9; here we run the whole buffer with `%DB` or the
---- selection with `'<,'>DB`, relying on the bridge's async events for the
---- loading symbol and timing. Dadbod errors (e.g. a query already running for
---- the tab) are surfaced as a notification instead of a raw stack trace. Port of
---- the no-bind-param path of `s:query.execute_query`.
+--- The buffer's stored bind params (`b:dbui_bind_params`) as a table. Reads
+--- defensively: the drawer's rename passthrough copies the raw buffer var, which
+--- is `''` (not a dict) when the source buffer never had any -- so anything
+--- non-table is normalized to an empty table.
+---@param bufnr integer
+---@return DadbodUI.BindParams
+local function stored_params(bufnr)
+  local raw = vim.b[bufnr].dbui_bind_params
+  return type(raw) == 'table' and raw or {}
+end
+
+--- Prompt sequentially for every name in `names` not already in `known`,
+--- accumulating into a fresh copy. `on_done` receives the merged values, or nil
+--- the moment the user aborts any prompt -- so a cancelled run neither executes
+--- nor persists a partial set. Prompts go through the injectable `input` so specs
+--- can drive them.
+---@param input DadbodUI.UiInput
+---@param names string[]  placeholder names in query order
+---@param known DadbodUI.BindParams  already-answered values
+---@param on_done fun(values: DadbodUI.BindParams|nil)
+---@return nil
+local function prompt_params(input, names, known, on_done)
+  local values = vim.deepcopy(known)
+  local pending = {}
+  for _, name in ipairs(names) do
+    if values[name] == nil then
+      pending[#pending + 1] = name
+    end
+  end
+  local i = 0
+  local function step()
+    i = i + 1
+    if i > #pending then
+      return on_done(values)
+    end
+    local name = pending[i]
+    input({ prompt = string.format('Enter value for bind parameter %s -> ', name) }, function(val)
+      if val == nil then
+        return on_done(nil) -- aborted: stop, persist nothing
+      end
+      values[name] = val
+      step()
+    end)
+  end
+  step()
+end
+
+--- Run already-substituted `lines` through the engine via a temp file. The
+--- rewritten SQL can be multi-statement and contain arbitrary characters, so we
+--- write it out and let dadbod read it (`DB <url> < file`) rather than building a
+--- command string. The temp file uses the adapter's input extension. `entry` is
+--- captured before prompting so execution targets the right connection even if
+--- focus moved while an async prompt was open.
+---@param lines string[]
+---@param entry DadbodUI.ConnectionEntry
+---@return nil
+function Query:run_from_file(lines, entry)
+  local ext = bridge.input_extension(entry.conn) or 'sql'
+  local file = vim.fn.tempname() .. '.' .. ext
+  vim.fn.writefile(lines, file)
+  bridge.execute_file(file, entry.conn)
+end
+
+--- Execute the current query buffer (or visual selection) through dadbod. With
+--- no placeholders we keep the direct fast path -- the whole buffer via `%DB` or
+--- the selection via `'<,'>DB` -- so dadbod operates on the live buffer/selection
+--- unchanged. When `bind_param_pattern` matches, we prompt for any not-yet-known
+--- parameters, persist the full set in `b:dbui_bind_params`, substitute the
+--- quoted values, and run the rewritten SQL from a temp file. Cancelling a prompt
+--- aborts without executing or persisting. Dadbod errors (e.g. a query already
+--- running for the tab) surface as a notification rather than a raw stack trace.
+--- Port of `s:query.execute_query` + `execute_lines` + `inject_variables`.
 ---@param is_visual? boolean
 ---@return nil
 function Query:execute_query(is_visual)
+  local notify = require('dadbod-ui.notifications')
   local lines = self:get_lines(is_visual)
-  local ok, err = pcall(is_visual and bridge.execute_range or bridge.execute_buffer)
-  if not ok then
-    return require('dadbod-ui.notifications').error(clean_execute_error(err))
+  local pattern = self.config.bind_param_pattern
+  local names = bind_params.detect(lines, pattern)
+
+  -- Shared tail: dispatch `action` through dadbod, surface its error as a
+  -- notification, announce the async run, and remember the query. Both the
+  -- fast path and the bind-param path end the same way.
+  ---@param action fun(): nil
+  ---@return nil
+  local function run(action)
+    local ok, err = pcall(action)
+    if not ok then
+      return notify.error(clean_execute_error(err))
+    end
+    if bridge.can_cancel() then
+      notify.info('Executing query...')
+    end
+    self.last_query = lines
   end
-  if bridge.can_cancel() then
-    require('dadbod-ui.notifications').info('Executing query...')
+
+  if #names == 0 then
+    -- Fast path: no placeholders, run the buffer/selection directly.
+    return run(is_visual and bridge.execute_range or bridge.execute_buffer)
   end
-  self.last_query = lines
+
+  -- Capture buffer and connection now: an async prompt backend may resolve after
+  -- focus has moved, so we must not read the current buffer in the callback.
+  local bufnr = vim.api.nvim_get_current_buf()
+  local entry = self.instance.dbs[vim.b.dbui_db_key_name]
+  if entry == nil then
+    return notify.error('Buffer not attached to any database')
+  end
+  prompt_params(self.input, names, stored_params(bufnr), function(values)
+    if values == nil then
+      return notify.info('Bind parameters cancelled. Query not executed.')
+    end
+    vim.b[bufnr].dbui_bind_params = values
+    local final = bind_params.substitute(lines, values, pattern)
+    run(function()
+      self:run_from_file(final, entry)
+    end)
+  end)
+end
+
+--- Set or revise a bind parameter (`<Leader>E`). Improves on the original, which
+--- could only touch parameters already answered via execute: we union the
+--- placeholders detected in the buffer (in query order) with any stored names no
+--- longer present, so you can pre-fill a value BEFORE the first run instead of
+--- hitting a dead end. Unanswered params show as "Not provided" in the picker.
+--- With one candidate we edit it directly; with several, the injectable picker
+--- chooses which. The new value is prefilled with the current one; cancelling
+--- leaves it unchanged. Entering an empty value keeps the entry but makes the
+--- placeholder a raw literal on the next run (the documented escape hatch).
+--- Delete is intentionally dropped -- edit-to-empty covers the only behavior it
+--- offered. Port of `s:query.edit_bind_parameters`.
+---@return nil
+function Query:edit_bind_parameters()
+  local notify = require('dadbod-ui.notifications')
+  local bufnr = vim.api.nvim_get_current_buf()
+  local params = stored_params(bufnr)
+
+  -- Candidates: placeholders in the buffer first (query order, already distinct
+  -- from detect), then any stored names no longer in the buffer (sorted, for
+  -- stability).
+  local names = bind_params.detect(self:get_lines(), self.config.bind_param_pattern)
+  local seen = {}
+  for _, name in ipairs(names) do
+    seen[name] = true
+  end
+  local orphans = {}
+  for name in pairs(params) do
+    if not seen[name] then
+      orphans[#orphans + 1] = name
+    end
+  end
+  table.sort(orphans)
+  vim.list_extend(names, orphans)
+
+  if #names == 0 then
+    return notify.info('No bind parameters to edit.')
+  end
+
+  local function edit_one(name)
+    self.input({ prompt = string.format('Edit value for %s -> ', name), default = params[name] }, function(val)
+      if val == nil then
+        return -- cancelled, no change
+      end
+      local updated = stored_params(bufnr)
+      updated[name] = val
+      vim.b[bufnr].dbui_bind_params = updated
+      notify.info(string.format('Updated bind parameter %s.', name))
+    end)
+  end
+
+  if #names == 1 then
+    return edit_one(names[1])
+  end
+  self.select(names, {
+    prompt = 'Select bind parameter to edit:',
+    -- Annotate each name with its current value (or "Not provided") without
+    -- changing the item handed back to on_choice.
+    format_item = function(name)
+      local val = params[name]
+      local shown = (val ~= nil and vim.trim(val) ~= '') and val or 'Not provided'
+      return string.format('%s = %s', name, shown)
+    end,
+  }, function(choice)
+    if choice ~= nil then
+      edit_one(choice)
+    end
+  end)
 end
 
 --- Drop a wiped/deleted buffer from its connection's buffer lists and re-render.
