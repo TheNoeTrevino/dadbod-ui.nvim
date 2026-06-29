@@ -279,6 +279,21 @@ function M.execute_range()
   vim.cmd([['<,'>DB]])
 end
 
+--- Execute SQL read from `file` against `url` (dadbod's `DB <url> < file`). Used
+--- for bind-param substitution, where the rewritten query is written to a temp
+--- file rather than fed inline -- this sidesteps every shell / command-line
+--- escaping pitfall of building a `DB <text>` command for arbitrary substituted
+--- SQL. Passing the url explicitly (rather than relying on the current buffer's
+--- `b:db`) makes execution independent of which buffer is focused when an async
+--- prompt resolves. Non-blocking, same event contract as `execute`.
+---@param file string
+---@param url string  resolved connection url
+---@return nil
+function M.execute_file(file, url)
+  require_dadbod()
+  vim.cmd(string.format('DB %s < %s', fn.fnameescape(url), fn.fnameescape(file)))
+end
+
 -- dadbod fires `doautocmd User {output}/DBExecute{Pre,Post}`; the original UI
 -- matches these with the trailing-suffix pattern `*DBExecutePre|Post`.
 ---@param suffix string
