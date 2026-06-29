@@ -295,22 +295,21 @@ function Query:setup_buffer(entry, opts, name)
   })
 end
 
---- Yank the buffer (or, in visual mode, the last selection) into a line list.
---- Port of `s:query.get_lines`.
+--- The buffer (or, in visual mode, the last selection) as a line list. Reads the
+--- selection with `getregion` over the `'<`/`'>` marks instead of `gvy`, so it
+--- never runs a normal-mode yank or touches the unnamed register. `exclusive =
+--- false` reproduces the original `selection=inclusive` yank regardless of the
+--- user's `&selection`. Port of `s:query.get_lines`.
 ---@param is_visual? boolean
 ---@return string[]
 function Query:get_lines(is_visual)
   if not is_visual then
     return vim.api.nvim_buf_get_lines(0, 0, -1, false)
   end
-  local sel_save = vim.o.selection
-  vim.o.selection = 'inclusive'
-  local reg_save = vim.fn.getreg('"')
-  vim.cmd('silent normal! gvy')
-  local lines = vim.split(vim.fn.getreg('"'), '\n')
-  vim.o.selection = sel_save
-  vim.fn.setreg('"', reg_save)
-  return lines
+  return vim.fn.getregion(vim.fn.getpos("'<"), vim.fn.getpos("'>"), {
+    type = vim.fn.visualmode(),
+    exclusive = false,
+  })
 end
 
 --- Reduce a raw `vim.cmd` error from dadbod to its user-facing message: strip
