@@ -327,19 +327,29 @@ function Query:get_lines(is_visual)
   return lines
 end
 
+--- Reduce a raw `vim.cmd` error from dadbod to its user-facing message: strip
+--- the Lua/`nvim_exec2`/`Vim(echoerr):` wrappers, leaving e.g. `DB: Query
+--- already running for this tab`.
+---@param err any
+---@return string
+local function clean_execute_error(err)
+  local s = tostring(err)
+  return s:match('Vim%b():(.+)$') or s:match('DB:.+$') or s
+end
+
 --- Execute the current query buffer (or visual selection) through dadbod. Bind
 --- parameters are handled in M9; here we run the whole buffer with `%DB` or the
 --- selection with `'<,'>DB`, relying on the bridge's async events for the
---- loading symbol and timing. Port of the no-bind-param path of
---- `s:query.execute_query`.
+--- loading symbol and timing. Dadbod errors (e.g. a query already running for
+--- the tab) are surfaced as a notification instead of a raw stack trace. Port of
+--- the no-bind-param path of `s:query.execute_query`.
 ---@param is_visual? boolean
 ---@return nil
 function Query:execute_query(is_visual)
   local lines = self:get_lines(is_visual)
-  if is_visual then
-    bridge.execute_range()
-  else
-    bridge.execute_buffer()
+  local ok, err = pcall(is_visual and bridge.execute_range or bridge.execute_buffer)
+  if not ok then
+    return require('dadbod-ui.notifications').error(clean_execute_error(err))
   end
   if bridge.can_cancel() then
     require('dadbod-ui.notifications').info('Executing query...')

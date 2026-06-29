@@ -88,6 +88,29 @@ describe('query buffers: open', function()
     assert.equals('contacts', vim.b.dbui_table_name)
   end)
 
+  it('surfaces a dadbod execute error as a notification, not a crash', function()
+    local bridge = require('dadbod-ui.bridge')
+    local notifications = require('dadbod-ui.notifications')
+
+    d = make_drawer({ qa = 'sqlite:/tmp/qa.db' })
+    d:open()
+    local entry = entry_named(d, 'qa')
+    d:query():open({ type = 'query', key_name = entry.key_name }, 'edit')
+    query_bufs[#query_bufs + 1] = vim.api.nvim_get_current_buf()
+
+    local saved = bridge.execute_buffer
+    bridge.execute_buffer = function()
+      error('Vim(echoerr):DB: Query already running for this tab', 0)
+    end
+    local ran_ok = pcall(function()
+      d:query():execute_query()
+    end)
+    bridge.execute_buffer = saved
+
+    assert.is_true(ran_ok) -- no crash bubbled up
+    assert.equals('DB: Query already running for this tab', notifications.get_last_msg())
+  end)
+
   it('registers the opened buffer under the Buffers section', function()
     d = make_drawer({ qa = 'sqlite:/tmp/qa.db' })
     d:open()
