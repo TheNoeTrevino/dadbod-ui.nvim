@@ -131,6 +131,14 @@
 ---@field buffers DadbodUI.BuffersNode  open query buffers for this connection
 ---@field saved_queries DadbodUI.SavedQueriesNode  persisted saved queries
 
+-- Behavioural controllers are declared module-locally (like `Instance` in
+-- state.lua and `Drawer` in drawer.lua), each with a single `---@class` above
+-- its table so its methods type-check in place:
+--   DadbodUI.Introspect             -> lua/dadbod-ui/introspect.lua
+--                                      (connect + schema/table introspection)
+--   DadbodUI.ConnectionsController  -> lua/dadbod-ui/connections_controller.lua
+--                                      (interactive connections.json CRUD)
+
 --- Public connection summary (connections_list()).
 ---@class DadbodUI.ConnectionInfo
 ---@field name string
