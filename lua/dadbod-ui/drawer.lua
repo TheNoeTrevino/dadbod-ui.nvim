@@ -471,11 +471,12 @@ function Drawer:rename_connection(entry)
   end)
 end
 
---- Duplicate a connection into the file store (`D`). Prompts for a new name
---- (prefilled `<name>_copy`) then a url (prefilled from the source), so cloning
---- every database on a host is just tweak-the-db-name-and-go. The copy keeps the
---- source's group. Works on any source -- the result is always a file
---- connection -- so a `g:dbs`/env entry can be cloned into an editable one.
+--- Duplicate a connection into the file store (`D`). Prompts for a name
+--- (prefilled from the source), a url (prefilled from the source), then a group
+--- (prefilled from the source). Because the same name is allowed in different
+--- groups, the natural clone is "keep the name, change the group" -- e.g.
+--- `geekom/postgres` -> `pi/postgres`. Works on any source: the result is always
+--- a file connection, so a `g:dbs`/env entry can be cloned into an editable one.
 ---@param entry DadbodUI.ConnectionEntry
 ---@return nil
 function Drawer:duplicate_connection(entry)
@@ -483,7 +484,7 @@ function Drawer:duplicate_connection(entry)
   if self.instance.connections_path == nil then
     return notify.error('Please set up valid save location via g:db_ui_save_location')
   end
-  self.input({ prompt = 'Enter name for the duplicate: ', default = entry.name .. '_copy' }, function(name)
+  self.input({ prompt = 'Enter name for the duplicate: ', default = entry.name }, function(name)
     if name == nil then
       return
     end
@@ -499,16 +500,22 @@ function Drawer:duplicate_connection(entry)
       if resolved == nil then
         return notify.error(err or 'Invalid connection url.')
       end
-      local store = self:read_store()
-      if store == nil then
-        return
-      end
-      local list, dup_err = connections.duplicate_connection(store, name, resolved, entry.group)
-      if list == nil then
-        return notify.error(dup_err or 'Could not duplicate connection.')
-      end
-      self:commit_connections(list)
-      notify.info('Duplicated connection.')
+      self.input({ prompt = 'Enter group (optional): ', default = entry.group }, function(group)
+        if group == nil then
+          return
+        end
+        group = vim.trim(group)
+        local store = self:read_store()
+        if store == nil then
+          return
+        end
+        local list, dup_err = connections.duplicate_connection(store, name, resolved, group)
+        if list == nil then
+          return notify.error(dup_err or 'Could not duplicate connection.')
+        end
+        self:commit_connections(list)
+        notify.info('Duplicated connection.')
+      end)
     end)
   end)
 end
