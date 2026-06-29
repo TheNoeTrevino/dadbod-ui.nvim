@@ -14,6 +14,14 @@
 --- A yes/no prompt (notifications.confirm-shaped); injectable for the same reason.
 ---@alias DadbodUI.Confirm fun(msg: string): boolean
 
+--- A picker (vim.ui.select-shaped); injectable so specs drive the edit flow.
+--- `on_choice` receives nil when the user aborts the selection.
+---@alias DadbodUI.UiSelect fun(items: any[], opts: { prompt?: string, format_item?: fun(item: any): string }, on_choice: fun(item: any|nil))
+
+--- The `b:dbui_bind_params` contract: placeholder name -> the raw (unquoted)
+--- value the user entered. Read by external tools, so the shape stays stable.
+---@alias DadbodUI.BindParams table<string, string>
+
 --- Parsed connection URL (vim-dadbod's db#url#parse). Network urls carry
 --- host/port/user/password/path; file-style urls (sqlite) carry opaque instead.
 ---@class DadbodUI.ParsedUrl
