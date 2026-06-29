@@ -300,6 +300,39 @@ local function bigquery()
   }
 end
 
+-- sqlite has no information_schema, so resolve a column's foreign table globally
+-- via the `pragma_foreign_key_list` table-valued function joined over
+-- `sqlite_master` -- this matches the `{col_name}`-only interface the other
+-- adapters use. The third column is the literal `main` (sqlite's default
+-- database) so the postgres-style schema-qualified select template works as-is
+-- (`"main"."table"` is valid sqlite).
+local sqlite_foreign_key_query = [[
+SELECT fkl."table" AS foreign_table_name, fkl."to" AS foreign_column_name, 'main' AS foreign_table_schema
+FROM sqlite_master m
+JOIN pragma_foreign_key_list(m.name) fkl
+WHERE m.type = 'table' AND fkl."from" = '{col_name}'
+LIMIT 1]]
+
+-- Divergence from the original: vim-dadbod-ui has no sqlite schema entry at all,
+-- so it supports neither the foreign-key jump nor cell/header navigation in
+-- sqlite result buffers. We add the dbout-only fields below (deliberately NO
+-- `schemes_query`, so sqlite stays the tables-only drawer path). dadbod renders
+-- sqlite results with `-column -header`, i.e. space-aligned columns under a
+-- `---` underline -- hence cell_line_number 2 and the dash-rule pattern, and a
+-- parser that drops the header + underline and splits on the column gaps.
+---@return DadbodUI.SchemaAdapter
+local function sqlite()
+  return {
+    foreign_key_query = sqlite_foreign_key_query,
+    select_foreign_key_query = 'select * from "%s"."%s" where "%s" = %s',
+    cell_line_number = 2,
+    cell_line_pattern = '^-\\+\\( \\+-\\+\\)*\\s*$',
+    parse_results = function(results, min_len)
+      return results_parser(vslice(results, 2), '\\s\\s\\+', min_len)
+    end,
+  }
+end
+
 ---@return DadbodUI.SchemaAdapter
 local function clickhouse()
   return {
@@ -316,8 +349,10 @@ local function clickhouse()
   }
 end
 
--- scheme -> builder. Postgres aliases share one builder; sqlite has no entry
--- (no schema support -> the tables-only path) exactly as the original.
+-- scheme -> builder. Postgres aliases share one builder. sqlite's entry carries
+-- ONLY dbout-navigation metadata (no schemes_query), so it keeps the tables-only
+-- drawer path while still supporting the foreign-key jump + cell/header nav --
+-- our improvement over the original, which had no sqlite entry at all.
 local builders = {
   postgres = postgresql,
   postgresql = postgresql,
@@ -326,12 +361,16 @@ local builders = {
   mariadb = mysql,
   oracle = oracle,
   bigquery = bigquery,
+  sqlite = sqlite,
+  sqlite3 = sqlite,
   clickhouse = clickhouse,
 }
 
---- The introspection metadata for `scheme`, or an empty table when the adapter
---- has no schema support (e.g. sqlite). `config` tunes the queries that depend
---- on options (`use_postgres_views`, `is_oracle_legacy`).
+--- The metadata for `scheme`, or an empty table for a scheme we don't know.
+--- Note this is NOT the same as "no schema support": sqlite returns a non-empty
+--- table carrying only dbout-navigation fields (no `schemes_query`), so it has
+--- metadata without schema support. `config` tunes the queries that depend on
+--- options (`use_postgres_views`, `is_oracle_legacy`).
 ---@param scheme string  raw url scheme
 ---@param config? DadbodUI.Config
 ---@return DadbodUI.SchemaAdapter
