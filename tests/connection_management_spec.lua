@@ -185,6 +185,89 @@ describe('connection management: rename', function()
   end)
 end)
 
+describe('connection management: duplicate', function()
+  local d, dir
+  before_each(function()
+    dir = vim.fn.tempname()
+  end)
+  after_each(function()
+    if d then
+      d:close()
+      d = nil
+    end
+    vim.fn.delete(dir, 'rf')
+  end)
+
+  it('duplicates a connection into the drawer and json with a new name + url', function()
+    local seed = { { name = 'main', url = 'sqlite:' .. dir .. '/main.db' } }
+    connections.write_file(dir .. '/connections.json', seed)
+    -- prompts: name, url, group (ungrouped here)
+    d = make_drawer({ save_location = dir, file_entries = seed, inputs = { 'analytics', 'sqlite:' .. dir .. '/analytics.db', '' } })
+
+    d:duplicate_connection(entry_named(d, 'main'))
+    local file = stored(d.instance.connections_path)
+    assert.equals(2, #file)
+    assert.is_not_nil(entry_named(d, 'main')) -- source kept
+    assert.is_not_nil(entry_named(d, 'analytics')) -- copy added
+    assert.equals('sqlite:' .. dir .. '/analytics.db', entry_named(d, 'analytics').url)
+  end)
+
+  it('prefills the group prompt with the source group', function()
+    local seed = { { name = 'pg', url = 'sqlite:' .. dir .. '/a.db', group = 'Servers' } }
+    connections.write_file(dir .. '/connections.json', seed)
+    d = make_drawer({ save_location = dir, file_entries = seed })
+    -- accept the prefilled group (3rd prompt) by returning its default
+    d.input = (function()
+      local q = { 'pg2', 'sqlite:' .. dir .. '/b.db' }
+      local i = 0
+      return function(opts, cb)
+        i = i + 1
+        cb(i <= 2 and q[i] or opts.default)
+      end
+    end)()
+
+    d:duplicate_connection(entry_named(d, 'pg'))
+    local copy = vim.tbl_filter(function(c)
+      return c.name == 'pg2'
+    end, stored(d.instance.connections_path))[1]
+    assert.equals('Servers', copy.group)
+  end)
+
+  it('clones a same-name connection into a different group', function()
+    local seed = { { name = 'postgres', url = 'postgres://geekom/db', group = 'geekom' } }
+    connections.write_file(dir .. '/connections.json', seed)
+    -- keep the name, change only the group: geekom/postgres -> pi/postgres
+    d = make_drawer({ save_location = dir, file_entries = seed, inputs = { 'postgres', 'postgres://pi/db', 'pi' } })
+
+    d:duplicate_connection(entry_named(d, 'postgres'))
+    local file = stored(d.instance.connections_path)
+    assert.equals(2, #file)
+    local groups = vim.tbl_map(function(c)
+      return c.group
+    end, file)
+    assert.is_true(vim.tbl_contains(groups, 'geekom'))
+    assert.is_true(vim.tbl_contains(groups, 'pi'))
+  end)
+
+  it('refuses a same name in the same group and writes nothing', function()
+    local seed = { { name = 'a', url = 'sqlite:' .. dir .. '/a.db' } }
+    connections.write_file(dir .. '/connections.json', seed)
+    d = make_drawer({ save_location = dir, file_entries = seed, inputs = { 'a', 'sqlite:' .. dir .. '/b.db', '' } })
+
+    d:duplicate_connection(entry_named(d, 'a'))
+    assert.equals(1, #stored(d.instance.connections_path))
+    assert.is_truthy(notifications.get_last_msg():find('already exists'))
+  end)
+
+  it('can duplicate a variable-source connection into an editable file one', function()
+    d = make_drawer({ save_location = dir, g_dbs = { dev = 'postgres://h/dev' }, inputs = { 'dev_file', 'postgres://h/dev', '' } })
+    d:duplicate_connection(entry_named(d, 'dev'))
+    local file = stored(d.instance.connections_path)
+    assert.equals(1, #file)
+    assert.equals('dev_file', file[1].name)
+  end)
+end)
+
 describe('connection management: group', function()
   local d, dir
   before_each(function()
