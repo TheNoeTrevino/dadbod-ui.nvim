@@ -54,6 +54,36 @@ describe('connections: add_connection', function()
   end)
 end)
 
+describe('connections: duplicate_connection', function()
+  it('appends a copy under the new name and url', function()
+    local base = { { name = 'dev', url = 'postgres://h/dev' } }
+    local list, err = connections.duplicate_connection(base, 'dev_copy', 'postgres://h/analytics')
+    assert.is_nil(err)
+    assert.equals(2, #list)
+    assert.equals('dev_copy', list[2].name)
+    assert.equals('postgres://h/analytics', list[2].url)
+    assert.equals(1, #base) -- input untouched
+  end)
+
+  it('carries over the source group when provided', function()
+    local list = connections.duplicate_connection({}, 'pg2', 'postgres://h/two', 'Servers')
+    assert.equals('Servers', list[1].group)
+  end)
+
+  it('leaves the copy ungrouped for an empty/nil group', function()
+    local list = connections.duplicate_connection({}, 'pg2', 'postgres://h/two', '')
+    assert.is_nil(list[1].group)
+  end)
+
+  it('rejects a name that already exists (case-insensitive)', function()
+    local base = { { name = 'Dev', url = 'postgres://h/dev' } }
+    local list, err = connections.duplicate_connection(base, 'dev', 'postgres://h/other')
+    assert.is_nil(list)
+    assert.is_truthy(err)
+    assert.equals(1, #base)
+  end)
+end)
+
 describe('connections: delete_connection', function()
   it('removes the matching connection and keeps the rest', function()
     local base = {

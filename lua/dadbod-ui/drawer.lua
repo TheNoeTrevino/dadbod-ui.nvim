@@ -17,6 +17,7 @@ local HELP_LINES = {
   '" d - Delete selected item',
   '" R - Redraw',
   '" A - Add connection',
+  '" D - Duplicate connection',
   '" G - Add/remove connection to a group',
   '" H - Toggle database details',
   '" r - Rename/Edit buffer/connection/saved query',
@@ -470,6 +471,48 @@ function Drawer:rename_connection(entry)
   end)
 end
 
+--- Duplicate a connection into the file store (`D`). Prompts for a new name
+--- (prefilled `<name>_copy`) then a url (prefilled from the source), so cloning
+--- every database on a host is just tweak-the-db-name-and-go. The copy keeps the
+--- source's group. Works on any source -- the result is always a file
+--- connection -- so a `g:dbs`/env entry can be cloned into an editable one.
+---@param entry DadbodUI.ConnectionEntry
+---@return nil
+function Drawer:duplicate_connection(entry)
+  local notify = require('dadbod-ui.notifications')
+  if self.instance.connections_path == nil then
+    return notify.error('Please set up valid save location via g:db_ui_save_location')
+  end
+  self.input({ prompt = 'Enter name for the duplicate: ', default = entry.name .. '_copy' }, function(name)
+    if name == nil then
+      return
+    end
+    name = vim.trim(name)
+    if name == '' then
+      return notify.error('Please enter valid name.')
+    end
+    self.input({ prompt = 'Enter connection url: ', default = entry.url }, function(url)
+      if url == nil then
+        return
+      end
+      local resolved, err = validate_url(url)
+      if resolved == nil then
+        return notify.error(err or 'Invalid connection url.')
+      end
+      local store = self:read_store()
+      if store == nil then
+        return
+      end
+      local list, dup_err = connections.duplicate_connection(store, name, resolved, entry.group)
+      if list == nil then
+        return notify.error(dup_err or 'Could not duplicate connection.')
+      end
+      self:commit_connections(list)
+      notify.info('Duplicated connection.')
+    end)
+  end)
+end
+
 --- Assign a connection to a group (or clear it). A group is just a shared name:
 --- entering an existing group joins it, a new name creates it, and an empty
 --- entry ungroups. Only file-source connections are editable.
@@ -506,6 +549,18 @@ function Drawer:set_group_line()
   end
   if item.type == 'db' then
     return self:set_group(self.instance.dbs[item.key_name])
+  end
+end
+
+--- Duplicate the connection under the cursor (`D`).
+---@return nil
+function Drawer:duplicate_line()
+  local item = self:get_current_item()
+  if item == nil then
+    return
+  end
+  if item.type == 'db' then
+    return self:duplicate_connection(self.instance.dbs[item.key_name])
   end
 end
 
@@ -688,6 +743,9 @@ function Drawer:setup_mappings()
   end)
   map('R', function()
     self:redraw()
+  end)
+  map('D', function()
+    self:duplicate_line()
   end)
   map('G', function()
     self:set_group_line()
