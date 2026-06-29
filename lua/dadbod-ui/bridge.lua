@@ -297,14 +297,6 @@ function M.execute_buffer()
   vim.cmd('%DB')
 end
 
---- Execute the last visual selection against its `b:db` (dadbod's `'<,'>DB`).
---- Non-blocking, same event contract as `execute`.
----@return nil
-function M.execute_range()
-  require_dadbod()
-  vim.cmd([['<,'>DB]])
-end
-
 --- Execute SQL read from `file` against `url` (dadbod's `DB <url> < file`). Used
 --- for bind-param substitution, where the rewritten query is written to a temp
 --- file rather than fed inline -- this sidesteps every shell / command-line

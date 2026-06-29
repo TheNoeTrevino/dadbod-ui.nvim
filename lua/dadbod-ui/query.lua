@@ -335,21 +335,38 @@ function Query:setup_buffer(entry, opts, name)
   })
 end
 
---- The buffer (or, in visual mode, the last selection) as a line list. Reads the
---- selection with `getregion` over the `'<`/`'>` marks instead of `gvy`, so it
---- never runs a normal-mode yank or touches the unnamed register. `exclusive =
---- false` reproduces the original `selection=inclusive` yank regardless of the
---- user's `&selection`. Port of `s:query.get_lines`.
+--- The buffer (or, in visual mode, the selection) as a line list. Reads the
+--- selection with `getregion` instead of `gvy`, so it never runs a normal-mode
+--- yank or touches the unnamed register. `exclusive = false` reproduces the
+--- original `selection=inclusive` yank regardless of the user's `&selection`.
+---
+--- The selection endpoints come from one of two places depending on how the
+--- caller's mapping is wired, because the `'<`/`'>` marks are only updated when
+--- visual mode is LEFT:
+---   * Still in visual mode -- a Lua-callback / `<Cmd>` mapping runs without
+---     leaving it, so the marks are stale (or unset `[0,0,0,0]` on a first-ever
+---     selection, which made `getregion` raise `E475`). Use the live `v`/`.`
+---     positions and the current `mode()` instead.
+---   * Back in normal mode -- a `:<C-u>`-style mapping already committed the
+---     selection, so the `'<`/`'>` marks + `visualmode()` are authoritative.
+--- Either way we operate on the user's actual current selection.
 ---@param is_visual? boolean
 ---@return string[]
 function Query:get_lines(is_visual)
   if not is_visual then
     return vim.api.nvim_buf_get_lines(0, 0, -1, false)
   end
-  return vim.fn.getregion(vim.fn.getpos("'<"), vim.fn.getpos("'>"), {
-    type = vim.fn.visualmode(),
-    exclusive = false,
-  })
+  local mode = vim.fn.mode()
+  local from, to, regtype
+  if mode == 'v' or mode == 'V' or mode == '\22' then
+    from, to, regtype = vim.fn.getpos('v'), vim.fn.getpos('.'), mode
+  else
+    from, to, regtype = vim.fn.getpos("'<"), vim.fn.getpos("'>"), vim.fn.visualmode()
+  end
+  if regtype == '' then
+    regtype = 'v' -- no recorded visual mode yet; default to charwise
+  end
+  return vim.fn.getregion(from, to, { type = regtype, exclusive = false })
 end
 
 --- Reduce a raw `vim.cmd` error from dadbod to its user-facing message: strip
@@ -424,15 +441,23 @@ function Query:run_from_file(lines, entry)
   bridge.execute_file(file, entry.conn)
 end
 
---- Execute the current query buffer (or visual selection) through dadbod. With
---- no placeholders we keep the direct fast path -- the whole buffer via `%DB` or
---- the selection via `'<,'>DB` -- so dadbod operates on the live buffer/selection
---- unchanged. When `bind_param_pattern` matches, we prompt for any not-yet-known
---- parameters, persist the full set in `b:dbui_bind_params`, substitute the
---- quoted values, and run the rewritten SQL from a temp file. Cancelling a prompt
---- aborts without executing or persisting. Dadbod errors (e.g. a query already
---- running for the tab) surface as a notification rather than a raw stack trace.
---- Port of `s:query.execute_query` + `execute_lines` + `inject_variables`.
+--- Execute the current query buffer (or visual selection) through dadbod. The
+--- whole buffer with no placeholders runs directly via `%DB` (a `%` range is
+--- always valid, so no marks are involved). A visual selection is read with
+--- `vim.fn.getregion` -- the live selection, independent of the `'<`/`'>` marks --
+--- and run from a temp file. This deliberately avoids dadbod's mark-based
+--- `'<,'>DB`: a Lua-callback / `<Cmd>` mapping fires while still in visual mode,
+--- so the marks aren't committed yet and `'<,'>DB` raised `E20: Mark not set`
+--- (and the old getregion-over-marks read raised `E475`). Reading the selection
+--- text and feeding it to dadbod sidesteps marks entirely, so execution works
+--- regardless of how the user wired the mapping.
+---
+--- When `bind_param_pattern` matches we prompt for any not-yet-known parameters,
+--- persist the full set in `b:dbui_bind_params`, substitute the quoted values, and
+--- run the rewritten SQL from a temp file. Cancelling a prompt aborts without
+--- executing or persisting. Dadbod errors (e.g. a query already running for the
+--- tab) surface as a notification rather than a raw stack trace. Port of
+--- `s:query.execute_query` + `execute_lines` + `inject_variables`.
 ---@param is_visual? boolean
 ---@return nil
 function Query:execute_query(is_visual)
@@ -458,8 +483,19 @@ function Query:execute_query(is_visual)
   end
 
   if #names == 0 then
-    -- Fast path: no placeholders, run the buffer/selection directly.
-    return run(is_visual and bridge.execute_range or bridge.execute_buffer)
+    if not is_visual then
+      -- Whole buffer, no placeholders: run it directly (no marks needed).
+      return run(bridge.execute_buffer)
+    end
+    -- Visual selection, no placeholders: run the text we read via getregion from
+    -- a temp file, so we never touch the '<'/'>' marks.
+    local entry = self.instance.dbs[vim.b.dbui_db_key_name]
+    if entry == nil then
+      return notify.error('Buffer not attached to any database')
+    end
+    return run(function()
+      self:run_from_file(lines, entry)
+    end)
   end
 
   -- Capture buffer and connection now: an async prompt backend may resolve after
