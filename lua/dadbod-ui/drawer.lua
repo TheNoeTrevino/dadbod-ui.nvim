@@ -133,6 +133,9 @@ function Drawer:open(mods)
   wo.winfixwidth = true
 
   self:setup_mappings()
+  -- Register the dbout filetype / result-recording autocmds and the loading
+  -- spinner on dadbod's async execute events (idempotent across opens).
+  require('dadbod-ui.dbout').attach(self)
   vim.api.nvim_create_autocmd('BufEnter', {
     buffer = self.bufnr,
     callback = function()
@@ -189,6 +192,7 @@ function Drawer:render()
     self:add({ label = '" No connections', icon = '', level = 0, type = 'help', action = 'noaction' })
     self:add({ label = 'Add connection', icon = self.icons.add_connection, level = 0, type = 'add_connection', action = 'call_method' })
   end
+  self:render_dbout_list()
 
   local lines = vim.iter(self.content)
     :map(function(node)
@@ -267,6 +271,47 @@ function Drawer:render_dbs()
           end)
       end
     end
+  end
+end
+
+--- Render the top-level `Query results` section listing the executed `.dbout`
+--- files (the instance's dbout_list). A toggle header whose `show_dbout_list`
+--- state expands to the result files, sorted per `dbout_list_sort`, each opening
+--- as a preview. Port of the dbout_list block of `s:drawer.render`.
+---@return nil
+function Drawer:render_dbout_list()
+  local files = vim.tbl_keys(self.instance.dbout_list)
+  if #files == 0 then
+    return
+  end
+  self:add({ label = '', icon = '', level = 0, type = 'help', action = 'noaction' })
+  self:add({
+    label = string.format('Query results (%d)', #files),
+    icon = self:toggle_icon('saved_queries', self.show_dbout_list),
+    level = 0,
+    type = 'dbout_list',
+    action = 'call_method',
+    expanded = self.show_dbout_list,
+  })
+  if not self.show_dbout_list then
+    return
+  end
+  local dbout = require('dadbod-ui.dbout')
+  table.sort(files, dbout.sort_dbout)
+  for _, file in ipairs(files) do
+    local content = self.instance.dbout_list[file]
+    local label = vim.fn.fnamemodify(file, ':t')
+    if content ~= nil and content ~= '' then
+      label = label .. string.format(' (%s)', content)
+    end
+    self:add({
+      label = label,
+      icon = self.icons.tables,
+      level = 1,
+      type = 'dbout',
+      action = 'open',
+      file_path = file,
+    })
   end
 end
 
