@@ -99,9 +99,10 @@ describe('schema introspection: rendering', function()
     local l = lines(d)
     assert.equals('▾ dev', l[1])
     assert.equals('  + New query', l[2])
-    assert.equals('  ▾ Schemas (1)', l[3])
-    assert.equals('    ▾ public (1)', l[4])
-    assert.equals('      ▾ users', l[5]) -- expanded, so its helpers follow
+    assert.equals('  ▸ Saved queries (0)', l[3]) -- always shown, between New query and Schemas
+    assert.equals('  ▾ Schemas (1)', l[4])
+    assert.equals('    ▾ public (1)', l[5])
+    assert.equals('      ▾ users', l[6]) -- expanded, so its helpers follow
     -- an expanded table lists its adapter helpers (e.g. List) as children
     assert.is_truthy(vim.tbl_contains(l, '        ~ List'))
   end)

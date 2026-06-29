@@ -262,6 +262,23 @@ function M.execute(url, sql)
   vim.cmd(string.format('DB %s %s', fn.fnameescape(url), sql))
 end
 
+--- Execute the whole current buffer against its `b:db` (dadbod's `%DB`). The
+--- buffer must carry a valid `b:db`; non-blocking, same event contract as
+--- `execute`. Used by the on-save / execute-query path.
+---@return nil
+function M.execute_buffer()
+  require_dadbod()
+  vim.cmd('%DB')
+end
+
+--- Execute the last visual selection against its `b:db` (dadbod's `'<,'>DB`).
+--- Non-blocking, same event contract as `execute`.
+---@return nil
+function M.execute_range()
+  require_dadbod()
+  vim.cmd([['<,'>DB]])
+end
+
 -- dadbod fires `doautocmd User {output}/DBExecute{Pre,Post}`; the original UI
 -- matches these with the trailing-suffix pattern `*DBExecutePre|Post`.
 ---@param suffix string
