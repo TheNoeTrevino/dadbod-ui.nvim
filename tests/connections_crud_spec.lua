@@ -45,12 +45,72 @@ describe('connections: add_connection', function()
     assert.equals('dev', list[1].name)
   end)
 
-  it('rejects a duplicate name (case-insensitive)', function()
+  it('rejects a duplicate name in the same group (case-insensitive)', function()
     local base = { { name = 'Dev', url = 'postgres://h/dev' } }
     local list, err = connections.add_connection(base, 'dev', 'postgres://h/other')
     assert.is_nil(list)
     assert.is_truthy(err)
     assert.equals(1, #base) -- input untouched
+  end)
+
+  it('allows the same name in a different group', function()
+    local base = { { name = 'postgres', url = 'postgres://geekom/db', group = 'geekom' } }
+    local list, err = connections.add_connection(base, 'postgres', 'postgres://pi/db', 'pi')
+    assert.is_nil(err)
+    assert.equals(2, #list)
+    assert.equals('postgres', list[2].name)
+    assert.equals('pi', list[2].group)
+  end)
+
+  it('rejects the same name in the same group', function()
+    local base = { { name = 'postgres', url = 'postgres://geekom/db', group = 'geekom' } }
+    local list, err = connections.add_connection(base, 'postgres', 'postgres://geekom/other', 'geekom')
+    assert.is_nil(list)
+    assert.is_truthy(err)
+  end)
+
+  it('stores no group key when ungrouped', function()
+    local list = connections.add_connection({}, 'dev', 'postgres://h/dev')
+    assert.is_nil(list[1].group)
+  end)
+end)
+
+describe('connections: duplicate_connection', function()
+  it('appends a copy under the new name and url', function()
+    local base = { { name = 'dev', url = 'postgres://h/dev' } }
+    local list, err = connections.duplicate_connection(base, 'dev_copy', 'postgres://h/analytics')
+    assert.is_nil(err)
+    assert.equals(2, #list)
+    assert.equals('dev_copy', list[2].name)
+    assert.equals('postgres://h/analytics', list[2].url)
+    assert.equals(1, #base) -- input untouched
+  end)
+
+  it('carries over the source group when provided', function()
+    local list = connections.duplicate_connection({}, 'pg2', 'postgres://h/two', 'Servers')
+    assert.equals('Servers', list[1].group)
+  end)
+
+  it('leaves the copy ungrouped for an empty/nil group', function()
+    local list = connections.duplicate_connection({}, 'pg2', 'postgres://h/two', '')
+    assert.is_nil(list[1].group)
+  end)
+
+  it('rejects a name that already exists in the same group (case-insensitive)', function()
+    local base = { { name = 'Dev', url = 'postgres://h/dev' } }
+    local list, err = connections.duplicate_connection(base, 'dev', 'postgres://h/other')
+    assert.is_nil(list)
+    assert.is_truthy(err)
+    assert.equals(1, #base)
+  end)
+
+  it('clones a same-name connection into a different group', function()
+    local base = { { name = 'postgres', url = 'postgres://geekom/db', group = 'geekom' } }
+    local list, err = connections.duplicate_connection(base, 'postgres', 'postgres://pi/db', 'pi')
+    assert.is_nil(err)
+    assert.equals(2, #list)
+    assert.equals('postgres', list[2].name)
+    assert.equals('pi', list[2].group)
   end)
 end)
 
@@ -105,6 +165,17 @@ describe('connections: rename_connection', function()
     local list, err = connections.rename_connection(base, 'a', 'postgres://h/a', 'a', 'postgres://h/new')
     assert.is_nil(err)
     assert.equals('postgres://h/new', list[1].url)
+  end)
+
+  it('allows renaming onto a name that exists only in a different group', function()
+    local base = {
+      { name = 'postgres', url = 'postgres://geekom/db', group = 'geekom' },
+      { name = 'db', url = 'postgres://pi/db', group = 'pi' },
+    }
+    local list, err = connections.rename_connection(base, 'db', 'postgres://pi/db', 'postgres', 'postgres://pi/db')
+    assert.is_nil(err)
+    assert.equals('postgres', list[2].name)
+    assert.equals('pi', list[2].group) -- still pi; the geekom/postgres is untouched
   end)
 end)
 

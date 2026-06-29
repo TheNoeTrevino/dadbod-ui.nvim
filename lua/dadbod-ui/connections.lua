@@ -211,22 +211,55 @@ local function same_conn(conn, name, resolved_url)
   return conn.name:lower() == name:lower() and bridge.resolve(conn.url):lower() == resolved_url
 end
 
---- Append a connection. Returns `(new_list, nil)` or `(nil, err)` when a
---- connection with that name already exists (case-insensitive).
+-- Two connections occupy the same "slot" when their names match
+-- (case-insensitive) AND they live in the same group -- the exact rule
+-- `key_name` enforces. So the same name is allowed in different groups
+-- (e.g. geekom/postgres and pi/postgres), but never twice in one group.
+---@param conn DadbodUI.FileConnection
+---@param name string
+---@param group string
+---@return boolean
+local function same_slot(conn, name, group)
+  return conn.name:lower() == name:lower() and (conn.group or ''):lower() == group:lower()
+end
+
+--- Append a connection in `group` ('' / nil = ungrouped). Returns
+--- `(new_list, nil)`, or `(nil, err)` when a connection with that name already
+--- exists *in the same group* (case-insensitive) -- the same name in a different
+--- group is allowed.
 ---@param list DadbodUI.FileConnection[]
 ---@param name string
 ---@param url string
+---@param group? string
 ---@return DadbodUI.FileConnection[]|nil, string|nil
-function M.add_connection(list, name, url)
+function M.add_connection(list, name, url, group)
+  group = group or ''
   local exists = vim.iter(list):any(function(conn)
-    return conn.name:lower() == name:lower()
+    return same_slot(conn, name, group)
   end)
   if exists then
-    return nil, 'Connection with that name already exists. Please enter different name.'
+    return nil, 'Connection with that name already exists in that group. Please enter a different name.'
   end
   local out = vim.deepcopy(list)
-  out[#out + 1] = { name = name, url = url }
+  local entry = { name = name, url = url }
+  if group ~= '' then
+    entry.group = group
+  end
+  out[#out + 1] = entry
   return out, nil
+end
+
+--- Append a copy of a connection under `(new_name, new_url)` in `group`. A thin
+--- alias for `add_connection` that names the intent at the call site; the
+--- group-aware collision rule means a clone can keep its name as long as it lands
+--- in a different group -- handy for `geekom/postgres` + `pi/postgres`.
+---@param list DadbodUI.FileConnection[]
+---@param new_name string
+---@param new_url string
+---@param group? string
+---@return DadbodUI.FileConnection[]|nil, string|nil
+function M.duplicate_connection(list, new_name, new_url, group)
+  return M.add_connection(list, new_name, new_url, group)
 end
 
 --- Remove the connection matching (name, url). Returns a new list.
@@ -245,9 +278,10 @@ end
 
 --- Replace the connection matching (old_name, old_url) with (new_name, new_url),
 --- preserving its group. Returns `(new_list, nil)`, or `(nil, err)` when
---- `new_name` collides with a *different* connection (case-insensitive) -- which
---- would otherwise merge two entries under one `key_name` on the next discover.
---- The list is returned unchanged (with no error) when nothing matches.
+--- `new_name` collides with a *different* connection in the same group
+--- (case-insensitive) -- which would otherwise merge two entries under one
+--- `key_name` on the next discover. The list is returned unchanged (with no
+--- error) when nothing matches.
 ---@param list DadbodUI.FileConnection[]
 ---@param old_name string
 ---@param old_url string
@@ -263,9 +297,11 @@ function M.rename_connection(list, old_name, old_url, new_name, new_url)
       break
     end
   end
+  -- A rename keeps the entry's group, so the new name only collides within it.
+  local group = match_idx ~= nil and (list[match_idx].group or '') or ''
   for i, conn in ipairs(list) do
-    if i ~= match_idx and conn.name:lower() == new_name:lower() then
-      return nil, 'Connection with that name already exists. Please enter different name.'
+    if i ~= match_idx and same_slot(conn, new_name, group) then
+      return nil, 'Connection with that name already exists in that group. Please enter a different name.'
     end
   end
   local out = vim.deepcopy(list)
