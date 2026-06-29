@@ -117,6 +117,14 @@
 ---@field parse_virtual_results? fun(results: string[], min_len: integer): any[]
 ---@field layout_flag? string         CLI flag toggling expanded/vertical result layout
 
+--- One highlight range to apply over a painted drawer line: a highlight group
+--- and the byte columns it covers (`col_end` exclusive). Computed purely by
+--- dadbod-ui.highlights so it is unit-testable without a buffer.
+---@class DadbodUI.Highlight
+---@field group string
+---@field col_start integer  0-based byte column
+---@field col_end integer    0-based byte column, exclusive
+
 --- Per-connection state entry held by the instance.
 ---@class DadbodUI.ConnectionEntry
 ---@field url string
