@@ -182,12 +182,11 @@ function Drawer:toggle_icon(kind, expanded)
   return expanded and self.icons.expanded[kind] or self.icons.collapsed[kind]
 end
 
---- Rebuild `content` from the instance and write the buffer lines.
----@return DadbodUI.Drawer
-function Drawer:render()
-  if not self:is_open() then
-    return self
-  end
+--- Rebuild the drawer node list from the instance, storing it on `self.content`
+--- (navigation indexes that field) and returning it. Pure with respect to the
+--- window: it needs no open drawer, which makes it unit-testable on its own.
+---@return DadbodUI.Node[]
+function Drawer:build_content()
   self.content = {}
   self:render_help()
   self:render_dbs()
@@ -196,8 +195,19 @@ function Drawer:render()
     self:add({ label = 'Add connection', icon = self.icons.add_connection, level = 0, type = 'add_connection', action = 'call_method' })
   end
   self:render_dbout_list()
+  return self.content
+end
 
-  local lines = vim.iter(self.content)
+--- Paint a node list into `bufnr`: map each node to its display string
+--- (indent + icon + separator + label) and overwrite the buffer under a
+--- `modifiable` toggle. The only render half that requires a buffer; M10 will
+--- hang highlight metadata off the nodes here. Standalone (no `self`) so the
+--- paint seam stays decoupled from instance state.
+---@param bufnr integer
+---@param nodes DadbodUI.Node[]
+---@return nil
+local function paint(bufnr, nodes)
+  local lines = vim.iter(nodes)
     :map(function(node)
       local indent = string.rep(' ', INDENT * node.level)
       local sep = node.icon ~= '' and ' ' or ''
@@ -205,10 +215,21 @@ function Drawer:render()
     end)
     :totable()
 
-  local bo = vim.bo[self.bufnr]
+  local bo = vim.bo[bufnr]
   bo.modifiable = true
-  vim.api.nvim_buf_set_lines(self.bufnr, 0, -1, false, lines)
+  vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
   bo.modifiable = false
+end
+
+--- Rebuild `content` from the instance and write the buffer lines.
+---@return DadbodUI.Drawer
+function Drawer:render()
+  if not self:is_open() then
+    return self
+  end
+  -- is_open() guarantees a live window, hence a buffer; narrow bufnr to non-nil.
+  local bufnr = assert(self.bufnr)
+  paint(bufnr, self:build_content())
   return self
 end
 
