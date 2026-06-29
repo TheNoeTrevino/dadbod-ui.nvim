@@ -46,7 +46,9 @@ local M = {}
 ---@field icons DadbodUI.Icons
 ---@field config DadbodUI.Config
 ---@field content DadbodUI.Node[]  line N -> node
----@field groups table<string, { expanded: boolean }>
+--- Drawer-owned transient VIEW state (group expand + the show_* flags below);
+--- entries own DOMAIN expand. See the ownership note above `toggle_line`.
+---@field groups table<string, { expanded: boolean }>  per-group expand state
 ---@field show_help boolean
 ---@field show_details boolean
 ---@field input DadbodUI.UiInput  prompt backend (injectable for specs)
@@ -284,6 +286,7 @@ function Drawer:render_dbs()
         action = 'toggle',
         group = group,
         expanded = gs.expanded,
+        toggle_state = gs,
       })
       if gs.expanded then
         vim.iter(dbs)
@@ -364,6 +367,12 @@ function Drawer:render_db(record, level)
     action = 'toggle',
     key_name = record.key_name,
     expanded = entry.expanded,
+    -- A db's entry IS its `{ expanded }` table; on_expand runs the lazy
+    -- introspection only on the opening flip, never on collapse.
+    toggle_state = entry,
+    on_expand = function()
+      self:expand_db(entry)
+    end,
   })
   if entry.expanded then
     self:render_db_sections(entry, level + 1)
@@ -612,6 +621,26 @@ function Drawer:get_current_item()
   return self.content[self:current_line()]
 end
 
+-- Expand/UI state ownership ---------------------------------------------------
+--
+-- Two coherent owners:
+--   * DRAWER owns transient VIEW state -- `show_help`, `show_details`,
+--     `show_dbout_list`, and group expand (`self.groups`, via `group_state`).
+--     None of it is domain data; it resets with a fresh drawer.
+--   * ENTRIES own DOMAIN expand -- `entry.expanded` and the `.expanded` flag on
+--     each section/schema/table sub-node; per-connection, surviving a drawer
+--     close/reopen on the same instance.
+--
+-- `toggle_line` special-cases neither: every togglable node carries a
+-- `toggle_state` reference to its backing `{ expanded }` table (see the Node
+-- type for what each points at), so a toggle is one generic flip, plus an
+-- optional `on_expand` for the db's lazy introspection.
+--
+-- `show_dbout_list` is the lone exception: like the `show_help`/`show_details`
+-- booleans it is flipped by name, here on the `call_method` path. It is left
+-- there deliberately to keep the action branches (`call_method`/`open`)
+-- untouched -- those are actions, not expand-state flips.
+
 --- Act on the node under the cursor. Toggles groups/dbs/sections; opens query,
 --- buffer, saved-query and table-helper nodes through the query controller (in
 --- `edit_action`, defaulting to `edit`); previews dbout result files.
@@ -640,24 +669,14 @@ function Drawer:toggle_line(edit_action)
     self:query():open(item, edit_action or 'edit')
     return
   end
-  if item.type == 'group' then
-    self:group_state(item.group).expanded = not self:group_state(item.group).expanded
-    return self:render()
-  end
-  if item.type == 'db' then
-    local entry = self.instance.dbs[item.key_name]
-    entry.expanded = not entry.expanded
-    -- Lazy-load: only introspect when expanding (kicks off async, renders again
-    -- when the schema/table data arrives), never on collapse.
-    if entry.expanded then
-      self:expand_db(entry)
-    end
-    return self:render()
-  end
-  -- Schemas / Tables / schema / table nodes carry a direct reference to the
-  -- state they flip, so toggling is a plain re-render (no re-introspection).
+  -- Generic flip (see the ownership note above): every togglable node carries
+  -- `toggle_state`; `on_expand` (db lazy introspection) fires only when the flip
+  -- opens the node, never on collapse.
   if item.toggle_state ~= nil then
     item.toggle_state.expanded = not item.toggle_state.expanded
+    if item.toggle_state.expanded and item.on_expand ~= nil then
+      item.on_expand()
+    end
     return self:render()
   end
 end

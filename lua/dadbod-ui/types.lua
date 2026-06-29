@@ -138,7 +138,8 @@
 ---@field key_name? string
 ---@field group? string
 ---@field expanded? boolean
----@field toggle_state? { expanded: boolean }  node whose `expanded` flips on toggle
+---@field toggle_state? { expanded: boolean }  the `{ expanded }` table this node flips on toggle (entry for db, group_state for group, the section sub-node otherwise)
+---@field on_expand? fun()  side effect fired once a toggle opens the node (db lazy introspection)
 ---@field table? string  table name (table / table_helper nodes)
 ---@field schema? string  schema name (table / table_helper nodes)
 ---@field content? string  helper SQL template (table_helper nodes)
