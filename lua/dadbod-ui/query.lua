@@ -121,27 +121,29 @@ end
 ---@return nil
 function Query:focus_window()
   local win_cmd = 'vertical ' .. utils.opposite_position(self.config.win_position) .. ' new'
-  if vim.fn.winnr('$') == 1 then
+  local wins = vim.api.nvim_tabpage_list_wins(0)
+  if #wins == 1 then
     vim.cmd('silent! ' .. win_cmd)
     return
   end
-  for win = 1, vim.fn.winnr('$') do
-    local buf = vim.fn.winbufnr(win)
-    if vim.fn.getbufvar(buf, 'dbui_db_key_name') ~= '' then
-      vim.cmd(win .. 'wincmd w')
+  -- (a) reuse a window already holding a dbui query buffer.
+  for _, win in ipairs(wins) do
+    local buf = vim.api.nvim_win_get_buf(win)
+    local key = vim.b[buf].dbui_db_key_name
+    if key and key ~= '' then
+      vim.api.nvim_set_current_win(win)
       return
     end
   end
-  for win = 1, vim.fn.winnr('$') do
-    if
-      vim.fn.getwinvar(win, '&filetype') ~= 'dbui'
-      and vim.fn.getwinvar(win, '&buftype') ~= 'nofile'
-      and vim.fn.getwinvar(win, '&modifiable') == 1
-    then
-      vim.cmd(win .. 'wincmd w')
+  -- (b) else any normal editable window.
+  for _, win in ipairs(wins) do
+    local buf = vim.api.nvim_win_get_buf(win)
+    if vim.bo[buf].filetype ~= 'dbui' and vim.bo[buf].buftype ~= 'nofile' and vim.bo[buf].modifiable then
+      vim.api.nvim_set_current_win(win)
       return
     end
   end
+  -- (c) else open a vertical split on the side opposite the drawer.
   vim.cmd('silent! ' .. win_cmd)
 end
 
