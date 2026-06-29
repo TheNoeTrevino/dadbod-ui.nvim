@@ -177,6 +177,19 @@ function Instance:repopulate()
   return self:populate(inputs)
 end
 
+--- Whether `buf` (a buffer file path) belongs to the tmp-query location for
+--- `entry`: either it was generated into the entry's `buffers.tmp` list, or it
+--- lives under the configured `tmp_location`. Port of `is_tmp_location_buffer`.
+---@param entry DadbodUI.ConnectionEntry
+---@param buf string
+---@return boolean
+function Instance:is_tmp_location_buffer(entry, buf)
+  if vim.tbl_contains(entry.buffers.tmp, buf) then
+    return true
+  end
+  return self.tmp_location ~= '' and buf:find('^' .. vim.pesc(self.tmp_location)) ~= nil
+end
+
 --- List connections with their connection state.
 ---@return DadbodUI.ConnectionInfo[]
 function Instance:connections_list()
