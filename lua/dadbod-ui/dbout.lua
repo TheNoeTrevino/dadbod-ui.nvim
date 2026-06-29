@@ -12,6 +12,7 @@
 --- spinner in the buffer itself. Both are gated by `disable_progress_bar`.
 
 local bridge = require('dadbod-ui.bridge')
+local utils = require('dadbod-ui.utils')
 
 local M = {}
 
@@ -89,7 +90,7 @@ function M._show(output_file)
   if attached == nil or attached.config.disable_progress_bar then
     return
   end
-  local buf = vim.fn.bufnr(output_file)
+  local buf = utils.loaded_bufnr(output_file)
   if buf < 0 then
     return
   end
@@ -130,9 +131,8 @@ function M.save_dbout(file)
     return
   end
   local content = ''
-  local db = vim.fn.getbufvar(file, 'db')
-  local input = type(db) == 'table' and db.input or nil
-  if input ~= nil and input ~= '' and vim.fn.filereadable(input) == 1 then
+  local input = bridge.dbout_input(file)
+  if input ~= nil and vim.fn.filereadable(input) == 1 then
     content = (vim.fn.readfile(input, '', 1)[1]) or ''
     if #content > 30 then
       content = content:sub(1, 31) .. '...'
@@ -149,8 +149,10 @@ end
 ---@param b string
 ---@return boolean
 function M.sort_dbout(a, b)
-  local na = tonumber(vim.fn.fnamemodify(a, ':t:r')) or 0
-  local nb = tonumber(vim.fn.fnamemodify(b, ':t:r')) or 0
+  -- basename without its last extension (`:t:r`); the `(.)%.` guard keeps a
+  -- leading-dot name intact, matching Vim's `:r` (which never strips a dotfile).
+  local na = tonumber((vim.fs.basename(a):gsub('(.)%.[^.]*$', '%1'))) or 0
+  local nb = tonumber((vim.fs.basename(b):gsub('(.)%.[^.]*$', '%1'))) or 0
   if attached ~= nil and attached.config.dbout_list_sort == 'desc' then
     return na > nb
   end

@@ -1,24 +1,32 @@
 ---@mod dadbod-ui.drawer  The tree UI (window + content render + interaction)
 ---
---- Mirrors the original: a scratch buffer whose lines are built from a
---- `content[]` array where line N maps to a node. The cursor line indexes
---- `content` to find the node and its action. Highlighting/ftplugin and the
---- richer sections (tables, schemas, buffers) land in later slices.
+--- A scratch buffer whose lines are built from a `content[]` array where line N
+--- maps to a node. The cursor line indexes `content` to find the node and its
+--- action.
+---
+--- Domain logic is delegated to two acyclic leaf controllers, built lazily and
+--- injected with the drawer's backends + a render callback:
+---   * `dadbod-ui.introspect` -- connect + schema/table introspection
+---     (`self:introspect()`), also owns `load_saved_queries`.
+---   * `dadbod-ui.connections_controller` -- interactive connections.json CRUD
+---     (`self:connections()`).
+--- Neither requires `drawer` or `query`, so `state` stays the dependency sink.
+--- The drawer owns the query controller (`self:query()`, lazy require) and
+--- reaches into it for `open_buffer`/`focus_window`; the query controller's one
+--- back-ref to the drawer is `drawer:render()`.
 
 local icons_mod = require('dadbod-ui.icons')
-local connections = require('dadbod-ui.connections')
 local bridge = require('dadbod-ui.bridge')
-local schemas = require('dadbod-ui.schemas')
 local utils = require('dadbod-ui.utils')
 
 local INDENT = 2
 
--- A connection's `conn` is nil before any attempt, '' after a failed attempt,
--- and the live handle once connected -- so "connected" is the non-empty case.
+-- The connected predicate lives in state (the SSOT); required lazily here to
+-- keep the dependency graph acyclic, mirroring the lazy state require in M.new.
 ---@param entry DadbodUI.ConnectionEntry
 ---@return boolean
 local function is_connected(entry)
-  return entry.conn ~= nil and entry.conn ~= ''
+  return require('dadbod-ui.state').is_connected(entry)
 end
 
 local HELP_LINES = {
@@ -46,7 +54,9 @@ local M = {}
 ---@field icons DadbodUI.Icons
 ---@field config DadbodUI.Config
 ---@field content DadbodUI.Node[]  line N -> node
----@field groups table<string, { expanded: boolean }>
+--- Drawer-owned transient VIEW state (group expand + the show_* flags below);
+--- entries own DOMAIN expand. See the ownership note above `toggle_line`.
+---@field groups table<string, { expanded: boolean }>  per-group expand state
 ---@field show_help boolean
 ---@field show_details boolean
 ---@field input DadbodUI.UiInput  prompt backend (injectable for specs)
@@ -54,6 +64,8 @@ local M = {}
 ---@field connector fun(url: string): string  connect backend (injectable for specs)
 ---@field show_dbout_list boolean  whether the Query results section is expanded
 ---@field _query? DadbodUI.Query  lazily-built query controller
+---@field _introspect? DadbodUI.Introspect  lazily-built introspection controller
+---@field _connections? DadbodUI.ConnectionsController  lazily-built CRUD controller
 ---@field bufnr? integer
 ---@field winid? integer
 local Drawer = {}
@@ -79,6 +91,8 @@ function M.new(instance)
     connector = bridge.connect,
     show_dbout_list = false,
     _query = nil,
+    _introspect = nil,
+    _connections = nil,
     bufnr = nil,
     winid = nil,
   }, Drawer)
@@ -92,6 +106,43 @@ function Drawer:query()
     self._query = require('dadbod-ui.query').new(self)
   end
   return self._query
+end
+
+--- The introspection controller (lazily built): connects connections and folds
+--- their schemas/tables into the entries, re-rendering when async data lands. It
+--- captures the drawer's injectable connect backend and a render callback, but
+--- requires neither `drawer` nor `query`, keeping the graph acyclic.
+---@return DadbodUI.Introspect
+function Drawer:introspect()
+  if self._introspect == nil then
+    self._introspect = require('dadbod-ui.introspect').new({
+      config = self.config,
+      connector = self.connector,
+      render = function()
+        self:render()
+      end,
+    })
+  end
+  return self._introspect
+end
+
+--- The connections CRUD controller (lazily built): wires the interactive add/
+--- rename/duplicate/group/delete flows over connections.json. It captures the
+--- drawer's injectable input/confirm backends and a render callback, but requires
+--- neither `drawer` nor `query`.
+---@return DadbodUI.ConnectionsController
+function Drawer:connections()
+  if self._connections == nil then
+    self._connections = require('dadbod-ui.connections_controller').new({
+      instance = self.instance,
+      input = self.input,
+      confirm = self.confirm,
+      render = function()
+        self:render()
+      end,
+    })
+  end
+  return self._connections
 end
 
 ---@param name string
@@ -182,12 +233,11 @@ function Drawer:toggle_icon(kind, expanded)
   return expanded and self.icons.expanded[kind] or self.icons.collapsed[kind]
 end
 
---- Rebuild `content` from the instance and write the buffer lines.
----@return DadbodUI.Drawer
-function Drawer:render()
-  if not self:is_open() then
-    return self
-  end
+--- Rebuild the drawer node list from the instance, storing it on `self.content`
+--- (navigation indexes that field) and returning it. Pure with respect to the
+--- window: it needs no open drawer, which makes it unit-testable on its own.
+---@return DadbodUI.Node[]
+function Drawer:build_content()
   self.content = {}
   self:render_help()
   self:render_dbs()
@@ -196,8 +246,19 @@ function Drawer:render()
     self:add({ label = 'Add connection', icon = self.icons.add_connection, level = 0, type = 'add_connection', action = 'call_method' })
   end
   self:render_dbout_list()
+  return self.content
+end
 
-  local lines = vim.iter(self.content)
+--- Paint a node list into `bufnr`: map each node to its display string
+--- (indent + icon + separator + label) and overwrite the buffer under a
+--- `modifiable` toggle. The only render half that requires a buffer; M10 will
+--- hang highlight metadata off the nodes here. Standalone (no `self`) so the
+--- paint seam stays decoupled from instance state.
+---@param bufnr integer
+---@param nodes DadbodUI.Node[]
+---@return nil
+local function paint(bufnr, nodes)
+  local lines = vim.iter(nodes)
     :map(function(node)
       local indent = string.rep(' ', INDENT * node.level)
       local sep = node.icon ~= '' and ' ' or ''
@@ -205,10 +266,21 @@ function Drawer:render()
     end)
     :totable()
 
-  local bo = vim.bo[self.bufnr]
+  local bo = vim.bo[bufnr]
   bo.modifiable = true
-  vim.api.nvim_buf_set_lines(self.bufnr, 0, -1, false, lines)
+  vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
   bo.modifiable = false
+end
+
+--- Rebuild `content` from the instance and write the buffer lines.
+---@return DadbodUI.Drawer
+function Drawer:render()
+  if not self:is_open() then
+    return self
+  end
+  -- is_open() guarantees a live window, hence a buffer; narrow bufnr to non-nil.
+  local bufnr = assert(self.bufnr)
+  paint(bufnr, self:build_content())
   return self
 end
 
@@ -263,6 +335,7 @@ function Drawer:render_dbs()
         action = 'toggle',
         group = group,
         expanded = gs.expanded,
+        toggle_state = gs,
       })
       if gs.expanded then
         vim.iter(dbs)
@@ -303,7 +376,7 @@ function Drawer:render_dbout_list()
   table.sort(files, dbout.sort_dbout)
   for _, file in ipairs(files) do
     local content = self.instance.dbout_list[file]
-    local label = vim.fn.fnamemodify(file, ':t')
+    local label = vim.fs.basename(file)
     if content ~= nil and content ~= '' then
       label = label .. string.format(' (%s)', content)
     end
@@ -343,6 +416,12 @@ function Drawer:render_db(record, level)
     action = 'toggle',
     key_name = record.key_name,
     expanded = entry.expanded,
+    -- A db's entry IS its `{ expanded }` table; on_expand runs the lazy
+    -- introspection only on the opening flip, never on collapse.
+    toggle_state = entry,
+    on_expand = function()
+      self:introspect():expand_db(entry)
+    end,
   })
   if entry.expanded then
     self:render_db_sections(entry, level + 1)
@@ -379,7 +458,7 @@ end
 ---@param buffer string
 ---@return string
 function Drawer:get_buffer_name(entry, buffer)
-  local name = vim.fn.fnamemodify(buffer, ':t')
+  local name = vim.fs.basename(buffer)
   if not self.instance:is_tmp_location_buffer(entry, buffer) then
     return name
   end
@@ -448,7 +527,7 @@ function Drawer:render_saved_queries_section(entry, level)
   end
   for _, saved in ipairs(entry.saved_queries.list) do
     self:add({
-      label = vim.fn.fnamemodify(saved, ':t'),
+      label = vim.fs.basename(saved),
       icon = self.icons.saved_query,
       level = level + 1,
       type = 'saved_query',
@@ -460,14 +539,14 @@ function Drawer:render_saved_queries_section(entry, level)
   end
 end
 
---- Refresh `entry.saved_queries.list` from the files on disk under its save_path.
---- Port of `s:drawer.load_saved_queries`.
+--- Refresh `entry.saved_queries.list` from disk. Thin wrapper over the
+--- introspection controller (which owns it so the query controller can refresh
+--- saved queries without a drawer back-ref), exposed here for the drawer's own
+--- callers and the saved-query specs.
 ---@param entry DadbodUI.ConnectionEntry
 ---@return nil
 function Drawer:load_saved_queries(entry)
-  if entry.save_path ~= '' then
-    entry.saved_queries.list = vim.fn.glob(entry.save_path .. '/*', true, true)
-  end
+  return self:introspect():load_saved_queries(entry)
 end
 
 --- Render the Schemas (schema-supporting adapters) or Tables (everything else)
@@ -591,6 +670,26 @@ function Drawer:get_current_item()
   return self.content[self:current_line()]
 end
 
+-- Expand/UI state ownership ---------------------------------------------------
+--
+-- Two coherent owners:
+--   * DRAWER owns transient VIEW state -- `show_help`, `show_details`,
+--     `show_dbout_list`, and group expand (`self.groups`, via `group_state`).
+--     None of it is domain data; it resets with a fresh drawer.
+--   * ENTRIES own DOMAIN expand -- `entry.expanded` and the `.expanded` flag on
+--     each section/schema/table sub-node; per-connection, surviving a drawer
+--     close/reopen on the same instance.
+--
+-- `toggle_line` special-cases neither: every togglable node carries a
+-- `toggle_state` reference to its backing `{ expanded }` table (see the Node
+-- type for what each points at), so a toggle is one generic flip, plus an
+-- optional `on_expand` for the db's lazy introspection.
+--
+-- `show_dbout_list` is the lone exception: like the `show_help`/`show_details`
+-- booleans it is flipped by name, here on the `call_method` path. It is left
+-- there deliberately to keep the action branches (`call_method`/`open`)
+-- untouched -- those are actions, not expand-state flips.
+
 --- Act on the node under the cursor. Toggles groups/dbs/sections; opens query,
 --- buffer, saved-query and table-helper nodes through the query controller (in
 --- `edit_action`, defaulting to `edit`); previews dbout result files.
@@ -603,7 +702,7 @@ function Drawer:toggle_line(edit_action)
   end
   if item.action == 'call_method' then
     if item.type == 'add_connection' then
-      self:add_connection()
+      self:connections():add_connection()
     elseif item.type == 'dbout_list' then
       self.show_dbout_list = not self.show_dbout_list
       return self:render()
@@ -619,402 +718,24 @@ function Drawer:toggle_line(edit_action)
     self:query():open(item, edit_action or 'edit')
     return
   end
-  if item.type == 'group' then
-    self:group_state(item.group).expanded = not self:group_state(item.group).expanded
-    return self:render()
-  end
-  if item.type == 'db' then
-    local entry = self.instance.dbs[item.key_name]
-    entry.expanded = not entry.expanded
-    -- Lazy-load: only introspect when expanding (kicks off async, renders again
-    -- when the schema/table data arrives), never on collapse.
-    if entry.expanded then
-      self:expand_db(entry)
-    end
-    return self:render()
-  end
-  -- Schemas / Tables / schema / table nodes carry a direct reference to the
-  -- state they flip, so toggling is a plain re-render (no re-introspection).
+  -- Generic flip (see the ownership note above): every togglable node carries
+  -- `toggle_state`; `on_expand` (db lazy introspection) fires only when the flip
+  -- opens the node, never on collapse.
   if item.toggle_state ~= nil then
     item.toggle_state.expanded = not item.toggle_state.expanded
+    if item.toggle_state.expanded and item.on_expand ~= nil then
+      item.on_expand()
+    end
     return self:render()
   end
-end
-
--- Schema / table introspection -----------------------------------------------
---
--- Expanding a connection connects (sync, as dadbod does) then introspects. The
--- introspection itself is non-blocking: schema-supporting adapters fan out the
--- schema-list and table-list queries concurrently via `bridge.run_many`; the
--- tables-only path uses dadbod's `tables` adapter call. Each path re-renders the
--- drawer once its data lands, so a large database never freezes the UI.
-
---- Connect a connection if not already connected. Errors are captured on the
---- entry (surfaced as the error icon) and notified, mirroring the original.
----@param entry DadbodUI.ConnectionEntry
----@return DadbodUI.ConnectionEntry
-function Drawer:connect(entry)
-  if is_connected(entry) then
-    return entry
-  end
-  local notify = require('dadbod-ui.notifications')
-  notify.info(string.format('Connecting to db %s...', entry.name))
-  local started = vim.uv.hrtime()
-  local ok, conn = pcall(self.connector, entry.url)
-  if ok then
-    entry.conn = conn
-    entry.conn_error = ''
-    local elapsed_ms = math.floor((vim.uv.hrtime() - started) / 1e6 + 0.5)
-    notify.info(string.format('Connected to db %s. Took %dms to connect.', entry.name, elapsed_ms))
-  else
-    entry.conn = ''
-    entry.conn_error = tostring(conn)
-    notify.error(string.format('Error connecting to db %s: %s', entry.name, tostring(conn)))
-  end
-  entry.conn_tried = true
-  return entry
-end
-
---- Introspect a connected entry: schema-supporting adapters fan out their
---- schema/table queries, the rest list tables directly. Port of
---- `drawer.populate`.
----@param entry DadbodUI.ConnectionEntry
----@return nil
-function Drawer:populate(entry)
-  if entry.schema_support then
-    self:populate_schemas(entry)
-  else
-    self:populate_tables(entry)
-  end
-end
-
---- Connect then introspect a connection on expand.
----@param entry DadbodUI.ConnectionEntry
----@return nil
-function Drawer:expand_db(entry)
-  self:load_saved_queries(entry)
-  self:connect(entry)
-  if not is_connected(entry) then
-    return
-  end
-  if entry.schema_support then
-    self:populate_schemas(entry)
-  else
-    -- Defer so the initial expand render paints before the (blocking) adapter
-    -- call; keeps the keypress responsive even for the tables-only path.
-    vim.schedule(function()
-      self:populate_tables(entry)
-    end)
-  end
-end
-
---- Whether `schema_name` matches any `hide_schemas` pattern (Vim regexes, as in
---- the original).
----@param schema_name string
----@return boolean
-function Drawer:_is_schema_ignored(schema_name)
-  for _, pattern in ipairs(self.config.hide_schemas) do
-    if vim.fn.match(schema_name, pattern) > -1 then
-      return true
-    end
-  end
-  return false
-end
-
---- Ensure every table in `tables.list` has an expand-state item, preserving the
---- existing ones (so a refresh keeps tables expanded). Port of
---- `populate_table_items`.
----@param tables DadbodUI.TablesNode
----@return nil
-function Drawer:populate_table_items(tables)
-  for _, table_name in ipairs(tables.list) do
-    if tables.items[table_name] == nil then
-      tables.items[table_name] = { expanded = false }
-    end
-  end
-end
-
---- Introspect schemas + tables concurrently and render. Port of
---- `populate_schemas`, with the two queries fanned out via `run_many`.
----@param entry DadbodUI.ConnectionEntry
----@return nil
-function Drawer:populate_schemas(entry)
-  if not is_connected(entry) then
-    return
-  end
-  local scheme_info = schemas.get(entry.scheme, self.config)
-  local specs = {
-    schemas.command_spec(entry.conn, scheme_info, scheme_info.schemes_query),
-    schemas.command_spec(entry.conn, scheme_info, scheme_info.schemes_tables_query),
-  }
-  bridge.run_many(specs, function(results)
-    local schema_list = scheme_info.parse_results(schemas.result_lines(results[1]), 1)
-    local table_rows = scheme_info.parse_results(schemas.result_lines(results[2]), 2)
-    self:apply_schemas(entry, schema_list, table_rows)
-    self:render()
-  end)
-end
-
---- Fold parsed schema names and (schema, table) rows into the entry, honoring
---- `hide_schemas`. Port of the body of `populate_schemas`: tables are grouped
---- per schema and also collected into the flat `entry.tables.list`.
----@param entry DadbodUI.ConnectionEntry
----@param schema_list string[]
----@param table_rows string[][]
----@return nil
-function Drawer:apply_schemas(entry, schema_list, table_rows)
-  local visible_schemas = vim.tbl_filter(function(schema)
-    return not self:_is_schema_ignored(schema)
-  end, schema_list)
-
-  local tables_by_schema = {}
-  entry.tables.list = {}
-  for _, row in ipairs(table_rows) do
-    local schema_name, table_name = row[1], row[2]
-    if not self:_is_schema_ignored(schema_name) then
-      tables_by_schema[schema_name] = tables_by_schema[schema_name] or {}
-      table.insert(tables_by_schema[schema_name], table_name)
-      table.insert(entry.tables.list, table_name)
-    end
-  end
-
-  entry.schemas.list = visible_schemas
-  for _, schema in ipairs(visible_schemas) do
-    if entry.schemas.items[schema] == nil then
-      entry.schemas.items[schema] = {
-        expanded = false,
-        tables = { expanded = true, list = {}, items = {} },
-      }
-    end
-    local schema_tables = tables_by_schema[schema] or {}
-    table.sort(schema_tables)
-    entry.schemas.items[schema].tables.list = schema_tables
-    self:populate_table_items(entry.schemas.items[schema].tables)
-  end
-end
-
---- Introspect tables for a non-schema adapter (e.g. sqlite) via dadbod's
---- `tables` adapter call and render. Port of `populate_tables`, including the
---- sqlite whitespace fix and the mysql warning filter.
----@param entry DadbodUI.ConnectionEntry
----@return nil
-function Drawer:populate_tables(entry)
-  entry.tables.list = {}
-  if not is_connected(entry) then
-    return
-  end
-  local raw = bridge.adapter_call(entry.conn, 'tables', { entry.conn }, {})
-  entry.tables.list = schemas.normalize_table_list(entry.scheme, raw)
-  self:populate_table_items(entry.tables)
-  self:render()
 end
 
 -- Interactive connection management ------------------------------------------
 --
--- These wire the drawer keys (A/d/r/R) to the pure CRUD transforms in
--- connections.lua. Prompts go through `self.input` (vim.ui.input by default),
--- so each flow is callback-based; all user-facing messages route through the
--- notifications layer. On success we write connections.json, re-discover, and
--- re-render.
-
---- Resolve and validate a url the user typed. Returns `(resolved, nil)` or
---- `(nil, err)` when dadbod rejects it.
----@param url string
----@return string|nil, string|nil
-local function validate_url(url)
-  local ok, result = pcall(function()
-    local resolved = bridge.resolve(url)
-    bridge.parse_url(resolved)
-    return resolved
-  end)
-  if not ok then
-    return nil, tostring(result)
-  end
-  return result, nil
-end
-
---- Read the connections.json store, refusing to proceed when it is present but
---- corrupt -- so a CRUD action can't silently overwrite a file we failed to
---- parse. Returns the list, or nil when the store is unreadable.
----@return DadbodUI.FileConnection[]|nil
-function Drawer:read_store()
-  local corrupt = false
-  local list = connections.read_file(self.instance.connections_path, function()
-    corrupt = true
-  end)
-  if corrupt then
-    require('dadbod-ui.notifications').error(
-      'Could not read connections file; refusing to overwrite it. Fix or remove: ' .. (self.instance.connections_path or '')
-    )
-    return nil
-  end
-  return list
-end
-
---- Persist `connections.json`, re-discover, and re-render.
----@param list DadbodUI.FileConnection[]
----@return nil
-function Drawer:commit_connections(list)
-  local path = self.instance.connections_path
-  if path == nil then
-    return
-  end
-  connections.write_file(path, list)
-  self.instance:repopulate()
-  self:render()
-end
-
---- Add a new file-source connection (also `:DBUIAddConnection`). Prompts for a
---- url then a name; rejects an invalid url, a blank name, or a duplicate name.
----@return nil
-function Drawer:add_connection()
-  local notify = require('dadbod-ui.notifications')
-  if self.instance.connections_path == nil then
-    return notify.error('Please set up valid save location via g:db_ui_save_location')
-  end
-  self.input({ prompt = 'Enter connection url: ' }, function(url)
-    if url == nil then
-      return
-    end
-    local resolved, err = validate_url(url)
-    if resolved == nil then
-      return notify.error(err or 'Invalid connection url.')
-    end
-    self.input({ prompt = 'Enter name: ', default = resolved:match('[^/]*$') }, function(name)
-      if name == nil then
-        return
-      end
-      name = vim.trim(name)
-      if name == '' then
-        return notify.error('Please enter valid name.')
-      end
-      local store = self:read_store()
-      if store == nil then
-        return
-      end
-      local list, add_err = connections.add_connection(store, name, resolved)
-      if list == nil then
-        return notify.error(add_err or 'Could not add connection.')
-      end
-      self:commit_connections(list)
-      notify.info('Saved connection.')
-    end)
-  end)
-end
-
---- Rename/edit a connection. Only file-source connections are editable; others
---- are refused with a notification. Prompts for a new url then a new name.
----@param entry DadbodUI.ConnectionEntry
----@return nil
-function Drawer:rename_connection(entry)
-  local notify = require('dadbod-ui.notifications')
-  if entry.source ~= 'file' then
-    return notify.error('Cannot edit connections added via variables.')
-  end
-  self.input({ prompt = string.format('Edit connection url for "%s": ', entry.name), default = entry.url }, function(url)
-    if url == nil then
-      return
-    end
-    local resolved, err = validate_url(url)
-    if resolved == nil then
-      return notify.error(err or 'Invalid connection url.')
-    end
-    self.input({ prompt = 'Edit connection name: ', default = entry.name }, function(name)
-      if name == nil then
-        return
-      end
-      name = vim.trim(name)
-      if name == '' then
-        return notify.error('Please enter valid name.')
-      end
-      local store = self:read_store()
-      if store == nil then
-        return
-      end
-      local list, rename_err = connections.rename_connection(store, entry.name, entry.url, name, resolved)
-      if list == nil then
-        return notify.error(rename_err or 'Could not rename connection.')
-      end
-      self:commit_connections(list)
-    end)
-  end)
-end
-
---- Duplicate a connection into the file store (`D`). Prompts for a name
---- (prefilled from the source), a url (prefilled from the source), then a group
---- (prefilled from the source). Because the same name is allowed in different
---- groups, the natural clone is "keep the name, change the group" -- e.g.
---- `geekom/postgres` -> `pi/postgres`. Works on any source: the result is always
---- a file connection, so a `g:dbs`/env entry can be cloned into an editable one.
----@param entry DadbodUI.ConnectionEntry
----@return nil
-function Drawer:duplicate_connection(entry)
-  local notify = require('dadbod-ui.notifications')
-  if self.instance.connections_path == nil then
-    return notify.error('Please set up valid save location via g:db_ui_save_location')
-  end
-  self.input({ prompt = 'Enter name for the duplicate: ', default = entry.name }, function(name)
-    if name == nil then
-      return
-    end
-    name = vim.trim(name)
-    if name == '' then
-      return notify.error('Please enter valid name.')
-    end
-    self.input({ prompt = 'Enter connection url: ', default = entry.url }, function(url)
-      if url == nil then
-        return
-      end
-      local resolved, err = validate_url(url)
-      if resolved == nil then
-        return notify.error(err or 'Invalid connection url.')
-      end
-      self.input({ prompt = 'Enter group (optional): ', default = entry.group }, function(group)
-        if group == nil then
-          return
-        end
-        group = vim.trim(group)
-        local store = self:read_store()
-        if store == nil then
-          return
-        end
-        local list, dup_err = connections.duplicate_connection(store, name, resolved, group)
-        if list == nil then
-          return notify.error(dup_err or 'Could not duplicate connection.')
-        end
-        self:commit_connections(list)
-        notify.info('Duplicated connection.')
-      end)
-    end)
-  end)
-end
-
---- Assign a connection to a group (or clear it). A group is just a shared name:
---- entering an existing group joins it, a new name creates it, and an empty
---- entry ungroups. Only file-source connections are editable.
----@param entry DadbodUI.ConnectionEntry
----@return nil
-function Drawer:set_group(entry)
-  local notify = require('dadbod-ui.notifications')
-  if entry.source ~= 'file' then
-    return notify.error('Cannot edit connections added via variables.')
-  end
-  self.input({ prompt = 'Enter group name: ', default = entry.group }, function(group)
-    if group == nil then
-      return
-    end
-    group = vim.trim(group)
-    local store = self:read_store()
-    if store == nil then
-      return
-    end
-    local list, err = connections.set_group(store, entry.name, entry.url, group)
-    if list == nil then
-      return notify.error(err or 'Could not set group.')
-    end
-    self:commit_connections(list)
-  end)
-end
+-- The CRUD flows (prompt -> validate -> pure transform -> write/re-render) now
+-- live in `dadbod-ui.connections_controller`, built lazily via
+-- `self:connections()`. The cursor-aware `*_line` dispatchers below resolve the
+-- node under the cursor and route to that controller.
 
 --- Group the connection under the cursor (`G`).
 ---@return nil
@@ -1024,7 +745,7 @@ function Drawer:set_group_line()
     return
   end
   if item.type == 'db' then
-    return self:set_group(self.instance.dbs[item.key_name])
+    return self:connections():set_group(self.instance.dbs[item.key_name])
   end
 end
 
@@ -1036,7 +757,7 @@ function Drawer:duplicate_line()
     return
   end
   if item.type == 'db' then
-    return self:duplicate_connection(self.instance.dbs[item.key_name])
+    return self:connections():duplicate_connection(self.instance.dbs[item.key_name])
   end
 end
 
@@ -1053,7 +774,7 @@ function Drawer:delete_line()
     if entry.source ~= 'file' then
       return require('dadbod-ui.notifications').error('Cannot delete this connection.')
     end
-    return self:delete_connection(entry)
+    return self:connections():delete_connection(entry)
   end
   if item.action == 'open' and (item.type == 'buffer' or item.type == 'saved_query') then
     return self:delete_buffer(item)
@@ -1096,7 +817,7 @@ function Drawer:delete_buffer(item)
   else
     return
   end
-  local bufnr = vim.fn.bufnr(file)
+  local bufnr = utils.loaded_bufnr(file)
   if bufnr > -1 then
     local win = vim.fn.bufwinnr(bufnr)
     if win > -1 then
@@ -1111,23 +832,8 @@ function Drawer:delete_buffer(item)
   self:render()
 end
 
---- Confirm, then remove a file-source connection.
----@param entry DadbodUI.ConnectionEntry
----@return nil
-function Drawer:delete_connection(entry)
-  if not self.confirm(string.format('Are you sure you want to delete connection %s?', entry.name)) then
-    return
-  end
-  local store = self:read_store()
-  if store == nil then
-    return
-  end
-  local list = connections.delete_connection(store, entry.name, entry.url)
-  self:commit_connections(list)
-end
-
---- Rename the node under the cursor (`r`). Connections route to
---- `rename_connection`; open buffers and saved queries route to `rename_buffer`.
+--- Rename the node under the cursor (`r`). Connections route to the CRUD
+--- controller; open buffers and saved queries route to `rename_buffer`.
 ---@return nil
 function Drawer:rename_line()
   local item = self:get_current_item()
@@ -1138,7 +844,7 @@ function Drawer:rename_line()
     return self:rename_buffer(item.file_path, item.key_name, item.saved or false)
   end
   if item.type == 'db' then
-    return self:rename_connection(self.instance.dbs[item.key_name])
+    return self:connections():rename_connection(self.instance.dbs[item.key_name])
   end
 end
 
@@ -1152,7 +858,7 @@ end
 ---@return nil
 function Drawer:rename_buffer(buffer, key_name, is_saved_query)
   local notify = require('dadbod-ui.notifications')
-  if vim.fn.filereadable(buffer) ~= 1 then
+  if not utils.is_file(buffer) then
     return notify.error('Only written queries can be renamed.')
   end
   if key_name == nil or key_name == '' then
@@ -1204,10 +910,16 @@ function Drawer:rename_buffer(buffer, key_name, is_saved_query)
     end, entry.buffers.list)
 
     if new_bufnr > -1 then
-      vim.fn.setbufvar(new_bufnr, 'dbui_db_key_name', entry.key_name)
-      vim.fn.setbufvar(new_bufnr, 'db', entry.conn)
-      vim.fn.setbufvar(new_bufnr, 'dbui_table_name', vim.fn.getbufvar(buffer, 'dbui_table_name'))
-      vim.fn.setbufvar(new_bufnr, 'dbui_bind_params', vim.fn.getbufvar(buffer, 'dbui_bind_params'))
+      -- Carry the contract onto the renamed buffer through the single writer,
+      -- preserving the old buffer's table name and bind params (the latter is a
+      -- bare '' when the source was never parametrized -- round-tripped as-is).
+      -- Read from the old buffer's number (already resolved above), not its
+      -- name, so getbufvar resolves the buffer once rather than per field.
+      self:query().write_contract(new_bufnr, entry, {
+        table = vim.fn.getbufvar(bufnr, 'dbui_table_name'),
+        schema = vim.fn.getbufvar(bufnr, 'dbui_schema_name'),
+        bind_params = vim.fn.getbufvar(bufnr, 'dbui_bind_params'),
+      })
     end
 
     vim.cmd('silent! bwipeout! ' .. vim.fn.fnameescape(buffer))
@@ -1234,7 +946,7 @@ function Drawer:redraw()
     -- Re-introspect an already-connected database in place; an unconnected one
     -- is left untouched (it introspects on its next expand).
     if entry ~= nil and is_connected(entry) then
-      self:populate(entry)
+      self:introspect():populate(entry)
     end
   else
     notify.info('Refreshing all databases...')
@@ -1351,7 +1063,7 @@ function Drawer:setup_mappings()
     self:quit()
   end)
   map('A', function()
-    self:add_connection()
+    self:connections():add_connection()
   end)
   map('d', function()
     self:delete_line()
