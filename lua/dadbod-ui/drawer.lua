@@ -1,9 +1,19 @@
 ---@mod dadbod-ui.drawer  The tree UI (window + content render + interaction)
 ---
---- Mirrors the original: a scratch buffer whose lines are built from a
---- `content[]` array where line N maps to a node. The cursor line indexes
---- `content` to find the node and its action. Highlighting/ftplugin and the
---- richer sections (tables, schemas, buffers) land in later slices.
+--- A scratch buffer whose lines are built from a `content[]` array where line N
+--- maps to a node. The cursor line indexes `content` to find the node and its
+--- action.
+---
+--- Domain logic is delegated to two acyclic leaf controllers, built lazily and
+--- injected with the drawer's backends + a render callback:
+---   * `dadbod-ui.introspect` -- connect + schema/table introspection
+---     (`self:introspect()`), also owns `load_saved_queries`.
+---   * `dadbod-ui.connections_controller` -- interactive connections.json CRUD
+---     (`self:connections()`).
+--- Neither requires `drawer` or `query`, so `state` stays the dependency sink.
+--- The drawer owns the query controller (`self:query()`, lazy require) and
+--- reaches into it for `open_buffer`/`focus_window`; the query controller's one
+--- back-ref to the drawer is `drawer:render()`.
 
 local icons_mod = require('dadbod-ui.icons')
 local bridge = require('dadbod-ui.bridge')
@@ -718,22 +728,6 @@ function Drawer:toggle_line(edit_action)
     end
     return self:render()
   end
-end
-
--- Schema / table introspection -----------------------------------------------
---
--- The connect + introspection logic now lives in `dadbod-ui.introspect` (built
--- lazily via `self:introspect()`); the drawer's own callers reach it there
--- (toggle_line -> expand_db, redraw -> populate). The thin `connect` wrapper
--- below remains only until the query controller stops routing through the
--- drawer (it reaches the introspection controller directly).
-
---- Connect a connection if not already connected (delegates to the introspection
---- controller).
----@param entry DadbodUI.ConnectionEntry
----@return DadbodUI.ConnectionEntry
-function Drawer:connect(entry)
-  return self:introspect():connect(entry)
 end
 
 -- Interactive connection management ------------------------------------------

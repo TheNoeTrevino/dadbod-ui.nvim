@@ -1,17 +1,24 @@
 ---@mod dadbod-ui.query  Query buffers: open, set the b:dbui_* contract, execute
 ---
 --- Faithful port of vim-dadbod-ui's `autoload/db_ui/query.vim`. A `Query` is
---- created over the drawer (so it can re-render and connect through the same
---- backends) and owns the SQL buffers: opening a `New query` or a table-helper
---- buffer, setting the buffer-local contract verbatim (`b:dbui_db_key_name`,
---- `b:db`, `b:dbui_table_name`, `b:dbui_schema_name`), and executing on save
---- through the bridge's async `:DB` path. Bind parameters (M9) are detected on
---- execute, prompted for, persisted in `b:dbui_bind_params`, and substituted
---- before the SQL reaches the engine; the in-buffer loading symbol and result
---- tracking live in `dadbod-ui.dbout`.
+--- created over the drawer and owns the SQL buffers: opening a `New query` or a
+--- table-helper buffer, setting the buffer-local contract verbatim
+--- (`b:dbui_db_key_name`, `b:db`, `b:dbui_table_name`, `b:dbui_schema_name`),
+--- and executing on save through the bridge's async `:DB` path. Bind parameters
+--- (M9) are detected on execute, prompted for, persisted in `b:dbui_bind_params`,
+--- and substituted before the SQL reaches the engine; the in-buffer loading
+--- symbol and result tracking live in `dadbod-ui.dbout`.
+---
+--- Connecting and refreshing saved queries go through an injected
+--- `dadbod-ui.introspect` controller (an acyclic leaf), not back through the
+--- drawer. The one drawer back-ref is `drawer:render()` -- the drawer owns the
+--- tree, so a buffer change that should refresh it asks the drawer to redraw.
+--- (The drawer in turn reaches back into the query controller for `open_buffer`,
+--- e.g. when renaming a buffer file.)
 
 local bridge = require('dadbod-ui.bridge')
 local bind_params = require('dadbod-ui.bind_params')
+local introspect = require('dadbod-ui.introspect')
 local utils = require('dadbod-ui.utils')
 
 local M = {}
@@ -30,16 +37,21 @@ local function subst(s, key, val)
 end
 
 ---@class DadbodUI.Query
----@field drawer DadbodUI.Drawer
+---@field drawer DadbodUI.Drawer  back-ref, used only for drawer:render()
 ---@field instance DadbodUI.Instance
 ---@field config DadbodUI.Config
 ---@field input DadbodUI.UiInput  prompt backend (shared with the drawer; injectable)
 ---@field select DadbodUI.UiSelect  picker backend for the edit flow (injectable)
+---@field introspect DadbodUI.Introspect  connect / load-saved-queries backend
 ---@field last_query string[]  lines of the most recently executed query
 local Query = {}
 Query.__index = Query
 
---- Create a query controller bound to `drawer`.
+--- Create a query controller bound to `drawer`. Connecting and saved-query
+--- refresh go through a dedicated introspection controller (built from the
+--- drawer's config + injectable connect backend) rather than back through the
+--- drawer, so this module depends on `dadbod-ui.introspect` (a leaf), not on a
+--- drawer↔query cycle.
 ---@param drawer DadbodUI.Drawer
 ---@return DadbodUI.Query
 function M.new(drawer)
@@ -49,6 +61,13 @@ function M.new(drawer)
     config = drawer.config,
     input = drawer.input,
     select = vim.ui.select,
+    introspect = introspect.new({
+      config = drawer.config,
+      connector = drawer.connector,
+      render = function()
+        drawer:render()
+      end,
+    }),
     last_query = {},
   }, Query)
 end
@@ -164,7 +183,7 @@ function Query:open_buffer(entry, name, edit_action, opts)
 
   -- Ensure a live connection so b:db works for execution even when the buffer
   -- is opened on a not-yet-expanded connection (mirrors find_buffer's connect).
-  self.drawer:connect(entry)
+  self.introspect:connect(entry)
 
   local full = vim.fn.fnamemodify(name, ':p')
   if edit_action == 'edit' then
@@ -581,7 +600,7 @@ function Query:save_query()
       return notify.error('That file already exists. Please choose another name.')
     end
     vim.cmd('write ' .. vim.fn.fnameescape(full_name))
-    self.drawer:load_saved_queries(entry)
+    self.introspect:load_saved_queries(entry)
     self.drawer:render()
     self:open_buffer(entry, full_name, 'edit')
   end)
