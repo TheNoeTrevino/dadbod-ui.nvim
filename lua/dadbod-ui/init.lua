@@ -63,6 +63,28 @@ function M.connections_list()
   return state.get():connections_list()
 end
 
+--- Connection info for `key_name`, mirroring the original `db_ui#get_conn_info`.
+--- Backs the `db_ui#get_conn_info` autoload shim that third-party integrations
+--- (e.g. vim-dadbod-completion) call. Returns the resolved url, the live
+--- connection handle (empty when not yet connected), the known tables/schemas,
+--- the scheme, and a 0/1 connected flag. `{}` for an unknown key.
+---@param key_name string
+---@return table
+function M.get_conn_info(key_name)
+  local entry = state.get().dbs[key_name]
+  if entry == nil then
+    return {}
+  end
+  return {
+    url = entry.url,
+    conn = entry.conn or '',
+    tables = entry.tables.list,
+    schemas = entry.schemas.list,
+    scheme = entry.scheme,
+    connected = (entry.conn ~= nil and entry.conn ~= '') and 1 or 0,
+  }
+end
+
 --- Reset session state (drops the cached instance and drawer). For tests/cleanup.
 function M.reset()
   state.reset()

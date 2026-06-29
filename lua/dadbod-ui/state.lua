@@ -20,6 +20,8 @@ local M = {}
 ---@field tmp_location string      resolved tmp-query dir ('' when unset)
 ---@field dbs_list DadbodUI.ConnectionRecord[]  discovered connection records
 ---@field dbs table<string, DadbodUI.ConnectionEntry>  entries keyed by key_name
+---@field dbout_list table<string, string>  executed result files -> preview content
+---@field old_buffers string[]  tmp-location query files found at startup (restored per-entry)
 ---@field _inputs? DadbodUI.DiscoverInputs  inputs last populated with (for repopulate)
 local Instance = {}
 Instance.__index = Instance
@@ -52,6 +54,22 @@ local function resolve_filetype(url, scheme_info)
   return filetype
 end
 
+--- Tmp-location query files belonging to `name`: a startup buffer is restored
+--- under a connection when its basename (or extension, for `db_ui.<name>` style
+--- names) starts with `<name>-`. Port of the `old_buffers` filter in
+--- `generate_new_db_entry`.
+---@param old_buffers string[]
+---@param name string
+---@return string[]
+local function buffers_for(old_buffers, name)
+  local prefix = '^' .. vim.pesc(name) .. '%-'
+  return vim.tbl_filter(function(path)
+    local tail = vim.fn.fnamemodify(path, ':t')
+    local ext = vim.fn.fnamemodify(path, ':e')
+    return tail:find(prefix) ~= nil or ext:find(prefix) ~= nil
+  end, old_buffers)
+end
+
 --- Build a data entry for a discovered connection. Captures identity, scheme,
 --- db name, save path and the adapter's schema metadata (schema support, quote
 --- rules, default scheme, filetype, table helpers). The schema/table *contents*
@@ -60,8 +78,9 @@ end
 ---@param record DadbodUI.ConnectionRecord
 ---@param save_path string
 ---@param config DadbodUI.Config
+---@param old_buffers string[]
 ---@return DadbodUI.ConnectionEntry
-local function make_entry(record, save_path, config)
+local function make_entry(record, save_path, config, old_buffers)
   local parsed = bridge.parse_url(record.url)
   local scheme = parsed.scheme or ''
   local scheme_info = schemas.get(scheme, config)
@@ -86,21 +105,36 @@ local function make_entry(record, save_path, config)
     table_helpers = table_helpers.get(scheme, config),
     tables = { expanded = false, list = {}, items = {} },
     schemas = { expanded = false, list = {}, items = {} },
+    buffers = { expanded = false, list = buffers_for(old_buffers, record.name), tmp = {} },
+    saved_queries = { expanded = false, list = {} },
   }
 end
 
---- Create a new instance from resolved config (does not populate yet).
+--- Create a new instance from resolved config (does not populate yet). When a
+--- tmp-query location is configured we ensure it exists and snapshot the query
+--- files already in it, so connections can restore their open buffers on the
+--- next populate (port of the `s:dbui.new` tmp_location block).
 ---@param config DadbodUI.Config
 ---@return DadbodUI.Instance
 function M.new(config)
   local save_path = expand_dir(config.save_location)
+  local tmp_location = expand_dir(config.tmp_query_location)
+  local old_buffers = {}
+  if tmp_location ~= '' then
+    if vim.fn.isdirectory(tmp_location) == 0 then
+      vim.fn.mkdir(tmp_location, 'p')
+    end
+    old_buffers = vim.fn.glob(tmp_location .. '/*', true, true)
+  end
   return setmetatable({
     config = config,
     save_path = save_path,
     connections_path = connections.connections_path(config.save_location),
-    tmp_location = expand_dir(config.tmp_query_location),
+    tmp_location = tmp_location,
     dbs_list = {},
     dbs = {},
+    dbout_list = {},
+    old_buffers = old_buffers,
   }, Instance)
 end
 
@@ -124,7 +158,7 @@ function Instance:populate(inputs)
     if prev ~= nil and prev.url == record.url then
       self.dbs[record.key_name] = prev
     else
-      self.dbs[record.key_name] = make_entry(record, self.save_path, self.config)
+      self.dbs[record.key_name] = make_entry(record, self.save_path, self.config, self.old_buffers)
     end
   end
   return self
@@ -141,6 +175,19 @@ function Instance:repopulate()
   end
   inputs.file_entries = nil
   return self:populate(inputs)
+end
+
+--- Whether `buf` (a buffer file path) belongs to the tmp-query location for
+--- `entry`: either it was generated into the entry's `buffers.tmp` list, or it
+--- lives under the configured `tmp_location`. Port of `is_tmp_location_buffer`.
+---@param entry DadbodUI.ConnectionEntry
+---@param buf string
+---@return boolean
+function Instance:is_tmp_location_buffer(entry, buf)
+  if vim.tbl_contains(entry.buffers.tmp, buf) then
+    return true
+  end
+  return self.tmp_location ~= '' and buf:find('^' .. vim.pesc(self.tmp_location)) ~= nil
 end
 
 --- List connections with their connection state.
