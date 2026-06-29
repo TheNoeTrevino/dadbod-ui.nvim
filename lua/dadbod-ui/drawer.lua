@@ -13,12 +13,12 @@ local utils = require('dadbod-ui.utils')
 
 local INDENT = 2
 
--- A connection's `conn` is nil before any attempt, '' after a failed attempt,
--- and the live handle once connected -- so "connected" is the non-empty case.
+-- The connected predicate lives in state (the SSOT); required lazily here to
+-- keep the dependency graph acyclic, mirroring the lazy state require in M.new.
 ---@param entry DadbodUI.ConnectionEntry
 ---@return boolean
 local function is_connected(entry)
-  return entry.conn ~= nil and entry.conn ~= ''
+  return require('dadbod-ui.state').is_connected(entry)
 end
 
 local HELP_LINES = {

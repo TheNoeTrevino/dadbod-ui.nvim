@@ -67,6 +67,30 @@ describe('state: populate', function()
     assert.equals('g:dbs', list[1].source)
     assert.equals(false, list[1].is_connected)
   end)
+
+  it('connections_list reports a failed connection (conn = "") as not connected', function()
+    local inst = state.new(cfg):populate({
+      env = {},
+      g_dbs = { dev = 'postgres://h/dev' },
+      file_entries = {},
+    })
+    -- a failed connect attempt leaves the sentinel '' on the entry
+    inst.dbs['dev_g:dbs'].conn = ''
+    local list = inst:connections_list()
+    assert.equals(false, list[1].is_connected)
+  end)
+
+  it('connections_list reports a live handle as connected', function()
+    local inst = state.new(cfg):populate({
+      env = {},
+      g_dbs = { dev = 'postgres://h/dev' },
+      file_entries = {},
+    })
+    -- a successful connect stores the live handle on the entry
+    inst.dbs['dev_g:dbs'].conn = 'somehandle'
+    local list = inst:connections_list()
+    assert.equals(true, list[1].is_connected)
+  end)
 end)
 
 describe('state: singleton', function()
