@@ -103,6 +103,16 @@ local postgres_tables_query = 'SELECT table_schema, table_name FROM information_
 local postgres_tables_and_views_query =
   'SELECT table_schema, table_name FROM information_schema.tables UNION ALL select schemaname, matviewname from pg_matviews;'
 
+local postgres_foreign_key_query = [[
+SELECT ccu.table_name AS foreign_table_name, ccu.column_name AS foreign_column_name, ccu.table_schema as foreign_table_schema
+FROM
+    information_schema.table_constraints AS tc
+    JOIN information_schema.key_column_usage AS kcu
+      ON tc.constraint_name = kcu.constraint_name
+    JOIN information_schema.constraint_column_usage AS ccu
+      ON ccu.constraint_name = tc.constraint_name
+WHERE constraint_type = 'FOREIGN KEY' and kcu.column_name = '{col_name}' LIMIT 1]]
+
 ---@param config? DadbodUI.Config
 ---@return DadbodUI.SchemaAdapter
 local function postgresql(config)
@@ -111,6 +121,11 @@ local function postgresql(config)
     args = { '-A', '-c' },
     schemes_query = postgres_list_schema_query,
     schemes_tables_query = use_views and postgres_tables_and_views_query or postgres_tables_query,
+    foreign_key_query = postgres_foreign_key_query,
+    select_foreign_key_query = 'select * from "%s"."%s" where "%s" = %s',
+    cell_line_number = 2,
+    cell_line_pattern = '^-\\++-\\+',
+    layout_flag = '\\x',
     parse_results = function(results, min_len)
       local nonempty = vim.tbl_filter(function(row)
         return row ~= ''
@@ -122,12 +137,30 @@ local function postgresql(config)
   }
 end
 
+local sqlserver_foreign_key_query = [[
+SELECT TOP 1 c2.table_name as foreign_table_name, kcu2.column_name as foreign_column_name, kcu2.table_schema as foreign_table_schema
+from   information_schema.table_constraints c
+       inner join information_schema.key_column_usage kcu
+         on c.constraint_schema = kcu.constraint_schema and c.constraint_name = kcu.constraint_name
+       inner join information_schema.referential_constraints rc
+         on c.constraint_schema = rc.constraint_schema and c.constraint_name = rc.constraint_name
+       inner join information_schema.table_constraints c2
+         on rc.unique_constraint_schema = c2.constraint_schema and rc.unique_constraint_name = c2.constraint_name
+       inner join information_schema.key_column_usage kcu2
+         on c2.constraint_schema = kcu2.constraint_schema and c2.constraint_name = kcu2.constraint_name and kcu.ordinal_position = kcu2.ordinal_position
+where  c.constraint_type = 'FOREIGN KEY'
+and kcu.column_name = '{col_name}']]
+
 ---@return DadbodUI.SchemaAdapter
 local function sqlserver()
   return {
     args = { '-h-1', '-W', '-s', '|', '-Q' },
     schemes_query = 'SELECT schema_name FROM INFORMATION_SCHEMA.SCHEMATA',
     schemes_tables_query = 'SELECT table_schema, table_name FROM INFORMATION_SCHEMA.TABLES',
+    foreign_key_query = sqlserver_foreign_key_query,
+    select_foreign_key_query = 'select * from %s.%s where %s = %s',
+    cell_line_number = 2,
+    cell_line_pattern = '^-\\+.-\\+',
     parse_results = function(results, min_len)
       return results_parser(vslice(results, 0, -3), '|', min_len)
     end,
@@ -136,11 +169,21 @@ local function sqlserver()
   }
 end
 
+local mysql_foreign_key_query = [[
+SELECT referenced_table_name, referenced_column_name, referenced_table_schema
+from information_schema.key_column_usage
+where referenced_table_name is not null and column_name = '{col_name}' LIMIT 1]]
+
 ---@return DadbodUI.SchemaAdapter
 local function mysql()
   return {
     schemes_query = 'SELECT schema_name FROM information_schema.schemata',
     schemes_tables_query = 'SELECT table_schema, table_name FROM information_schema.tables',
+    foreign_key_query = mysql_foreign_key_query,
+    select_foreign_key_query = 'select * from %s.%s where %s = %s',
+    cell_line_number = 3,
+    cell_line_pattern = '^+-\\++-\\+',
+    layout_flag = '\\G',
     requires_stdin = true,
     parse_results = function(results, min_len)
       return results_parser(vslice(results, 1), '\\t', min_len)
@@ -173,6 +216,17 @@ end
 local function oracle(config)
   local legacy = config ~= nil and config.is_oracle_legacy
   local common_condition = legacy and '' or "AND U.common = 'NO'"
+
+  local foreign_key_query = [[
+SELECT /*csv*/ DISTINCT RFRD.table_name, RFRD.column_name, RFRD.owner
+ FROM all_cons_columns RFRD
+ JOIN all_constraints CON ON RFRD.constraint_name = CON.r_constraint_name
+ JOIN all_cons_columns RFRING ON CON.constraint_name = RFRING.constraint_name
+ JOIN all_users U ON CON.owner = U.username
+ WHERE CON.constraint_type = 'R'
+ ]] .. common_condition .. [[
+
+ AND RFRING.column_name = '{col_name}']]
 
   local schemes_query = [[
 SELECT /*csv*/ username
@@ -216,7 +270,13 @@ SELECT /*csv*/ T.owner, T.table_name
     quote = 1,
     schemes_query = oracle_wrap(schemes_query),
     schemes_tables_query = oracle_wrap(schemes_tables_query),
+    foreign_key_query = oracle_wrap(foreign_key_query),
+    select_foreign_key_query = oracle_wrap('SELECT /*csv*/ * FROM "%s"."%s" WHERE "%s" = %s'),
+    cell_line_number = 1,
+    cell_line_pattern = '^-\\+\\( \\+-\\+\\)*',
+    has_virtual_results = true,
     parse_results = parse,
+    parse_virtual_results = parse,
     filetype = 'plsql',
   }
 end
@@ -235,6 +295,7 @@ local function bigquery()
     parse_results = function(results, min_len)
       return results_parser(vslice(results, 1), ',', min_len)
     end,
+    layout_flag = '\\x',
     requires_stdin = true,
   }
 end
@@ -245,6 +306,8 @@ local function clickhouse()
     args = { '-q' },
     schemes_query = 'SELECT name as schema_name FROM system.databases ORDER BY name',
     schemes_tables_query = 'SELECT database AS table_schema, name AS table_name FROM system.tables ORDER BY table_name',
+    cell_line_number = 1,
+    cell_line_pattern = '^.*$',
     parse_results = function(results, min_len)
       return results_parser(results, '\\t', min_len)
     end,
@@ -317,6 +380,23 @@ function M.command_spec(conn, scheme_info, query)
   end
   cmd[#cmd + 1] = query
   return { cmd = cmd }
+end
+
+--- Run `query` against `conn` synchronously and return its output lines (trailing
+--- CR stripped), mirroring the original `db_ui#schemas#query`. Blocks Neovim, so
+--- it is reserved for the single small introspection lookup the dbout foreign-key
+--- jump needs -- not for the drawer's bulk introspection, which fans out async via
+--- `run_many`. Goes through the bridge (the engine boundary) for the actual call.
+---@param conn string  resolved connection url
+---@param scheme_info DadbodUI.SchemaAdapter
+---@param query string
+---@return string[]
+function M.query(conn, scheme_info, query)
+  local spec = M.command_spec(conn, scheme_info, query)
+  local result = bridge.systemlist(spec.cmd, spec.stdin)
+  return vim.tbl_map(function(line)
+    return (line:gsub('\r$', ''))
+  end, result)
 end
 
 --- Turn one `vim.system` result into the line list dadbod's `db#systemlist`
