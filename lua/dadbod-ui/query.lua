@@ -1,17 +1,24 @@
 ---@mod dadbod-ui.query  Query buffers: open, set the b:dbui_* contract, execute
 ---
 --- Faithful port of vim-dadbod-ui's `autoload/db_ui/query.vim`. A `Query` is
---- created over the drawer (so it can re-render and connect through the same
---- backends) and owns the SQL buffers: opening a `New query` or a table-helper
---- buffer, setting the buffer-local contract verbatim (`b:dbui_db_key_name`,
---- `b:db`, `b:dbui_table_name`, `b:dbui_schema_name`), and executing on save
---- through the bridge's async `:DB` path. Bind parameters (M9) are detected on
---- execute, prompted for, persisted in `b:dbui_bind_params`, and substituted
---- before the SQL reaches the engine; the in-buffer loading symbol and result
---- tracking live in `dadbod-ui.dbout`.
+--- created over the drawer and owns the SQL buffers: opening a `New query` or a
+--- table-helper buffer, setting the buffer-local contract verbatim
+--- (`b:dbui_db_key_name`, `b:db`, `b:dbui_table_name`, `b:dbui_schema_name`),
+--- and executing on save through the bridge's async `:DB` path. Bind parameters
+--- (M9) are detected on execute, prompted for, persisted in `b:dbui_bind_params`,
+--- and substituted before the SQL reaches the engine; the in-buffer loading
+--- symbol and result tracking live in `dadbod-ui.dbout`.
+---
+--- Connecting and refreshing saved queries go through an injected
+--- `dadbod-ui.introspect` controller (an acyclic leaf), not back through the
+--- drawer. The one drawer back-ref is `drawer:render()` -- the drawer owns the
+--- tree, so a buffer change that should refresh it asks the drawer to redraw.
+--- (The drawer in turn reaches back into the query controller for `open_buffer`,
+--- e.g. when renaming a buffer file.)
 
 local bridge = require('dadbod-ui.bridge')
 local bind_params = require('dadbod-ui.bind_params')
+local introspect = require('dadbod-ui.introspect')
 local utils = require('dadbod-ui.utils')
 
 local M = {}
@@ -29,31 +36,22 @@ local function subst(s, key, val)
   end))
 end
 
---- The number of a loaded buffer whose name is exactly `full_path`, else -1.
---- Used instead of `vim.fn.bufnr`, whose pattern matching can falsely match an
---- unrelated buffer (the `.`/`*` in a path are treated as regex).
----@param full_path string
----@return integer
-local function loaded_bufnr(full_path)
-  for _, b in ipairs(vim.api.nvim_list_bufs()) do
-    if vim.api.nvim_buf_is_loaded(b) and vim.api.nvim_buf_get_name(b) == full_path then
-      return b
-    end
-  end
-  return -1
-end
-
 ---@class DadbodUI.Query
----@field drawer DadbodUI.Drawer
+---@field drawer DadbodUI.Drawer  back-ref, used only for drawer:render()
 ---@field instance DadbodUI.Instance
 ---@field config DadbodUI.Config
 ---@field input DadbodUI.UiInput  prompt backend (shared with the drawer; injectable)
 ---@field select DadbodUI.UiSelect  picker backend for the edit flow (injectable)
+---@field introspect DadbodUI.Introspect  connect / load-saved-queries backend
 ---@field last_query string[]  lines of the most recently executed query
 local Query = {}
 Query.__index = Query
 
---- Create a query controller bound to `drawer`.
+--- Create a query controller bound to `drawer`. Connecting and saved-query
+--- refresh go through a dedicated introspection controller (built from the
+--- drawer's config + injectable connect backend) rather than back through the
+--- drawer, so this module depends on `dadbod-ui.introspect` (a leaf), not on a
+--- drawer↔query cycle.
 ---@param drawer DadbodUI.Drawer
 ---@return DadbodUI.Query
 function M.new(drawer)
@@ -63,6 +61,13 @@ function M.new(drawer)
     config = drawer.config,
     input = drawer.input,
     select = vim.ui.select,
+    introspect = introspect.new({
+      config = drawer.config,
+      connector = drawer.connector,
+      render = function()
+        drawer:render()
+      end,
+    }),
     last_query = {},
   }, Query)
 end
@@ -124,7 +129,7 @@ function Query:generate_buffer_name(entry, opts)
   if self.instance.tmp_location ~= '' then
     return string.format('%s/%s', self.instance.tmp_location, buffer_name)
   end
-  local tmp_name = string.format('%s/%s', vim.fn.fnamemodify(vim.fn.tempname(), ':p:h'), buffer_name)
+  local tmp_name = string.format('%s/%s', vim.fs.dirname(vim.fn.tempname()), buffer_name)
   table.insert(entry.buffers.tmp, tmp_name)
   return tmp_name
 end
@@ -135,27 +140,29 @@ end
 ---@return nil
 function Query:focus_window()
   local win_cmd = 'vertical ' .. utils.opposite_position(self.config.win_position) .. ' new'
-  if vim.fn.winnr('$') == 1 then
+  local wins = vim.api.nvim_tabpage_list_wins(0)
+  if #wins == 1 then
     vim.cmd('silent! ' .. win_cmd)
     return
   end
-  for win = 1, vim.fn.winnr('$') do
-    local buf = vim.fn.winbufnr(win)
-    if vim.fn.getbufvar(buf, 'dbui_db_key_name') ~= '' then
-      vim.cmd(win .. 'wincmd w')
+  -- (a) reuse a window already holding a dbui query buffer.
+  for _, win in ipairs(wins) do
+    local buf = vim.api.nvim_win_get_buf(win)
+    local key = vim.b[buf].dbui_db_key_name
+    if key and key ~= '' then
+      vim.api.nvim_set_current_win(win)
       return
     end
   end
-  for win = 1, vim.fn.winnr('$') do
-    if
-      vim.fn.getwinvar(win, '&filetype') ~= 'dbui'
-      and vim.fn.getwinvar(win, '&buftype') ~= 'nofile'
-      and vim.fn.getwinvar(win, '&modifiable') == 1
-    then
-      vim.cmd(win .. 'wincmd w')
+  -- (b) else any normal editable window.
+  for _, win in ipairs(wins) do
+    local buf = vim.api.nvim_win_get_buf(win)
+    if vim.bo[buf].filetype ~= 'dbui' and vim.bo[buf].buftype ~= 'nofile' and vim.bo[buf].modifiable then
+      vim.api.nvim_set_current_win(win)
       return
     end
   end
+  -- (c) else open a vertical split on the side opposite the drawer.
   vim.cmd('silent! ' .. win_cmd)
 end
 
@@ -176,7 +183,7 @@ function Query:open_buffer(entry, name, edit_action, opts)
 
   -- Ensure a live connection so b:db works for execution even when the buffer
   -- is opened on a not-yet-expanded connection (mirrors find_buffer's connect).
-  self.drawer:connect(entry)
+  self.introspect:connect(entry)
 
   local full = vim.fn.fnamemodify(name, ':p')
   if edit_action == 'edit' then
@@ -185,7 +192,7 @@ function Query:open_buffer(entry, name, edit_action, opts)
   -- An already-open buffer is shown as-is (don't clobber its contents). When the
   -- window can't be reused -- e.g. 'nohidden' with a modified buffer in it -- the
   -- switch is a no-op, so we fall through to the split fallback below.
-  local is_existing = loaded_bufnr(full) > -1
+  local is_existing = utils.loaded_bufnr(full) > -1
   if is_existing then
     pcall(vim.cmd, 'silent! buffer ' .. vim.fn.fnameescape(full))
     if vim.api.nvim_buf_get_name(0) == full then
@@ -235,6 +242,28 @@ function Query:open_buffer(entry, name, edit_action, opts)
   end
 end
 
+--- Write the buffer-local interop contract (`b:dbui_db_key_name`, `b:db`,
+--- `b:dbui_table_name`, `b:dbui_schema_name`, and `b:dbui_bind_params` when
+--- given) onto `bufnr`. The single place that ESTABLISHES the contract -- both
+--- the query-open path and the drawer's buffer rename route through here, so the
+--- fixed names are written in one spot (`b:dbui_bind_params` is afterwards
+--- updated in place by the bind-param flow). `b:db` is dadbod's live handle
+--- (`entry.conn`); the rest are dadbod-ui's own.
+---@param bufnr integer
+---@param entry DadbodUI.ConnectionEntry
+---@param opts DadbodUI.ContractOpts
+---@return nil
+function Query.write_contract(bufnr, entry, opts)
+  local b = vim.b[bufnr]
+  b.dbui_db_key_name = entry.key_name
+  b.db = entry.conn
+  b.dbui_table_name = opts.table or ''
+  b.dbui_schema_name = opts.schema or ''
+  if opts.bind_params ~= nil then
+    b.dbui_bind_params = opts.bind_params
+  end
+end
+
 --- Set the buffer-local contract, register the buffer with its connection,
 --- configure buffer options, and wire the execute-on-save / cleanup autocmds.
 --- Port of `s:query.setup_buffer`.
@@ -243,10 +272,7 @@ end
 ---@param name string
 ---@return nil
 function Query:setup_buffer(entry, opts, name)
-  vim.b.dbui_db_key_name = entry.key_name
-  vim.b.dbui_table_name = opts.table or ''
-  vim.b.dbui_schema_name = opts.schema or ''
-  vim.b.db = entry.conn
+  Query.write_contract(vim.api.nvim_get_current_buf(), entry, opts)
   local is_existing = opts.existing_buffer or false
   local db_buffers = entry.buffers
 
@@ -309,22 +335,21 @@ function Query:setup_buffer(entry, opts, name)
   })
 end
 
---- Yank the buffer (or, in visual mode, the last selection) into a line list.
---- Port of `s:query.get_lines`.
+--- The buffer (or, in visual mode, the last selection) as a line list. Reads the
+--- selection with `getregion` over the `'<`/`'>` marks instead of `gvy`, so it
+--- never runs a normal-mode yank or touches the unnamed register. `exclusive =
+--- false` reproduces the original `selection=inclusive` yank regardless of the
+--- user's `&selection`. Port of `s:query.get_lines`.
 ---@param is_visual? boolean
 ---@return string[]
 function Query:get_lines(is_visual)
   if not is_visual then
     return vim.api.nvim_buf_get_lines(0, 0, -1, false)
   end
-  local sel_save = vim.o.selection
-  vim.o.selection = 'inclusive'
-  local reg_save = vim.fn.getreg('"')
-  vim.cmd('silent normal! gvy')
-  local lines = vim.split(vim.fn.getreg('"'), '\n')
-  vim.o.selection = sel_save
-  vim.fn.setreg('"', reg_save)
-  return lines
+  return vim.fn.getregion(vim.fn.getpos("'<"), vim.fn.getpos("'>"), {
+    type = vim.fn.visualmode(),
+    exclusive = false,
+  })
 end
 
 --- Reduce a raw `vim.cmd` error from dadbod to its user-facing message: strip
@@ -360,12 +385,11 @@ end
 ---@return nil
 local function prompt_params(input, names, known, on_done)
   local values = vim.deepcopy(known)
-  local pending = {}
-  for _, name in ipairs(names) do
-    if values[name] == nil then
-      pending[#pending + 1] = name
-    end
-  end
+  local pending = vim.iter(names)
+    :filter(function(name)
+      return values[name] == nil
+    end)
+    :totable()
   local i = 0
   local function step()
     i = i + 1
@@ -559,7 +583,7 @@ function Query:save_query()
   if entry.save_path == '' then
     return notify.error('Save location is empty. Please provide valid directory to g:db_ui_save_location')
   end
-  if vim.fn.isdirectory(entry.save_path) == 0 then
+  if not utils.is_dir(entry.save_path) then
     vim.fn.mkdir(entry.save_path, 'p')
   end
   self.input({ prompt = 'Save as: ' }, function(name)
@@ -571,11 +595,11 @@ function Query:save_query()
       return notify.error('No valid name provided.')
     end
     local full_name = string.format('%s/%s', entry.save_path, name)
-    if vim.fn.filereadable(full_name) == 1 then
+    if utils.is_file(full_name) then
       return notify.error('That file already exists. Please choose another name.')
     end
     vim.cmd('write ' .. vim.fn.fnameescape(full_name))
-    self.drawer:load_saved_queries(entry)
+    self.introspect:load_saved_queries(entry)
     self.drawer:render()
     self:open_buffer(entry, full_name, 'edit')
   end)

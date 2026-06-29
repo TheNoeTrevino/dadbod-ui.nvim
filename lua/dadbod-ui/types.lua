@@ -22,6 +22,16 @@
 --- value the user entered. Read by external tools, so the shape stays stable.
 ---@alias DadbodUI.BindParams table<string, string>
 
+--- The buffer-local contract fields a query buffer carries, as passed to the
+--- single contract writer (Query.write_contract). `table`/`schema` default to
+--- '' when omitted; `bind_params` is written only when present and may be the
+--- bare '' a never-parametrized buffer carries (dadbod-ui round-trips it through
+--- the defensive read in query.lua), hence `string` as well as the dict.
+---@class DadbodUI.ContractOpts
+---@field table? string
+---@field schema? string
+---@field bind_params? DadbodUI.BindParams|string
+
 --- Parsed connection URL (vim-dadbod's db#url#parse). Network urls carry
 --- host/port/user/password/path; file-style urls (sqlite) carry opaque instead.
 ---@class DadbodUI.ParsedUrl
@@ -121,6 +131,14 @@
 ---@field buffers DadbodUI.BuffersNode  open query buffers for this connection
 ---@field saved_queries DadbodUI.SavedQueriesNode  persisted saved queries
 
+-- Behavioural controllers are declared module-locally (like `Instance` in
+-- state.lua and `Drawer` in drawer.lua), each with a single `---@class` above
+-- its table so its methods type-check in place:
+--   DadbodUI.Introspect             -> lua/dadbod-ui/introspect.lua
+--                                      (connect + schema/table introspection)
+--   DadbodUI.ConnectionsController  -> lua/dadbod-ui/connections_controller.lua
+--                                      (interactive connections.json CRUD)
+
 --- Public connection summary (connections_list()).
 ---@class DadbodUI.ConnectionInfo
 ---@field name string
@@ -138,7 +156,8 @@
 ---@field key_name? string
 ---@field group? string
 ---@field expanded? boolean
----@field toggle_state? { expanded: boolean }  node whose `expanded` flips on toggle
+---@field toggle_state? { expanded: boolean }  the `{ expanded }` table this node flips on toggle (entry for db, group_state for group, the section sub-node otherwise)
+---@field on_expand? fun()  side effect fired once a toggle opens the node (db lazy introspection)
 ---@field table? string  table name (table / table_helper nodes)
 ---@field schema? string  schema name (table / table_helper nodes)
 ---@field content? string  helper SQL template (table_helper nodes)
