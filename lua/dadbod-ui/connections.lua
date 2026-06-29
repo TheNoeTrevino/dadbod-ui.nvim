@@ -229,6 +229,27 @@ function M.add_connection(list, name, url)
   return out, nil
 end
 
+--- Append a copy of a connection under `(new_name, new_url)`, carrying over the
+--- source's `group`. Builds on `add_connection`, so it rejects a `new_name` that
+--- collides with an existing connection (case-insensitive). `group` is the
+--- source connection's group ('' or nil to leave the copy ungrouped) -- handy
+--- for cloning every database on a host into one group.
+---@param list DadbodUI.FileConnection[]
+---@param new_name string
+---@param new_url string
+---@param group? string
+---@return DadbodUI.FileConnection[]|nil, string|nil
+function M.duplicate_connection(list, new_name, new_url, group)
+  local out, err = M.add_connection(list, new_name, new_url)
+  if out == nil then
+    return nil, err
+  end
+  if group ~= nil and group ~= '' then
+    out[#out].group = group
+  end
+  return out, nil
+end
+
 --- Remove the connection matching (name, url). Returns a new list.
 ---@param list DadbodUI.FileConnection[]
 ---@param name string

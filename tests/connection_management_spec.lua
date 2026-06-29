@@ -185,6 +185,63 @@ describe('connection management: rename', function()
   end)
 end)
 
+describe('connection management: duplicate', function()
+  local d, dir
+  before_each(function()
+    dir = vim.fn.tempname()
+  end)
+  after_each(function()
+    if d then
+      d:close()
+      d = nil
+    end
+    vim.fn.delete(dir, 'rf')
+  end)
+
+  it('duplicates a connection into the drawer and json with a new name + url', function()
+    local seed = { { name = 'main', url = 'sqlite:' .. dir .. '/main.db' } }
+    connections.write_file(dir .. '/connections.json', seed)
+    d = make_drawer({ save_location = dir, file_entries = seed, inputs = { 'analytics', 'sqlite:' .. dir .. '/analytics.db' } })
+
+    d:duplicate_connection(entry_named(d, 'main'))
+    local file = stored(d.instance.connections_path)
+    assert.equals(2, #file)
+    assert.is_not_nil(entry_named(d, 'main')) -- source kept
+    assert.is_not_nil(entry_named(d, 'analytics')) -- copy added
+    assert.equals('sqlite:' .. dir .. '/analytics.db', entry_named(d, 'analytics').url)
+  end)
+
+  it('carries the source group onto the copy', function()
+    local seed = { { name = 'pg', url = 'sqlite:' .. dir .. '/a.db', group = 'Servers' } }
+    connections.write_file(dir .. '/connections.json', seed)
+    d = make_drawer({ save_location = dir, file_entries = seed, inputs = { 'pg2', 'sqlite:' .. dir .. '/b.db' } })
+
+    d:duplicate_connection(entry_named(d, 'pg'))
+    local copy = vim.tbl_filter(function(c)
+      return c.name == 'pg2'
+    end, stored(d.instance.connections_path))[1]
+    assert.equals('Servers', copy.group)
+  end)
+
+  it('refuses a name that already exists and writes nothing', function()
+    local seed = { { name = 'a', url = 'sqlite:' .. dir .. '/a.db' } }
+    connections.write_file(dir .. '/connections.json', seed)
+    d = make_drawer({ save_location = dir, file_entries = seed, inputs = { 'a', 'sqlite:' .. dir .. '/b.db' } })
+
+    d:duplicate_connection(entry_named(d, 'a'))
+    assert.equals(1, #stored(d.instance.connections_path))
+    assert.is_truthy(notifications.get_last_msg():find('already exists'))
+  end)
+
+  it('can duplicate a variable-source connection into an editable file one', function()
+    d = make_drawer({ save_location = dir, g_dbs = { dev = 'postgres://h/dev' }, inputs = { 'dev_file', 'postgres://h/dev' } })
+    d:duplicate_connection(entry_named(d, 'dev'))
+    local file = stored(d.instance.connections_path)
+    assert.equals(1, #file)
+    assert.equals('dev_file', file[1].name)
+  end)
+end)
+
 describe('connection management: group', function()
   local d, dir
   before_each(function()
