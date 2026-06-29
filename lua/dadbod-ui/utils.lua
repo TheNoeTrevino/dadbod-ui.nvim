@@ -13,6 +13,20 @@ function M.slug(str)
   return (str:gsub('[^%w_%-]', ''))
 end
 
+--- Whether `path` exists and is a regular file.
+---@param path string
+---@return boolean
+function M.is_file(path)
+  return (vim.uv.fs_stat(path) or {}).type == 'file'
+end
+
+--- Whether `path` exists and is a directory.
+---@param path string
+---@return boolean
+function M.is_dir(path)
+  return (vim.uv.fs_stat(path) or {}).type == 'directory'
+end
+
 --- The split modifier for placing a query window on the side opposite the
 --- drawer: `botright` when the drawer is on the left, otherwise `topleft`.
 ---@param win_position string  the drawer's `win_position` config ('left' | 'right')
