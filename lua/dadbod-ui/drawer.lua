@@ -6,7 +6,6 @@
 --- richer sections (tables, schemas, buffers) land in later slices.
 
 local icons_mod = require('dadbod-ui.icons')
-local connections = require('dadbod-ui.connections')
 local bridge = require('dadbod-ui.bridge')
 local utils = require('dadbod-ui.utils')
 
@@ -56,6 +55,7 @@ local M = {}
 ---@field show_dbout_list boolean  whether the Query results section is expanded
 ---@field _query? DadbodUI.Query  lazily-built query controller
 ---@field _introspect? DadbodUI.Introspect  lazily-built introspection controller
+---@field _connections? DadbodUI.ConnectionsController  lazily-built CRUD controller
 ---@field bufnr? integer
 ---@field winid? integer
 local Drawer = {}
@@ -82,6 +82,7 @@ function M.new(instance)
     show_dbout_list = false,
     _query = nil,
     _introspect = nil,
+    _connections = nil,
     bufnr = nil,
     winid = nil,
   }, Drawer)
@@ -113,6 +114,25 @@ function Drawer:introspect()
     })
   end
   return self._introspect
+end
+
+--- The connections CRUD controller (lazily built): wires the interactive add/
+--- rename/duplicate/group/delete flows over connections.json. It captures the
+--- drawer's injectable input/confirm backends and a render callback, but requires
+--- neither `drawer` nor `query`.
+---@return DadbodUI.ConnectionsController
+function Drawer:connections()
+  if self._connections == nil then
+    self._connections = require('dadbod-ui.connections_controller').new({
+      instance = self.instance,
+      input = self.input,
+      confirm = self.confirm,
+      render = function()
+        self:render()
+      end,
+    })
+  end
+  return self._connections
 end
 
 ---@param name string
@@ -672,7 +692,7 @@ function Drawer:toggle_line(edit_action)
   end
   if item.action == 'call_method' then
     if item.type == 'add_connection' then
-      self:add_connection()
+      self:connections():add_connection()
     elseif item.type == 'dbout_list' then
       self.show_dbout_list = not self.show_dbout_list
       return self:render()
@@ -718,210 +738,10 @@ end
 
 -- Interactive connection management ------------------------------------------
 --
--- These wire the drawer keys (A/d/r/R) to the pure CRUD transforms in
--- connections.lua. Prompts go through `self.input` (vim.ui.input by default),
--- so each flow is callback-based; all user-facing messages route through the
--- notifications layer. On success we write connections.json, re-discover, and
--- re-render.
-
---- Resolve and validate a url the user typed. Returns `(resolved, nil)` or
---- `(nil, err)` when dadbod rejects it.
----@param url string
----@return string|nil, string|nil
-local function validate_url(url)
-  local ok, result = pcall(function()
-    local resolved = bridge.resolve(url)
-    bridge.parse_url(resolved)
-    return resolved
-  end)
-  if not ok then
-    return nil, tostring(result)
-  end
-  return result, nil
-end
-
---- Read the connections.json store, refusing to proceed when it is present but
---- corrupt -- so a CRUD action can't silently overwrite a file we failed to
---- parse. Returns the list, or nil when the store is unreadable.
----@return DadbodUI.FileConnection[]|nil
-function Drawer:read_store()
-  local corrupt = false
-  local list = connections.read_file(self.instance.connections_path, function()
-    corrupt = true
-  end)
-  if corrupt then
-    require('dadbod-ui.notifications').error(
-      'Could not read connections file; refusing to overwrite it. Fix or remove: ' .. (self.instance.connections_path or '')
-    )
-    return nil
-  end
-  return list
-end
-
---- Persist `connections.json`, re-discover, and re-render.
----@param list DadbodUI.FileConnection[]
----@return nil
-function Drawer:commit_connections(list)
-  local path = self.instance.connections_path
-  if path == nil then
-    return
-  end
-  connections.write_file(path, list)
-  self.instance:repopulate()
-  self:render()
-end
-
---- Add a new file-source connection (also `:DBUIAddConnection`). Prompts for a
---- url then a name; rejects an invalid url, a blank name, or a duplicate name.
----@return nil
-function Drawer:add_connection()
-  local notify = require('dadbod-ui.notifications')
-  if self.instance.connections_path == nil then
-    return notify.error('Please set up valid save location via g:db_ui_save_location')
-  end
-  self.input({ prompt = 'Enter connection url: ' }, function(url)
-    if url == nil then
-      return
-    end
-    local resolved, err = validate_url(url)
-    if resolved == nil then
-      return notify.error(err or 'Invalid connection url.')
-    end
-    self.input({ prompt = 'Enter name: ', default = resolved:match('[^/]*$') }, function(name)
-      if name == nil then
-        return
-      end
-      name = vim.trim(name)
-      if name == '' then
-        return notify.error('Please enter valid name.')
-      end
-      local store = self:read_store()
-      if store == nil then
-        return
-      end
-      local list, add_err = connections.add_connection(store, name, resolved)
-      if list == nil then
-        return notify.error(add_err or 'Could not add connection.')
-      end
-      self:commit_connections(list)
-      notify.info('Saved connection.')
-    end)
-  end)
-end
-
---- Rename/edit a connection. Only file-source connections are editable; others
---- are refused with a notification. Prompts for a new url then a new name.
----@param entry DadbodUI.ConnectionEntry
----@return nil
-function Drawer:rename_connection(entry)
-  local notify = require('dadbod-ui.notifications')
-  if entry.source ~= 'file' then
-    return notify.error('Cannot edit connections added via variables.')
-  end
-  self.input({ prompt = string.format('Edit connection url for "%s": ', entry.name), default = entry.url }, function(url)
-    if url == nil then
-      return
-    end
-    local resolved, err = validate_url(url)
-    if resolved == nil then
-      return notify.error(err or 'Invalid connection url.')
-    end
-    self.input({ prompt = 'Edit connection name: ', default = entry.name }, function(name)
-      if name == nil then
-        return
-      end
-      name = vim.trim(name)
-      if name == '' then
-        return notify.error('Please enter valid name.')
-      end
-      local store = self:read_store()
-      if store == nil then
-        return
-      end
-      local list, rename_err = connections.rename_connection(store, entry.name, entry.url, name, resolved)
-      if list == nil then
-        return notify.error(rename_err or 'Could not rename connection.')
-      end
-      self:commit_connections(list)
-    end)
-  end)
-end
-
---- Duplicate a connection into the file store (`D`). Prompts for a name
---- (prefilled from the source), a url (prefilled from the source), then a group
---- (prefilled from the source). Because the same name is allowed in different
---- groups, the natural clone is "keep the name, change the group" -- e.g.
---- `geekom/postgres` -> `pi/postgres`. Works on any source: the result is always
---- a file connection, so a `g:dbs`/env entry can be cloned into an editable one.
----@param entry DadbodUI.ConnectionEntry
----@return nil
-function Drawer:duplicate_connection(entry)
-  local notify = require('dadbod-ui.notifications')
-  if self.instance.connections_path == nil then
-    return notify.error('Please set up valid save location via g:db_ui_save_location')
-  end
-  self.input({ prompt = 'Enter name for the duplicate: ', default = entry.name }, function(name)
-    if name == nil then
-      return
-    end
-    name = vim.trim(name)
-    if name == '' then
-      return notify.error('Please enter valid name.')
-    end
-    self.input({ prompt = 'Enter connection url: ', default = entry.url }, function(url)
-      if url == nil then
-        return
-      end
-      local resolved, err = validate_url(url)
-      if resolved == nil then
-        return notify.error(err or 'Invalid connection url.')
-      end
-      self.input({ prompt = 'Enter group (optional): ', default = entry.group }, function(group)
-        if group == nil then
-          return
-        end
-        group = vim.trim(group)
-        local store = self:read_store()
-        if store == nil then
-          return
-        end
-        local list, dup_err = connections.duplicate_connection(store, name, resolved, group)
-        if list == nil then
-          return notify.error(dup_err or 'Could not duplicate connection.')
-        end
-        self:commit_connections(list)
-        notify.info('Duplicated connection.')
-      end)
-    end)
-  end)
-end
-
---- Assign a connection to a group (or clear it). A group is just a shared name:
---- entering an existing group joins it, a new name creates it, and an empty
---- entry ungroups. Only file-source connections are editable.
----@param entry DadbodUI.ConnectionEntry
----@return nil
-function Drawer:set_group(entry)
-  local notify = require('dadbod-ui.notifications')
-  if entry.source ~= 'file' then
-    return notify.error('Cannot edit connections added via variables.')
-  end
-  self.input({ prompt = 'Enter group name: ', default = entry.group }, function(group)
-    if group == nil then
-      return
-    end
-    group = vim.trim(group)
-    local store = self:read_store()
-    if store == nil then
-      return
-    end
-    local list, err = connections.set_group(store, entry.name, entry.url, group)
-    if list == nil then
-      return notify.error(err or 'Could not set group.')
-    end
-    self:commit_connections(list)
-  end)
-end
+-- The CRUD flows (prompt -> validate -> pure transform -> write/re-render) now
+-- live in `dadbod-ui.connections_controller`, built lazily via
+-- `self:connections()`. The cursor-aware `*_line` dispatchers below resolve the
+-- node under the cursor and route to that controller.
 
 --- Group the connection under the cursor (`G`).
 ---@return nil
@@ -931,7 +751,7 @@ function Drawer:set_group_line()
     return
   end
   if item.type == 'db' then
-    return self:set_group(self.instance.dbs[item.key_name])
+    return self:connections():set_group(self.instance.dbs[item.key_name])
   end
 end
 
@@ -943,7 +763,7 @@ function Drawer:duplicate_line()
     return
   end
   if item.type == 'db' then
-    return self:duplicate_connection(self.instance.dbs[item.key_name])
+    return self:connections():duplicate_connection(self.instance.dbs[item.key_name])
   end
 end
 
@@ -960,7 +780,7 @@ function Drawer:delete_line()
     if entry.source ~= 'file' then
       return require('dadbod-ui.notifications').error('Cannot delete this connection.')
     end
-    return self:delete_connection(entry)
+    return self:connections():delete_connection(entry)
   end
   if item.action == 'open' and (item.type == 'buffer' or item.type == 'saved_query') then
     return self:delete_buffer(item)
@@ -1018,23 +838,8 @@ function Drawer:delete_buffer(item)
   self:render()
 end
 
---- Confirm, then remove a file-source connection.
----@param entry DadbodUI.ConnectionEntry
----@return nil
-function Drawer:delete_connection(entry)
-  if not self.confirm(string.format('Are you sure you want to delete connection %s?', entry.name)) then
-    return
-  end
-  local store = self:read_store()
-  if store == nil then
-    return
-  end
-  local list = connections.delete_connection(store, entry.name, entry.url)
-  self:commit_connections(list)
-end
-
---- Rename the node under the cursor (`r`). Connections route to
---- `rename_connection`; open buffers and saved queries route to `rename_buffer`.
+--- Rename the node under the cursor (`r`). Connections route to the CRUD
+--- controller; open buffers and saved queries route to `rename_buffer`.
 ---@return nil
 function Drawer:rename_line()
   local item = self:get_current_item()
@@ -1045,7 +850,7 @@ function Drawer:rename_line()
     return self:rename_buffer(item.file_path, item.key_name, item.saved or false)
   end
   if item.type == 'db' then
-    return self:rename_connection(self.instance.dbs[item.key_name])
+    return self:connections():rename_connection(self.instance.dbs[item.key_name])
   end
 end
 
@@ -1264,7 +1069,7 @@ function Drawer:setup_mappings()
     self:quit()
   end)
   map('A', function()
-    self:add_connection()
+    self:connections():add_connection()
   end)
   map('d', function()
     self:delete_line()
