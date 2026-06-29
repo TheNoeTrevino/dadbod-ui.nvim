@@ -9,6 +9,7 @@ local icons_mod = require('dadbod-ui.icons')
 local connections = require('dadbod-ui.connections')
 local bridge = require('dadbod-ui.bridge')
 local schemas = require('dadbod-ui.schemas')
+local utils = require('dadbod-ui.utils')
 
 local INDENT = 2
 
@@ -282,10 +283,10 @@ end
 --- as a preview. Port of the dbout_list block of `s:drawer.render`.
 ---@return nil
 function Drawer:render_dbout_list()
-  local files = vim.tbl_keys(self.instance.dbout_list)
-  if #files == 0 then
+  if next(self.instance.dbout_list) == nil then
     return
   end
+  local files = vim.tbl_keys(self.instance.dbout_list)
   self:add({ label = '', icon = '', level = 0, type = 'help', action = 'noaction' })
   self:add({
     label = string.format('Query results (%d)', #files),
@@ -385,15 +386,7 @@ function Drawer:get_buffer_name(entry, buffer)
   if vim.fn.fnamemodify(name, ':r') == 'db_ui' then
     name = vim.fn.fnamemodify(name, ':e')
   end
-  return (name:gsub('^' .. vim.pesc(self:_slug(entry.name)) .. '%-', ''))
-end
-
---- Strip everything but `[A-Za-z0-9_-]` (port of `db_ui#utils#slug`), used for
---- matching the tmp-buffer name prefix.
----@param str string
----@return string
-function Drawer:_slug(str)
-  return (str:gsub('[^%w_%-]', ''))
+  return (name:gsub('^' .. vim.pesc(utils.slug(entry.name)) .. '%-', ''))
 end
 
 --- Render the Buffers section: a toggle header with the open-buffer count, and
@@ -1169,7 +1162,7 @@ function Drawer:rename_buffer(buffer, key_name, is_saved_query)
   if entry == nil then
     return notify.error('Buffer not attached to any database')
   end
-  local db_slug = self:_slug(entry.name)
+  local db_slug = utils.slug(entry.name)
   local is_saved = is_saved_query or not self.instance:is_tmp_location_buffer(entry, buffer)
   local old_name = self:get_buffer_name(entry, buffer)
   self.input({ prompt = 'Enter new name: ', default = old_name }, function(new_name)
@@ -1351,7 +1344,7 @@ function Drawer:setup_mappings()
     self:toggle_line()
   end)
   map('S', function()
-    local pos = self.config.win_position == 'left' and 'botright' or 'topleft'
+    local pos = utils.opposite_position(self.config.win_position)
     self:toggle_line('vertical ' .. pos .. ' split')
   end)
   map('q', function()

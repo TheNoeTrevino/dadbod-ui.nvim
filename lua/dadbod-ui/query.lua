@@ -9,15 +9,9 @@
 --- in-buffer loading symbol and result tracking live in `dadbod-ui.dbout`.
 
 local bridge = require('dadbod-ui.bridge')
+local utils = require('dadbod-ui.utils')
 
 local M = {}
-
---- Strip everything but `[A-Za-z0-9_-]` from `str`. Port of `db_ui#utils#slug`.
----@param str string
----@return string
-local function slug(str)
-  return (str:gsub('[^%w_%-]', ''))
-end
 
 --- Replace every literal occurrence of `key` in `s` with `val`. Uses a function
 --- replacement so `%` in `val` (and Lua pattern magic generally) stays literal;
@@ -117,7 +111,7 @@ function Query:generate_buffer_name(entry, opts)
   if opts.table ~= nil and opts.table ~= '' then
     suffix = string.format('%s-%s', opts.table, opts.label)
   end
-  local buffer_name = slug(string.format('%s-%s', entry.name, suffix))
+  local buffer_name = utils.slug(string.format('%s-%s', entry.name, suffix))
   buffer_name = string.format('%s-%s', buffer_name, time)
   if self.config.buffer_name_generator then
     buffer_name = string.format('%s-%s', entry.name, self.config.buffer_name_generator(opts))
@@ -135,8 +129,7 @@ end
 --- on the side opposite the drawer. Port of `s:query.focus_window`.
 ---@return nil
 function Query:focus_window()
-  local win_pos = self.config.win_position == 'left' and 'botright' or 'topleft'
-  local win_cmd = 'vertical ' .. win_pos .. ' new'
+  local win_cmd = 'vertical ' .. utils.opposite_position(self.config.win_position) .. ' new'
   if vim.fn.winnr('$') == 1 then
     vim.cmd('silent! ' .. win_cmd)
     return
@@ -201,10 +194,9 @@ function Query:open_buffer(entry, name, edit_action, opts)
     -- The window could not take the buffer (modified buffer + 'nohidden'). Open
     -- in a fresh split so the query buffer still appears -- a split keeps the
     -- modified buffer visible in its original window, so it is never abandoned.
-    local pos = self.config.win_position == 'left' and 'botright' or 'topleft'
+    local pos = utils.opposite_position(self.config.win_position)
     vim.cmd('silent! vertical ' .. pos .. ' split ' .. vim.fn.fnameescape(name))
   end
-  local bufnr = vim.api.nvim_get_current_buf()
   self:setup_buffer(entry, vim.tbl_extend('force', opts, { existing_buffer = is_existing }), name)
 
   if table_name == '' or is_existing then
