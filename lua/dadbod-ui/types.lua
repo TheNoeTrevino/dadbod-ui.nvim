@@ -94,8 +94,8 @@
 ---@field items table<string, DadbodUI.SchemaItem>
 
 --- Per-adapter introspection metadata (dadbod-ui.schemas). Mirrors the original
---- `s:schemas[scheme]` dict; M6 uses the schema/table listing fields, later
---- milestones use the foreign-key / select fields.
+--- `s:schemas[scheme]` dict; M6 uses the schema/table listing fields, M10 uses
+--- the dbout foreign-key / cell / layout fields below.
 ---@class DadbodUI.SchemaAdapter
 ---@field args? string[]              extra argv appended to the adapter command
 ---@field schemes_query? string       SQL listing schema names
@@ -106,6 +106,24 @@
 ---@field filetype? string
 ---@field requires_stdin? boolean
 ---@field callable? string            'interactive' (default) | 'filter'
+--- dbout (result-buffer) metadata, used by dadbod-ui.dbout for folding + cell /
+--- foreign-key navigation. SQL is copied verbatim from the original (the
+--- "correct SQL" interop contract); the patterns are Vim regexes.
+---@field foreign_key_query? string   SQL resolving a column's foreign table; carries the `{col_name}` placeholder
+---@field select_foreign_key_query? string  string.format template (schema, table, column, value) for the jump SELECT
+---@field cell_line_number? integer   first possible separator (column-underline) line
+---@field cell_line_pattern? string   Vim regex matching a separator line
+---@field has_virtual_results? boolean  result columns span screen lines (oracle)
+---@field parse_virtual_results? fun(results: string[], min_len: integer): any[]
+---@field layout_flag? string         CLI flag toggling expanded/vertical result layout
+
+--- One highlight range to apply over a painted drawer line: a highlight group
+--- and the byte columns it covers (`col_end` exclusive). Computed purely by
+--- dadbod-ui.highlights so it is unit-testable without a buffer.
+---@class DadbodUI.Highlight
+---@field group string
+---@field col_start integer  0-based byte column
+---@field col_end integer    0-based byte column, exclusive
 
 --- Per-connection state entry held by the instance.
 ---@class DadbodUI.ConnectionEntry

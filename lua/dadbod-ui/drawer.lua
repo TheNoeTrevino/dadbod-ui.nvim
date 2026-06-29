@@ -17,6 +17,7 @@
 
 local icons_mod = require('dadbod-ui.icons')
 local bridge = require('dadbod-ui.bridge')
+local highlights = require('dadbod-ui.highlights')
 local utils = require('dadbod-ui.utils')
 
 local INDENT = 2
@@ -187,6 +188,9 @@ function Drawer:open(mods)
   wo.winfixwidth = true
 
   self:setup_mappings()
+  -- Define the drawer highlight groups (idempotent, default-linked so user
+  -- overrides win) before the first paint.
+  highlights.define()
   -- Register the dbout filetype / result-recording autocmds and the loading
   -- spinner on dadbod's async execute events (idempotent across opens).
   require('dadbod-ui.dbout').attach(self)
@@ -250,26 +254,43 @@ function Drawer:build_content()
 end
 
 --- Paint a node list into `bufnr`: map each node to its display string
---- (indent + icon + separator + label) and overwrite the buffer under a
---- `modifiable` toggle. The only render half that requires a buffer; M10 will
---- hang highlight metadata off the nodes here. Standalone (no `self`) so the
---- paint seam stays decoupled from instance state.
+--- (indent + icon + separator + label), overwrite the buffer under a
+--- `modifiable` toggle, then re-apply the per-node highlights as extmarks in the
+--- `dadbod_ui` namespace (cleared first). The only render half that requires a
+--- buffer; the highlight ranges come from the pure `highlights.highlights_for`,
+--- mirroring the `build_content`/`paint` purity split. Standalone (no `self`) so
+--- the paint seam stays decoupled from instance state; `icons` is threaded in for
+--- the connection ok/error glyph lookup.
 ---@param bufnr integer
 ---@param nodes DadbodUI.Node[]
+---@param icons DadbodUI.Icons
 ---@return nil
-local function paint(bufnr, nodes)
-  local lines = vim.iter(nodes)
-    :map(function(node)
-      local indent = string.rep(' ', INDENT * node.level)
-      local sep = node.icon ~= '' and ' ' or ''
-      return indent .. node.icon .. sep .. node.label
-    end)
-    :totable()
+local function paint(bufnr, nodes, icons)
+  local lines = {}
+  ---@type DadbodUI.Highlight[][]
+  local line_hls = {}
+  for i, node in ipairs(nodes) do
+    local indent = string.rep(' ', INDENT * node.level)
+    local sep = node.icon ~= '' and ' ' or ''
+    local text = indent .. node.icon .. sep .. node.label
+    lines[i] = text
+    line_hls[i] = highlights.highlights_for(node, text, icons)
+  end
 
   local bo = vim.bo[bufnr]
   bo.modifiable = true
   vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
   bo.modifiable = false
+
+  vim.api.nvim_buf_clear_namespace(bufnr, highlights.NS, 0, -1)
+  for i, hls in ipairs(line_hls) do
+    for _, hl in ipairs(hls) do
+      vim.api.nvim_buf_set_extmark(bufnr, highlights.NS, i - 1, hl.col_start, {
+        end_col = hl.col_end,
+        hl_group = hl.group,
+      })
+    end
+  end
 end
 
 --- Rebuild `content` from the instance and write the buffer lines.
@@ -280,7 +301,7 @@ function Drawer:render()
   end
   -- is_open() guarantees a live window, hence a buffer; narrow bufnr to non-nil.
   local bufnr = assert(self.bufnr)
-  paint(bufnr, self:build_content())
+  paint(bufnr, self:build_content(), self.icons)
   return self
 end
 
