@@ -32,6 +32,20 @@ local function subst(s, key, val)
   end))
 end
 
+--- The number of a loaded buffer whose name is exactly `full_path`, else -1.
+--- Used instead of `vim.fn.bufnr`, whose pattern matching can falsely match an
+--- unrelated buffer (the `.`/`*` in a path are treated as regex).
+---@param full_path string
+---@return integer
+local function loaded_bufnr(full_path)
+  for _, b in ipairs(vim.api.nvim_list_bufs()) do
+    if vim.api.nvim_buf_is_loaded(b) and vim.api.nvim_buf_get_name(b) == full_path then
+      return b
+    end
+  end
+  return -1
+end
+
 ---@class DadbodUI.Query
 ---@field drawer DadbodUI.Drawer
 ---@field instance DadbodUI.Instance
@@ -166,20 +180,34 @@ function Query:open_buffer(entry, name, edit_action, opts)
   -- is opened on a not-yet-expanded connection (mirrors find_buffer's connect).
   self.drawer:connect(entry)
 
+  local full = vim.fn.fnamemodify(name, ':p')
   if edit_action == 'edit' then
     self:focus_window()
-    local bufnr = vim.fn.bufnr(name)
-    if bufnr > -1 then
-      vim.cmd('silent! buffer ' .. bufnr)
+  end
+  -- An already-open buffer is shown as-is (don't clobber its contents). When the
+  -- window can't be reused -- e.g. 'nohidden' with a modified buffer in it -- the
+  -- switch is a no-op, so we fall through to the split fallback below.
+  local is_existing = loaded_bufnr(full) > -1
+  if is_existing then
+    pcall(vim.cmd, 'silent! buffer ' .. vim.fn.fnameescape(full))
+    if vim.api.nvim_buf_get_name(0) == full then
       self:setup_buffer(entry, vim.tbl_extend('force', opts, { existing_buffer = true }), name)
       return
     end
   end
 
   vim.cmd('silent! ' .. edit_action .. ' ' .. vim.fn.fnameescape(name))
-  self:setup_buffer(entry, opts, name)
+  if vim.api.nvim_buf_get_name(0) ~= full then
+    -- The window could not take the buffer (modified buffer + 'nohidden'). Open
+    -- in a fresh split so the query buffer still appears -- a split keeps the
+    -- modified buffer visible in its original window, so it is never abandoned.
+    local pos = self.config.win_position == 'left' and 'botright' or 'topleft'
+    vim.cmd('silent! vertical ' .. pos .. ' split ' .. vim.fn.fnameescape(name))
+  end
+  local bufnr = vim.api.nvim_get_current_buf()
+  self:setup_buffer(entry, vim.tbl_extend('force', opts, { existing_buffer = is_existing }), name)
 
-  if table_name == '' then
+  if table_name == '' or is_existing then
     return
   end
 
@@ -234,7 +262,14 @@ function Query:setup_buffer(entry, opts, name)
   end
 
   if vim.bo.filetype ~= entry.filetype or not is_existing then
-    vim.cmd('setlocal noswapfile nowrap nospell modifiable filetype=' .. entry.filetype)
+    -- Guard the filetype switch: a third-party `FileType` autocmd that errors
+    -- (e.g. a completion plugin) must not abort opening the buffer. The option
+    -- is applied before any autocmd runs, so an error leaves the filetype set
+    -- and we still fall through to fill/return the buffer.
+    local ok, err = pcall(vim.cmd, 'setlocal noswapfile nowrap nospell modifiable filetype=' .. entry.filetype)
+    if not ok and self.config.debug then
+      require('dadbod-ui.notifications').warn('Error in FileType autocmd: ' .. tostring(err))
+    end
   end
   local is_sql = vim.bo.filetype == entry.filetype
   local is_tmp = self.instance:is_tmp_location_buffer(entry, name)
