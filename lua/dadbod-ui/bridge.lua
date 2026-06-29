@@ -137,6 +137,32 @@ function M.output_extension(url)
   return M.adapter_call(url, 'output_extension', {}, 'dbout')
 end
 
+--- The query-input file path dadbod records on a `.dbout` result buffer.
+--- dadbod sets a result buffer's `b:db` to a TABLE describing the execution,
+--- whose `input` field is the temp file holding the SQL that produced the rows.
+--- That `b:db` table shape is a dadbod internal, so reading `.input` lives here
+--- behind the engine boundary rather than leaking into the UI.
+---
+--- Returns the input path, or nil when the buffer is unknown, has no `b:db`
+--- table, or that table carries no usable `input`.
+---@param file string  the `.dbout` buffer's name/path
+---@return string|nil
+function M.dbout_input(file)
+  local bufnr = fn.bufnr(file)
+  if bufnr < 0 then
+    return nil
+  end
+  local db = fn.getbufvar(bufnr, 'db')
+  if type(db) ~= 'table' then
+    return nil
+  end
+  local input = db.input
+  if type(input) ~= 'string' or input == '' then
+    return nil
+  end
+  return input
+end
+
 -- Connection -----------------------------------------------------------------
 
 --- Validate / prepare a connection, returning the resolved connection string.

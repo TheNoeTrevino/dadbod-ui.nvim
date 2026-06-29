@@ -22,6 +22,16 @@
 --- value the user entered. Read by external tools, so the shape stays stable.
 ---@alias DadbodUI.BindParams table<string, string>
 
+--- The buffer-local contract fields a query buffer carries, as passed to the
+--- single contract writer (Query.write_contract). `table`/`schema` default to
+--- '' when omitted; `bind_params` is written only when present and may be the
+--- bare '' a never-parametrized buffer carries (dadbod-ui round-trips it through
+--- the defensive read in query.lua), hence `string` as well as the dict.
+---@class DadbodUI.ContractOpts
+---@field table? string
+---@field schema? string
+---@field bind_params? DadbodUI.BindParams|string
+
 --- Parsed connection URL (vim-dadbod's db#url#parse). Network urls carry
 --- host/port/user/password/path; file-style urls (sqlite) carry opaque instead.
 ---@class DadbodUI.ParsedUrl

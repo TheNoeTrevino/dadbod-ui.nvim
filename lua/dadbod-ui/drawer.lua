@@ -1244,10 +1244,16 @@ function Drawer:rename_buffer(buffer, key_name, is_saved_query)
     end, entry.buffers.list)
 
     if new_bufnr > -1 then
-      vim.fn.setbufvar(new_bufnr, 'dbui_db_key_name', entry.key_name)
-      vim.fn.setbufvar(new_bufnr, 'db', entry.conn)
-      vim.fn.setbufvar(new_bufnr, 'dbui_table_name', vim.fn.getbufvar(buffer, 'dbui_table_name'))
-      vim.fn.setbufvar(new_bufnr, 'dbui_bind_params', vim.fn.getbufvar(buffer, 'dbui_bind_params'))
+      -- Carry the contract onto the renamed buffer through the single writer,
+      -- preserving the old buffer's table name and bind params (the latter is a
+      -- bare '' when the source was never parametrized -- round-tripped as-is).
+      -- Read from the old buffer's number (already resolved above), not its
+      -- name, so getbufvar resolves the buffer once rather than per field.
+      self:query().write_contract(new_bufnr, entry, {
+        table = vim.fn.getbufvar(bufnr, 'dbui_table_name'),
+        schema = vim.fn.getbufvar(bufnr, 'dbui_schema_name'),
+        bind_params = vim.fn.getbufvar(bufnr, 'dbui_bind_params'),
+      })
     end
 
     vim.cmd('silent! bwipeout! ' .. vim.fn.fnameescape(buffer))

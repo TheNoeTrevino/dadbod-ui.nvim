@@ -223,6 +223,28 @@ function Query:open_buffer(entry, name, edit_action, opts)
   end
 end
 
+--- Write the buffer-local interop contract (`b:dbui_db_key_name`, `b:db`,
+--- `b:dbui_table_name`, `b:dbui_schema_name`, and `b:dbui_bind_params` when
+--- given) onto `bufnr`. The single place that ESTABLISHES the contract -- both
+--- the query-open path and the drawer's buffer rename route through here, so the
+--- fixed names are written in one spot (`b:dbui_bind_params` is afterwards
+--- updated in place by the bind-param flow). `b:db` is dadbod's live handle
+--- (`entry.conn`); the rest are dadbod-ui's own.
+---@param bufnr integer
+---@param entry DadbodUI.ConnectionEntry
+---@param opts DadbodUI.ContractOpts
+---@return nil
+function Query.write_contract(bufnr, entry, opts)
+  local b = vim.b[bufnr]
+  b.dbui_db_key_name = entry.key_name
+  b.db = entry.conn
+  b.dbui_table_name = opts.table or ''
+  b.dbui_schema_name = opts.schema or ''
+  if opts.bind_params ~= nil then
+    b.dbui_bind_params = opts.bind_params
+  end
+end
+
 --- Set the buffer-local contract, register the buffer with its connection,
 --- configure buffer options, and wire the execute-on-save / cleanup autocmds.
 --- Port of `s:query.setup_buffer`.
@@ -231,10 +253,7 @@ end
 ---@param name string
 ---@return nil
 function Query:setup_buffer(entry, opts, name)
-  vim.b.dbui_db_key_name = entry.key_name
-  vim.b.dbui_table_name = opts.table or ''
-  vim.b.dbui_schema_name = opts.schema or ''
-  vim.b.db = entry.conn
+  Query.write_contract(vim.api.nvim_get_current_buf(), entry, opts)
   local is_existing = opts.existing_buffer or false
   local db_buffers = entry.buffers
 
