@@ -54,19 +54,19 @@ function Introspect:connect(entry)
     return entry
   end
   -- No "Connecting..." notification: the drawer's inline loading indicator on
-  -- the db node communicates progress instead (the success/error notify stay).
-  local notify = require('dadbod-ui.notifications')
+  -- the db node communicates progress. Success is silent too -- the connection_ok
+  -- icon signals it and the elapsed time lands in the details view (`H`) rather
+  -- than a popup. Only a failure interrupts with a notification.
   local started = vim.uv.hrtime()
   local ok, conn = pcall(self.connector, entry.url)
   if ok then
     entry.conn = conn
     entry.conn_error = ''
-    local elapsed_ms = math.floor((vim.uv.hrtime() - started) / 1e6 + 0.5)
-    notify.info(string.format('Connected to db %s. Took %dms to connect.', entry.name, elapsed_ms))
+    entry.connect_ms = math.floor((vim.uv.hrtime() - started) / 1e6 + 0.5)
   else
     entry.conn = ''
     entry.conn_error = tostring(conn)
-    notify.error(string.format('Error connecting to db %s: %s', entry.name, tostring(conn)))
+    require('dadbod-ui.notifications').error(string.format('Error connecting to db %s: %s', entry.name, tostring(conn)))
   end
   entry.conn_tried = true
   return entry

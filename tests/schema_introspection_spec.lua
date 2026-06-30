@@ -131,14 +131,32 @@ describe('schema introspection: connect', function()
     end
   end)
 
-  it('reports how long a successful connection took', function()
+  it('records the connect time on the entry without a popup', function()
     d = make_drawer({ dev = 'postgres://h/dev' })
     d.connector = function()
       return 'postgres://h/dev'
     end
     d:open()
-    d:introspect():connect(entry_named(d, 'dev'))
-    assert.is_truthy(notifications.get_last_msg():match('Took %d+ms to connect%.'))
+    local entry = entry_named(d, 'dev')
+    local before = notifications.get_last_msg()
+    d:introspect():connect(entry)
+    -- the timing is captured on the entry, and the connect emitted no message
+    assert.is_number(entry.connect_ms)
+    assert.equals(before, notifications.get_last_msg())
+  end)
+
+  it('surfaces the connect time in the details view, not a notification', function()
+    d = make_drawer({ dev = 'postgres://h/dev' })
+    d.connector = function()
+      return 'postgres://h/dev'
+    end
+    d:open()
+    local entry = entry_named(d, 'dev')
+    d:introspect():connect(entry)
+    d.show_details = true
+    d:render()
+    -- e.g. "▾ dev ✓ (postgres - g:dbs - 3ms)"
+    assert.is_truthy(lines(d)[1]:match('%- %d+ms%)$'))
   end)
 end)
 
