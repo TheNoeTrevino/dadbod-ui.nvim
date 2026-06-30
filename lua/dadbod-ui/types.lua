@@ -262,5 +262,16 @@
 ---@field disable_mappings_sql boolean
 ---@field disable_mappings_javascript boolean
 ---@field icons table
+---@field mappings table<string, table<string, DadbodUI.Mapping>>
 ---@field buffer_name_generator? DadbodUI.BufferNameGenerator
 ---@field table_name_sorter? DadbodUI.TableNameSorter
+
+--- A single configurable keybinding. `key` is a string, a list of strings
+--- (aliases), or `'none'` to disable. `mode` (default `'n'`) is the mode(s) it
+--- binds in. `binds` is an escape hatch for actions whose lhs differs per mode;
+--- when present it is the authoritative bind list while `key` drives help text.
+---@class DadbodUI.Mapping
+---@field key string|string[]  the lhs, or 'none' to disable
+---@field desc string  one-line description shown in the help window
+---@field mode? string|string[]  default 'n'
+---@field binds? { mode: string, lhs: string }[]

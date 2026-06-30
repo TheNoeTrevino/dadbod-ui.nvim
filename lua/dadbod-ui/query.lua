@@ -299,20 +299,25 @@ function Query:setup_buffer(entry, opts, name)
   local bufnr = vim.api.nvim_get_current_buf()
 
   if not (self.config.disable_mappings or self.config.disable_mappings_sql) then
-    vim.keymap.set('n', '<Leader>S', function()
-      self:execute_query()
-    end, { buffer = bufnr, silent = true })
-    vim.keymap.set('v', '<Leader>S', function()
-      self:execute_query(true)
-    end, { buffer = bufnr, silent = true })
-    vim.keymap.set('n', '<Leader>E', function()
-      self:edit_bind_parameters()
-    end, { buffer = bufnr, silent = true })
+    local config_mod = require('dadbod-ui.config')
+    local mappings = require('dadbod-ui.mappings')
+    -- Keyed by the ids in `config.mappings.query`; the same data drives the help
+    -- window. `execute` is mode-aware (visual runs the selection). `save_query`
+    -- is offered only for writable tmp SQL buffers, so it is omitted otherwise.
+    local handlers = {
+      execute = function(mode)
+        self:execute_query(mode == 'v')
+      end,
+      edit_bind_params = function()
+        self:edit_bind_parameters()
+      end,
+    }
     if is_tmp and is_sql then
-      vim.keymap.set('n', '<Leader>W', function()
+      handlers.save_query = function()
         self:save_query()
-      end, { buffer = bufnr, silent = true })
+      end
     end
+    mappings.apply(self.config.mappings.query, config_mod.mapping_order.query, handlers, { buffer = bufnr, silent = true, nowait = true })
   end
 
   local group = vim.api.nvim_create_augroup('dadbod_ui_query_' .. bufnr, { clear = true })

@@ -32,24 +32,6 @@ local function is_connected(entry)
   return require('dadbod-ui.state').is_connected(entry)
 end
 
-local HELP_LINES = {
-  '" o - Open/Toggle selected item',
-  '" S - Open/Toggle selected item in vertical split',
-  '" d - Delete selected item',
-  '" R - Redraw',
-  '" A - Add connection',
-  '" D - Duplicate connection',
-  '" G - Add/remove connection to a group',
-  '" H - Toggle database details',
-  '" r - Rename/Edit buffer/connection/saved query',
-  '" q - Close drawer',
-  '" <C-j>/<C-k> - Go to last/first sibling',
-  '" K/J - Go to prev/next sibling',
-  '" <C-p>/<C-n> - Go to parent/child node',
-  '" <Leader>W - (sql) Save currently opened query',
-  '" <Leader>S - (sql) Execute query in visual or normal mode',
-}
-
 local M = {}
 
 ---@class DadbodUI.Drawer
@@ -60,7 +42,7 @@ local M = {}
 --- Drawer-owned transient VIEW state (group expand + the show_* flags below);
 --- entries own DOMAIN expand. See the ownership note above `toggle_line`.
 ---@field groups table<string, { expanded: boolean }>  per-group expand state
----@field show_help boolean
+---@field help_winid? integer  floating help window id, nil when closed
 ---@field show_details boolean
 ---@field input DadbodUI.UiInput  prompt backend (injectable for specs)
 ---@field confirm DadbodUI.Confirm  yes/no backend (injectable for specs)
@@ -85,7 +67,7 @@ function M.new(instance)
     config = instance.config,
     content = {},
     groups = {},
-    show_help = false,
+    help_winid = nil,
     show_details = false,
     input = vim.ui.input,
     confirm = function(msg)
@@ -383,18 +365,72 @@ function Drawer:render_help()
     self:add({ label = '" Press ? for help', icon = '', level = 0, type = 'help', action = 'noaction' })
     self:add({ label = '', icon = '', level = 0, type = 'help', action = 'noaction' })
   end
-  if self.show_help then
-    for _, line in ipairs(HELP_LINES) do
-      self:add({ label = line, icon = '', level = 0, type = 'help', action = 'noaction' })
-    end
-    self:add({ label = '', icon = '', level = 0, type = 'help', action = 'noaction' })
-  end
 end
 
 ---@return DadbodUI.Drawer
 function Drawer:toggle_help()
-  self.show_help = not self.show_help
-  return self:render()
+  if self.help_winid and vim.api.nvim_win_is_valid(self.help_winid) then
+    vim.api.nvim_win_close(self.help_winid, true)
+    self.help_winid = nil
+    return self
+  end
+
+  -- Built from `config.mappings` so the help window and the live keymaps can
+  -- never drift; disabled (`key = 'none'`) actions are already filtered out.
+  local lines = require('dadbod-ui.mappings').help_lines(self.config)
+  local max_len = 0
+  for _, line in ipairs(lines) do
+    if #line > max_len then
+      max_len = #line
+    end
+  end
+
+  local width = math.min(max_len + 4, vim.o.columns - 4)
+  local height = #lines
+  local row = math.floor((vim.o.lines - height) / 2)
+  local col = math.floor((vim.o.columns - width) / 2)
+
+  local buf = vim.api.nvim_create_buf(false, true)
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+  vim.bo[buf].modifiable = false
+  vim.bo[buf].readonly = true
+  vim.bo[buf].bufhidden = 'wipe'
+
+  local winid = vim.api.nvim_open_win(buf, true, {
+    relative = 'editor',
+    row = row,
+    col = col,
+    width = width,
+    height = height,
+    border = 'rounded',
+    title = ' Help ',
+    title_pos = 'center',
+    style = 'minimal',
+  })
+  self.help_winid = winid
+
+  local function close()
+    if vim.api.nvim_win_is_valid(winid) then
+      vim.api.nvim_win_close(winid, true)
+    end
+    self.help_winid = nil
+  end
+
+  for _, key in ipairs({ 'q', '<Esc>', '?' }) do
+    vim.keymap.set('n', key, close, { buffer = buf, nowait = true, silent = true })
+  end
+
+  vim.api.nvim_create_autocmd('BufLeave', {
+    buffer = buf,
+    once = true,
+    callback = function()
+      -- window may already be gone if a keymap closed it
+      pcall(vim.api.nvim_win_close, winid, true)
+      self.help_winid = nil
+    end,
+  })
+
+  return self
 end
 
 ---@return DadbodUI.Drawer
@@ -777,7 +813,7 @@ end
 -- Expand/UI state ownership ---------------------------------------------------
 --
 -- Two coherent owners:
---   * DRAWER owns transient VIEW state -- `show_help`, `show_details`,
+--   * DRAWER owns transient VIEW state -- `help_winid`, `show_details`,
 --     `show_dbout_list`, and group expand (`self.groups`, via `group_state`).
 --     None of it is domain data; it resets with a fresh drawer.
 --   * ENTRIES own DOMAIN expand -- `entry.expanded` and the `.expanded` flag on
@@ -789,10 +825,10 @@ end
 -- type for what each points at), so a toggle is one generic flip, plus an
 -- optional `on_expand` for the db's lazy introspection.
 --
--- `show_dbout_list` is the lone exception: like the `show_help`/`show_details`
--- booleans it is flipped by name, here on the `call_method` path. It is left
--- there deliberately to keep the action branches (`call_method`/`open`)
--- untouched -- those are actions, not expand-state flips.
+-- `show_dbout_list` is the lone exception: like the `show_details` boolean it
+-- is flipped by name, here on the `call_method` path. It is left there
+-- deliberately to keep the action branches (`call_method`/`open`) untouched --
+-- those are actions, not expand-state flips.
 
 --- Act on the node under the cursor. Toggles groups/dbs/sections; opens query,
 --- buffer, saved-query and table-helper nodes through the query controller (in
@@ -1149,72 +1185,87 @@ function Drawer:goto_node(direction)
   self:set_cursor(line + 1)
 end
 
+--- The sidebar action handlers, keyed by the ids in `config.mappings.sidebar`.
+--- Drives both keymap setup and (by id) the help window, so the two stay in
+--- lockstep. `help` is bound here too but applied separately (always available,
+--- before the disable check), so it is excluded from the bulk `apply`.
+---@return table<string, fun()>
+function Drawer:sidebar_handlers()
+  return {
+    help = function()
+      self:toggle_help()
+    end,
+    toggle = function()
+      self:toggle_line()
+    end,
+    toggle_split = function()
+      local pos = utils.opposite_position(self.config.win_position)
+      self:toggle_line('vertical ' .. pos .. ' split')
+    end,
+    quit = function()
+      self:quit()
+    end,
+    add_connection = function()
+      self:connections():add_connection()
+    end,
+    delete = function()
+      self:delete_line()
+    end,
+    rename = function()
+      self:rename_line()
+    end,
+    redraw = function()
+      self:redraw()
+    end,
+    duplicate = function()
+      self:duplicate_line()
+    end,
+    set_group = function()
+      self:set_group_line()
+    end,
+    toggle_details = function()
+      self:toggle_details()
+    end,
+    first_sibling = function()
+      self:goto_sibling('first')
+    end,
+    last_sibling = function()
+      self:goto_sibling('last')
+    end,
+    prev_sibling = function()
+      self:goto_sibling('prev')
+    end,
+    next_sibling = function()
+      self:goto_sibling('next')
+    end,
+    goto_parent = function()
+      self:goto_node('parent')
+    end,
+    goto_child = function()
+      self:goto_node('child')
+    end,
+  }
+end
+
 ---@return nil
 function Drawer:setup_mappings()
-  ---@param lhs string
-  ---@param fn fun()
-  local function map(lhs, fn)
-    vim.keymap.set('n', lhs, fn, { buffer = self.bufnr, nowait = true, silent = true })
+  local config_mod = require('dadbod-ui.config')
+  local mappings = require('dadbod-ui.mappings')
+  local handlers = self:sidebar_handlers()
+  local group = self.config.mappings.sidebar
+  local opts = { buffer = self.bufnr, nowait = true, silent = true }
+
+  -- The help toggle is always available (even when mappings are disabled),
+  -- matching the original -- though a `key = 'none'` still opts it out.
+  for _, b in ipairs(mappings.binds(group.help)) do
+    vim.keymap.set(b.mode, b.lhs, handlers.help, opts)
   end
-  -- help toggle is always available, matching the original
-  map('?', function()
-    self:toggle_help()
-  end)
   if self.config.disable_mappings or self.config.disable_mappings_dbui then
     return
   end
-  map('o', function()
-    self:toggle_line()
-  end)
-  map('<CR>', function()
-    self:toggle_line()
-  end)
-  map('S', function()
-    local pos = utils.opposite_position(self.config.win_position)
-    self:toggle_line('vertical ' .. pos .. ' split')
-  end)
-  map('q', function()
-    self:quit()
-  end)
-  map('A', function()
-    self:connections():add_connection()
-  end)
-  map('d', function()
-    self:delete_line()
-  end)
-  map('r', function()
-    self:rename_line()
-  end)
-  map('R', function()
-    self:redraw()
-  end)
-  map('D', function()
-    self:duplicate_line()
-  end)
-  map('G', function()
-    self:set_group_line()
-  end)
-  map('H', function()
-    self:toggle_details()
-  end)
-  map('<C-k>', function()
-    self:goto_sibling('first')
-  end)
-  map('<C-j>', function()
-    self:goto_sibling('last')
-  end)
-  map('K', function()
-    self:goto_sibling('prev')
-  end)
-  map('J', function()
-    self:goto_sibling('next')
-  end)
-  map('<C-p>', function()
-    self:goto_node('parent')
-  end)
-  map('<C-n>', function()
-    self:goto_node('child')
-  end)
+  -- Bind the rest (help excluded -- already bound above).
+  handlers.help = nil
+  mappings.apply(group, config_mod.mapping_order.sidebar, handlers, opts)
 end
 
 -- Exposed for the line-render spec (asserts line_for matches a full paint).
