@@ -436,20 +436,49 @@ local function prompt_params(input, names, known, on_done)
   step()
 end
 
---- Run already-substituted `lines` through the engine via a temp file. The
---- rewritten SQL can be multi-statement and contain arbitrary characters, so we
---- write it out and let dadbod read it (`DB <url> < file`) rather than building a
---- command string. The temp file uses the adapter's input extension. `entry` is
---- captured before prompting so execution targets the right connection even if
---- focus moved while an async prompt was open.
+--- Run already-substituted `lines` through the engine via a temp file (see
+--- `bridge.execute_lines`). `entry` is captured before prompting so execution
+--- targets the right connection even if focus moved while an async prompt was open.
 ---@param lines string[]
 ---@param entry DadbodUI.ConnectionEntry
+---@param quiet? boolean  suppress dadbod's command-line echo (inline feedback path)
 ---@return nil
 function Query:run_from_file(lines, entry, quiet)
-  local ext = bridge.input_extension(entry.conn) or 'sql'
-  local file = vim.fn.tempname() .. '.' .. ext
-  vim.fn.writefile(lines, file)
-  bridge.execute_file(file, entry.conn, quiet)
+  bridge.execute_lines(lines, entry.conn, quiet)
+end
+
+--- Dispatch `lines` for `entry`, auto-paginating as page 1 when the adapter and
+--- query support it (plain SELECT, no existing paging clause): the LIMIT/OFFSET
+--- query runs through the tempfile path and the page state is handed to
+--- `dadbod-ui.dbout` so the result buffer can step pages with `[` / `]`. Otherwise
+--- the query runs unmodified -- a whole-buffer run still takes the fast `%DB`
+--- path, a selection/substituted run goes through the tempfile. `quiet` suppresses
+--- dadbod's echo so the inline time/row feedback can take its place.
+---@param lines string[]
+---@param entry DadbodUI.ConnectionEntry
+---@param whole_buffer boolean  true for an unmodified whole-buffer run (eligible for %DB)
+---@param quiet? boolean
+---@return nil
+function Query:dispatch(lines, entry, whole_buffer, quiet)
+  local paginator = require('dadbod-ui.paginator')
+  local dbout = require('dadbod-ui.dbout')
+  local sql = table.concat(lines, '\n')
+  local page_size = self.config.page_size
+  local paginated = paginator.paginate(entry.scheme, sql, 1, page_size)
+  if paginated ~= nil then
+    dbout.set_pending({
+      original_sql = sql,
+      page = 1,
+      page_size = page_size,
+      scheme = entry.scheme,
+      url = entry.conn,
+    })
+    return self:run_from_file(vim.split(paginated, '\n'), entry, quiet)
+  end
+  if whole_buffer then
+    return bridge.execute_buffer(quiet)
+  end
+  self:run_from_file(lines, entry, quiet)
 end
 
 --- Execute the current query buffer (or visual selection) through dadbod. The
@@ -501,20 +530,23 @@ function Query:execute_query(is_visual)
   end
 
   if #names == 0 then
-    if not is_visual then
-      -- Whole buffer, no placeholders: run it directly (no marks needed).
+    -- No placeholders. Whole-buffer and visual both flow through `dispatch`, which
+    -- auto-paginates a plain SELECT (page 1) and otherwise runs unmodified -- the
+    -- whole-buffer non-paginated case still uses the fast `%DB` path.
+    local entry = self.instance.dbs[vim.b.dbui_db_key_name]
+    if entry == nil then
+      -- Not a tracked dbui query buffer: a visual run needs the connection, but a
+      -- whole-buffer run can still go straight through `%DB` on the buffer's b:db
+      -- (preserving the public execute_query contract for plain buffers).
+      if is_visual then
+        return notify.error('Buffer not attached to any database')
+      end
       return run(function()
         bridge.execute_buffer(quiet)
       end)
     end
-    -- Visual selection, no placeholders: run the text we read via getregion from
-    -- a temp file, so we never touch the '<'/'>' marks.
-    local entry = self.instance.dbs[vim.b.dbui_db_key_name]
-    if entry == nil then
-      return notify.error('Buffer not attached to any database')
-    end
     return run(function()
-      self:run_from_file(lines, entry, quiet)
+      self:dispatch(lines, entry, not is_visual, quiet)
     end)
   end
 
@@ -532,7 +564,7 @@ function Query:execute_query(is_visual)
     vim.b[bufnr].dbui_bind_params = values
     local final = bind_params.substitute(lines, values, pattern)
     run(function()
-      self:run_from_file(final, entry, quiet)
+      self:dispatch(final, entry, false, quiet)
     end)
   end)
 end

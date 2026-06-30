@@ -200,6 +200,17 @@
 ---@field output_file string
 ---@field match string
 
+--- Pagination state carried by a `.dbout` result buffer (`b:dbui_page`). Set when
+--- a paginated query is executed and read by the `[` / `]` re-execute handlers so
+--- a result knows the SQL, adapter and page that produced it. `url` is the
+--- resolved connection string (dadbod's `b:db` for the query buffer / entry.conn).
+---@class DadbodUI.PageState
+---@field original_sql string  the un-paginated SQL (re-paginated per page step)
+---@field page integer  1-based current page
+---@field page_size integer  rows per page
+---@field scheme string  raw adapter scheme
+---@field url string  resolved connection url (for re-execution through bridge)
+
 --- Inputs you can inject into connections.discover (tests/overrides).
 ---@class DadbodUI.DiscoverInputs
 ---@field env? table<string, string>
@@ -235,6 +246,7 @@
 ---@field default_query string
 ---@field execute_on_save boolean
 ---@field auto_execute_table_helpers boolean
+---@field page_size integer  rows per result page (M-pagination LIMIT/OFFSET)
 ---@field env_variable_url string
 ---@field env_variable_name string
 ---@field dotenv_variable_prefix string

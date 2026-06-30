@@ -13,6 +13,7 @@
 
 local bridge = require('dadbod-ui.bridge')
 local bind_params = require('dadbod-ui.bind_params')
+local paginator = require('dadbod-ui.paginator')
 local schemas = require('dadbod-ui.schemas')
 local spinner = require('dadbod-ui.spinner')
 local spinners = require('dadbod-ui.spinners')
@@ -40,6 +41,17 @@ local NS_QUERY = vim.api.nvim_create_namespace('dadbod_ui_query_time_query')
 local pending_origin = nil
 ---@type table<string, DadbodUI.QueryOrigin>
 local origins = {}
+
+-- Page state for a paginated query in flight, plumbed exactly like `pending_origin`
+-- above: the query controller stashes it in `pending_page` synchronously before
+-- executing, `DBExecutePre` moves it into `pending_by_file` keyed by the result
+-- file (`_claim_pending`), and `_on_post` consumes it by that key. Keying on the
+-- result file -- rather than assuming the next post is ours -- keeps the right
+-- buffer tagged even if queries complete out of order.
+---@type DadbodUI.PageState|nil
+local pending_page = nil
+---@type table<string, DadbodUI.PageState>
+local pending_by_file = {}
 
 --- Remember the buffer + line a query is being executed from. Called by the
 --- query controller immediately before dispatch; the DBExecutePre hook claims it.
@@ -105,7 +117,7 @@ function M._hide(output_file)
   spinner.stop(output_file)
 end
 
--- Post-execute summary (time + row count) -----------------------------------
+-- Post-execute feedback (time + row count + pagination) ---------------------
 --
 -- When `query_time` is enabled we suppress dadbod's command-line echoes (see
 -- bridge `quiet` + the scheduled clear in `_on_post`) and instead surface the
@@ -265,28 +277,39 @@ local function render_ghost(origin, text)
   end)
 end
 
---- Handle a finished async execution: render the inline time/row summary (per
---- `query_time` config), swallow dadbod's trailing command-line echo, and stop
---- the loading spinner. The result buffer has been reloaded with rows by the time
---- this runs, so `b:db.runtime`/`exit_status` and the row count are available.
+--- Handle a finished async execution: tag the result buffer with any pending page
+--- state, render the result winbar (time/row summary and/or pagination segments),
+--- trail ghost text on the query line, swallow dadbod's trailing command-line
+--- echo, and stop the loading spinner. The result buffer has been reloaded with
+--- rows by the time this runs, so `b:db.runtime`/`exit_status` and the row count
+--- are available.
 ---@param output_file string
 ---@return nil
 function M._on_post(output_file)
   local origin = origins[output_file]
   origins[output_file] = nil
+  local page = pending_by_file[output_file]
+  pending_by_file[output_file] = nil
 
   local cfg = current_config().query_time
-  if not cfg.enabled then
-    return M._hide(output_file)
+  local buf = utils.loaded_bufnr(output_file)
+
+  -- Tag the result buffer so `[` / `]` can re-paginate, independent of query_time.
+  if buf >= 0 and page ~= nil then
+    vim.b[buf].dbui_page = page
   end
 
-  local buf = utils.loaded_bufnr(output_file)
-  if buf >= 0 then
+  -- The summary text needs query_time enabled; the winbar shows whenever there is
+  -- something to put in it -- the summary and/or the pagination segments.
+  local want_summary = cfg.enabled
+  local want_winbar = (cfg.enabled and cfg.result_buffer) or page ~= nil
+  if buf >= 0 and (want_summary or page ~= nil) then
     local db = vim.fn.getbufvar(buf, 'db')
     local runtime = type(db) == 'table' and tonumber(db.runtime) or nil
     local status = type(db) == 'table' and tonumber(db.exit_status) or 0
+    -- Count rows when the summary wants them, or a paged result needs the range.
     local rows
-    if cfg.show_row_count and status == 0 then
+    if status == 0 and ((want_summary and cfg.show_row_count) or page ~= nil) then
       -- The footer (the common case) lives in the last lines, so try it against
       -- just the tail; only the sqlite-column-mode fallback needs the full grid.
       local total = vim.api.nvim_buf_line_count(buf)
@@ -295,12 +318,12 @@ function M._on_post(output_file)
         rows = M._count_rows(vim.api.nvim_buf_get_lines(buf, 0, -1, false))
       end
     end
-    local text = M._summary_text(runtime, status, rows)
-    if cfg.result_buffer then
-      render_result_summary(buf, text)
+    local summary = want_summary and M._summary_text(runtime, status, cfg.show_row_count and rows or nil) or nil
+    if want_winbar then
+      render_result_summary(buf, M._winbar_text(page, summary, rows))
     end
-    if cfg.query_buffer and origin ~= nil then
-      render_ghost(origin, text)
+    if want_summary and cfg.query_buffer and origin ~= nil and summary ~= nil then
+      render_ghost(origin, summary)
     end
   end
   -- dadbod's async job callback echoes `DB: Query ... finished in ...` on the
@@ -308,15 +331,139 @@ function M._on_post(output_file)
   -- can't reach that async echo. On the next tick, once it has fired, clear the
   -- command line and flush a repaint so the cleared line shows without a stray
   -- flash. (A message UI that captures echoes synchronously, e.g. Noice, needs
-  -- its own route filter -- we can only clear the built-in command line.)
-  vim.schedule(function()
-    pcall(vim.cmd, "echo ''")
-    if buf >= 0 and vim.api.nvim_buf_is_valid(buf) then
-      pcall(vim.api.nvim__redraw, { buf = buf, valid = false, flush = true })
-    end
-  end)
+  -- its own route filter -- we can only clear the built-in command line.) Only
+  -- relevant when query_time ran `:DB` quietly in the first place.
+  if cfg.enabled then
+    vim.schedule(function()
+      pcall(vim.cmd, "echo ''")
+      if buf >= 0 and vim.api.nvim_buf_is_valid(buf) then
+        pcall(vim.api.nvim__redraw, { buf = buf, valid = false, flush = true })
+      end
+    end)
+  end
 
   M._hide(output_file)
+end
+
+-- Pagination ----------------------------------------------------------------
+--
+-- A paginated query runs page 1 with a LIMIT/OFFSET clause (see
+-- `dadbod-ui.paginator`); the query controller stashes the page state via
+-- `set_pending`, `DBExecutePre` claims it onto the result file (`_claim_pending`),
+-- and `_on_post` tags the freshly loaded result buffer with it (`b:dbui_page`) and
+-- contributes its segments to the result winbar (see `_winbar_text`). `[` / `]`
+-- then re-execute the stored SQL at an adjusted offset.
+
+--- Receive the page state for the query about to execute (called by the query
+--- controller, synchronously before execution). Claimed by `_claim_pending` on
+--- the matching `DBExecutePre`.
+---@param state DadbodUI.PageState
+---@return nil
+function M.set_pending(state)
+  pending_page = state
+end
+
+--- Move any just-stashed page state onto `output_file` (the result file dadbod is
+--- about to populate). Runs from DBExecutePre, which fires synchronously while the
+--- `DB` command is still on the stack, so the stash can't be clobbered first.
+---@param output_file string
+---@return nil
+function M._claim_pending(output_file)
+  if pending_page ~= nil then
+    pending_by_file[output_file] = pending_page
+    pending_page = nil
+  end
+end
+
+--- The pagination winbar segment for `state`: page number, row range and page
+--- size. `rows` is this page's actual row count when known, so the last (partial)
+--- page reports its true range; otherwise the full page span is assumed. nil when
+--- `state` is nil (the result isn't paginated).
+---@param state DadbodUI.PageState|nil
+---@param rows integer|nil
+---@return string|nil
+function M._page_segment(state, rows)
+  if state == nil then
+    return nil
+  end
+  local first = (state.page - 1) * state.page_size + 1
+  local last = rows ~= nil and (first + rows - 1) or state.page * state.page_size
+  return string.format('Page %d · rows %d-%d · %d/page', state.page, first, last, state.page_size)
+end
+
+--- The page-nav hint segment (`[ prev  ] next`), or nil when `state` is nil.
+---@param state DadbodUI.PageState|nil
+---@return string|nil
+function M._nav_segment(state)
+  if state == nil then
+    return nil
+  end
+  return '[ prev  ] next'
+end
+
+--- Compose the result-window winbar from its segments, in display order:
+--- pagination info (when paged), the time/row `summary`, then the page-nav hints.
+--- nil/empty segments are dropped and the rest joined by ` │ `. Adding a new piece
+--- of result feedback means adding a segment to this list.
+---@param page DadbodUI.PageState|nil
+---@param summary string|nil
+---@param rows integer|nil
+---@return string
+function M._winbar_text(page, summary, rows)
+  local segments = { M._page_segment(page, rows), summary, M._nav_segment(page) }
+  return table.concat(
+    vim.tbl_filter(function(s)
+      return s ~= nil and s ~= ''
+    end, segments),
+    ' │ '
+  )
+end
+
+--- Re-execute the current result's query at `delta` pages from the current page
+--- (floored at page 1), through the tempfile path with a freshly paginated SQL.
+--- The new page state is handed to `set_pending` so the resulting buffer is
+--- tagged in turn. Notifies (rather than erroring) when the buffer carries no
+--- pagination -- distinguishing an unsupported adapter from a query that simply
+--- wasn't paginated (already limited / not a plain SELECT).
+---@param delta integer
+---@return nil
+function M._step_page(delta)
+  local notify = require('dadbod-ui.notifications')
+  local state = vim.b.dbui_page
+  if type(state) ~= 'table' then
+    local db = vim.b.db
+    local scheme = type(db) == 'table' and type(db.db_url) == 'string' and bridge.scheme_of(db.db_url) or nil
+    if scheme ~= nil and not paginator.supports(scheme) then
+      return notify.info(string.format('Pagination is not supported for the %s adapter.', scheme))
+    end
+    return notify.info('Pagination is not active for this result (already limited or not a plain SELECT).')
+  end
+
+  local new_page = math.max(1, state.page + delta)
+  if new_page == state.page then
+    return -- already on page 1 and stepping back
+  end
+  local sql = paginator.paginate(state.scheme, state.original_sql, new_page, state.page_size)
+  if sql == nil then
+    return notify.error('Unable to paginate this query.')
+  end
+
+  M.set_pending(vim.tbl_extend('force', state, { page = new_page }))
+  -- No "Loading page N" notification: the result winbar carries the page state
+  -- (page number + row range), so the feedback stays inline.
+  bridge.execute_lines(vim.split(sql, '\n'), state.url)
+end
+
+--- `]` -- load the next page of results.
+---@return nil
+function M.next_page()
+  M._step_page(1)
+end
+
+--- `[` -- load the previous page of results (floored at page 1).
+---@return nil
+function M.prev_page()
+  M._step_page(-1)
 end
 
 --- Record an executed result file under the drawer's `Query results` section and
@@ -682,6 +829,8 @@ function M.setup_buffer(bufnr)
     cell_value = M.get_cell_value,
     yank_header = M.yank_header,
     toggle_layout = M.toggle_layout,
+    next_page = M.next_page,
+    prev_page = M.prev_page,
   }, { buffer = bufnr, silent = true, nowait = true })
 end
 
@@ -727,6 +876,7 @@ function M.attach(drawer)
       pending_origin = nil
     end
     M._show(info.output_file)
+    M._claim_pending(info.output_file)
   end, { group = group })
   bridge.on_post(function(info)
     M._on_post(info.output_file)
