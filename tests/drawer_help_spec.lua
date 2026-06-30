@@ -34,16 +34,26 @@ describe('drawer: help banner', function()
     assert.equals('▸ dev', lines(d)[1])
   end)
 
-  it('toggles the full help listing with ?', function()
+  it('opens a floating window on first toggle and closes it on second', function()
     d = make_drawer({ dev = 'postgres://h/dev' }, { show_help = false })
     d:open()
-    d:toggle_help()
-    local l = lines(d)
-    assert.equals('" o - Open/Toggle selected item', l[1])
-    assert.is_truthy(vim.tbl_contains(l, '" H - Toggle database details'))
-    assert.is_truthy(vim.tbl_contains(l, '" D - Duplicate connection'))
-    d:toggle_help()
     assert.equals('▸ dev', lines(d)[1])
+
+    d:toggle_help()
+    assert.is_truthy(d.help_winid)
+    assert.is_true(vim.api.nvim_win_is_valid(d.help_winid))
+
+    local float_buf = vim.api.nvim_win_get_buf(d.help_winid)
+    local float_lines = vim.api.nvim_buf_get_lines(float_buf, 0, -1, false)
+    assert.is_truthy(vim.tbl_contains(float_lines, '  o - Open/Toggle selected item'))
+    assert.is_truthy(vim.tbl_contains(float_lines, '  H - Toggle database details'))
+    assert.is_truthy(vim.tbl_contains(float_lines, '  D - Duplicate connection'))
+
+    -- drawer buffer is unchanged — help is not rendered inline
+    assert.equals('▸ dev', lines(d)[1])
+
+    d:toggle_help()
+    assert.is_nil(d.help_winid)
   end)
 end)
 
