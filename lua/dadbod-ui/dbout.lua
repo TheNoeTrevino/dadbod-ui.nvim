@@ -30,42 +30,60 @@ local registered = false
 
 -- Extmark namespace for the ghost text trailing the executed line in the query
 -- buffer (cleared before each repaint). The result-buffer summary is rendered as
--- a `winbar`, not an extmark -- see render_result_summary for why.
+-- a `winbar`, not an extmark -- see set_winbar for why.
 local NS_QUERY = vim.api.nvim_create_namespace('dadbod_ui_query_time_query')
 
--- Where the next query was executed from, so the summary can trail ghost text on
--- that line. `pending_origin` is armed by the query controller right before it
--- dispatches and consumed synchronously by the DBExecutePre hook, which moves it
--- into `origins` keyed by the result file (so concurrent runs don't collide).
----@type DadbodUI.QueryOrigin|nil
-local pending_origin = nil
----@type table<string, DadbodUI.QueryOrigin>
-local origins = {}
+-- One per-execution "pending context", armed by the query controller right
+-- before it dispatches and claimed synchronously by the DBExecutePre hook, which
+-- moves it into `by_file` keyed by the result file (so concurrent runs don't
+-- collide -- the right buffer stays tagged even if queries finish out of order).
+-- `origin` trails ghost text on the executed line; `page` drives the winbar's
+-- pagination + `[`/`]` re-paging. Both are optional and armed independently -- a
+-- plain run arms only `origin`, a page step only `page`, an initial paginated
+-- query arms both, so arming merges rather than replaces.
+---@class DadbodUI.PendingContext
+---@field origin? DadbodUI.QueryOrigin
+---@field page? DadbodUI.PageState
+---@type DadbodUI.PendingContext|nil
+local pending = nil
+---@type table<string, DadbodUI.PendingContext>
+local by_file = {}
 
--- Page state for a paginated query in flight, plumbed exactly like `pending_origin`
--- above: the query controller stashes it in `pending_page` synchronously before
--- executing, `DBExecutePre` moves it into `pending_by_file` keyed by the result
--- file (`_claim_pending`), and `_on_post` consumes it by that key. Keying on the
--- result file -- rather than assuming the next post is ours -- keeps the right
--- buffer tagged even if queries complete out of order.
----@type DadbodUI.PageState|nil
-local pending_page = nil
----@type table<string, DadbodUI.PageState>
-local pending_by_file = {}
+--- Merge `value` into the pending context under `field`, creating it on first arm.
+---@param field 'origin'|'page'
+---@param value DadbodUI.QueryOrigin|DadbodUI.PageState
+---@return nil
+local function arm(field, value)
+  pending = pending or {}
+  pending[field] = value
+end
 
---- Remember the buffer + line a query is being executed from. Called by the
---- query controller immediately before dispatch; the DBExecutePre hook claims it.
+--- Claim the pending context onto `output_file` and clear it. Runs from
+--- DBExecutePre, synchronously while the `DB` command is still on the stack, so
+--- the context can't be clobbered before it is keyed to its result file.
+---@param output_file string
+---@return nil
+local function claim(output_file)
+  if pending ~= nil then
+    by_file[output_file] = pending
+    pending = nil
+  end
+end
+
+--- Remember the buffer + line a query is being executed from, so the summary can
+--- trail ghost text there. Called by the query controller immediately before
+--- dispatch; the DBExecutePre hook claims it.
 ---@param origin DadbodUI.QueryOrigin
 ---@return nil
 function M.arm_origin(origin)
-  pending_origin = origin
+  arm('origin', origin)
 end
 
---- Drop an armed origin that never reached execution (dispatch errored before
---- DBExecutePre fired), so it can't attach to an unrelated later run.
+--- Drop the pending context when a dispatch errored before DBExecutePre claimed
+--- it, so nothing armed for the failed run leaks into an unrelated later one.
 ---@return nil
 function M.disarm_origin()
-  pending_origin = nil
+  pending = nil
 end
 
 --- The effective config: the attached drawer's, or the session singleton's when a
@@ -154,18 +172,12 @@ function M._footer_rows(lines)
   return nil
 end
 
---- Best-effort row count for a result buffer's `lines`. Prefers the explicit
---- engine footer (`_footer_rows`); falls back to counting the data lines under
---- the first column rule (sqlite column mode, mysql batch). Returns nil when it
---- cannot tell -- the caller then omits the count rather than guessing.
+--- Count the non-blank, non-rule data lines beneath the first column rule -- the
+--- footerless fallback (sqlite column mode, mysql batch). nil when there is no
+--- rule or no data rows. Pure, for unit tests.
 ---@param lines string[]
 ---@return integer|nil
-function M._count_rows(lines)
-  local footer = M._footer_rows(lines)
-  if footer ~= nil then
-    return footer
-  end
-  -- Fallback: count non-blank, non-rule data lines beneath the first rule.
+function M._data_rows(lines)
   local rule_at
   for i, l in ipairs(lines) do
     if is_rule(l) then
@@ -187,6 +199,17 @@ function M._count_rows(lines)
     end
   end
   return count > 0 and count or nil
+end
+
+--- Best-effort row count for a result buffer's `lines`: the explicit engine
+--- footer (`_footer_rows`) when present, else the line-counting fallback
+--- (`_data_rows`). nil when neither can tell -- the caller then omits the count
+--- rather than guessing. `_on_post` calls the two halves directly so it can scan
+--- only the buffer tail for the footer before reading the whole grid.
+---@param lines string[]
+---@return integer|nil
+function M._count_rows(lines)
+  return M._footer_rows(lines) or M._data_rows(lines)
 end
 
 --- The one-line summary string. `runtime` is dadbod's float seconds (nil omits
@@ -231,17 +254,25 @@ end
 --- first line (there is no screen row above it), so such an extmark exists but
 --- never renders until an unrelated scroll happens to repaint the window. `winbar`
 --- is the purpose-built window-top line -- it renders immediately and consumes no
---- buffer line, so line numbers / row counting / cell-nav stay intact.
+--- buffer line, so line numbers / row counting / cell-nav stay intact. Cheap
+--- enough to call on every repaint (running -> finished); the BufWinLeave teardown
+--- is armed once per buffer by `arm_winbar_teardown`.
 ---@param buf integer
 ---@param winbar string
 ---@return nil
-local function render_result_summary(buf, winbar)
+local function set_winbar(buf, winbar)
   for _, win in ipairs(vim.fn.win_findbuf(buf)) do
     pcall(vim.api.nvim_set_option_value, 'winbar', winbar, { win = win })
   end
-  -- winbar is window-local; drop it when this result buffer leaves its window so a
-  -- stale summary can't linger over whatever is shown there next (a later result
-  -- repaints its own bar from _on_post).
+end
+
+--- Arm the one-shot teardown that clears the window-local winbar when this result
+--- buffer leaves its window, so a stale summary can't linger over whatever is
+--- shown there next. Armed once per buffer (first paint from `_on_pre`); the
+--- per-buffer augroup means a later result repaints its own bar undisturbed.
+---@param buf integer
+---@return nil
+local function arm_winbar_teardown(buf)
   clear_on(buf, 'dadbod_ui_query_time_winbar', 'BufWinLeave', function()
     local win = vim.fn.bufwinid(buf)
     if win ~= -1 then
@@ -275,6 +306,51 @@ local function render_ghost(origin, text)
   end)
 end
 
+-- The summary segment shown while a query is in flight. Static (the buffer's own
+-- spinner carries the animation) so the winbar itself never flickers; `_on_post`
+-- swaps it for the finished summary in place, with the page/nav segments held
+-- fixed throughout.
+local RUNNING_SEGMENT = '⏳ running query…'
+
+--- Whether the result winbar should be shown for this execution: either the
+--- time/row summary is enabled, or the result is paginated (the page/nav bar
+--- shows regardless of `query_time`).
+---@param cfg DadbodUI.QueryTimeConfig
+---@param page DadbodUI.PageState|nil
+---@return boolean
+local function wants_winbar(cfg, page)
+  return (cfg.enabled and cfg.result_buffer) or page ~= nil
+end
+
+--- Handle the start of an async execution: claim the armed origin and pending
+--- page onto this result file, start the in-buffer loading spinner, and paint the
+--- result winbar in its "running" state. Painting it now (same synchronous tick
+--- as dadbod opening the output window, before any redraw) keeps the bar present
+--- continuously through the load -- otherwise it would blink out between the
+--- previous result's bar and the finished one. The page/nav segments are known
+--- up front, so only the middle summary changes when `_on_post` lands the rows.
+---@param output_file string
+---@return nil
+function M._on_pre(output_file)
+  -- Claim whatever the query controller armed (synchronous: this fires inside the
+  -- `:DB` call, before any other execution can interleave).
+  claim(output_file)
+  M._show(output_file)
+
+  local config = current_config()
+  local cfg = config.query_time
+  local page = (by_file[output_file] or {}).page
+  if not wants_winbar(cfg, page) then
+    return
+  end
+  local buf = utils.loaded_bufnr(output_file)
+  if buf >= 0 then
+    local summary = cfg.enabled and RUNNING_SEGMENT or nil
+    set_winbar(buf, M._winbar_text(page, summary, nil, M._nav_keys(config)))
+    arm_winbar_teardown(buf)
+  end
+end
+
 --- Handle a finished async execution: tag the result buffer with any pending page
 --- state, render the result winbar (time/row summary and/or pagination segments),
 --- trail ghost text on the query line, swallow dadbod's trailing command-line
@@ -284,12 +360,13 @@ end
 ---@param output_file string
 ---@return nil
 function M._on_post(output_file)
-  local origin = origins[output_file]
-  origins[output_file] = nil
-  local page = pending_by_file[output_file]
-  pending_by_file[output_file] = nil
+  local ctx = by_file[output_file] or {}
+  by_file[output_file] = nil
+  local origin = ctx.origin
+  local page = ctx.page
 
-  local cfg = current_config().query_time
+  local config = current_config()
+  local cfg = config.query_time
   local buf = utils.loaded_bufnr(output_file)
 
   -- Tag the result buffer so `[` / `]` can re-paginate, independent of query_time.
@@ -300,7 +377,7 @@ function M._on_post(output_file)
   -- The summary text needs query_time enabled; the winbar shows whenever there is
   -- something to put in it -- the summary and/or the pagination segments.
   local want_summary = cfg.enabled
-  local want_winbar = (cfg.enabled and cfg.result_buffer) or page ~= nil
+  local want_winbar = wants_winbar(cfg, page)
   if buf >= 0 and (want_summary or page ~= nil) then
     local db = vim.fn.getbufvar(buf, 'db')
     local runtime = type(db) == 'table' and tonumber(db.runtime) or nil
@@ -313,12 +390,14 @@ function M._on_post(output_file)
       local total = vim.api.nvim_buf_line_count(buf)
       rows = M._footer_rows(vim.api.nvim_buf_get_lines(buf, math.max(0, total - 5), total, false))
       if rows == nil then
-        rows = M._count_rows(vim.api.nvim_buf_get_lines(buf, 0, -1, false))
+        -- Footer missed in the tail; the whole-buffer footer scan would miss too,
+        -- so go straight to the line-counting fallback.
+        rows = M._data_rows(vim.api.nvim_buf_get_lines(buf, 0, -1, false))
       end
     end
     local summary = want_summary and M._summary_text(runtime, status, cfg.show_row_count and rows or nil) or nil
     if want_winbar then
-      render_result_summary(buf, M._winbar_text(page, summary, rows))
+      set_winbar(buf, M._winbar_text(page, summary, rows, M._nav_keys(config)))
     end
     if want_summary and cfg.query_buffer and origin ~= nil and summary ~= nil then
       render_ghost(origin, summary)
@@ -347,30 +426,18 @@ end
 --
 -- A paginated query runs page 1 with a LIMIT/OFFSET clause (see
 -- `dadbod-ui.paginator`); the query controller stashes the page state via
--- `set_pending`, `DBExecutePre` claims it onto the result file (`_claim_pending`),
--- and `_on_post` tags the freshly loaded result buffer with it (`b:dbui_page`) and
--- contributes its segments to the result winbar (see `_winbar_text`). `[` / `]`
--- then re-execute the stored SQL at an adjusted offset.
+-- `set_pending` (the shared pending-context channel up top), `DBExecutePre` claims
+-- it onto the result file, and `_on_post` tags the freshly loaded result buffer
+-- with it (`b:dbui_page`) and contributes its segments to the result winbar (see
+-- `_winbar_text`). `[` / `]` then re-execute the stored SQL at an adjusted offset.
 
 --- Receive the page state for the query about to execute (called by the query
---- controller, synchronously before execution). Claimed by `_claim_pending` on
---- the matching `DBExecutePre`.
+--- controller / `_step_page`, synchronously before execution). Merged into the
+--- pending context and claimed on the matching `DBExecutePre`.
 ---@param state DadbodUI.PageState
 ---@return nil
 function M.set_pending(state)
-  pending_page = state
-end
-
---- Move any just-stashed page state onto `output_file` (the result file dadbod is
---- about to populate). Runs from DBExecutePre, which fires synchronously while the
---- `DB` command is still on the stack, so the stash can't be clobbered first.
----@param output_file string
----@return nil
-function M._claim_pending(output_file)
-  if pending_page ~= nil then
-    pending_by_file[output_file] = pending_page
-    pending_page = nil
-  end
+  arm('page', state)
 end
 
 --- The pagination winbar segment for `state`: page number, row range and page
@@ -389,20 +456,37 @@ function M._page_segment(state, rows)
   return string.format('Page %d · rows %d-%d · %d/page', state.page, first, last, state.page_size)
 end
 
---- The page-nav hint segment (`[ prev  ] next`), or nil when `state` is nil.
+--- The page-nav hint segment: `← <prev>   <next> →`, where the keys are the
+--- configured `[` / `]` mappings (so the bar tells you which keys page). nil when
+--- `state` is nil (the result isn't paginated).
 ---@param state DadbodUI.PageState|nil
+---@param prev_key string  the configured previous-page mapping
+---@param next_key string  the configured next-page mapping
 ---@return string|nil
-function M._nav_segment(state)
+function M._nav_segment(state, prev_key, next_key)
   if state == nil then
     return nil
   end
-  return '[ prev  ] next'
+  return string.format('← %s   %s →', prev_key, next_key)
+end
+
+--- The configured `[`/`]` page-step keys for the nav segment, formatted the same
+--- way the help window shows them (aliases joined) via `mappings.display_key` --
+--- the single source of truth for key display, so a rebound or aliased mapping is
+--- reflected here rather than diverging. The entries are always present in a
+--- resolved config (the defaults define them).
+---@param config DadbodUI.Config
+---@return { prev: string, next: string }
+function M._nav_keys(config)
+  local display_key = require('dadbod-ui.mappings').display_key
+  local results = config.mappings.results
+  return { prev = display_key(results.prev_page), next = display_key(results.next_page) }
 end
 
 --- Wrap a plain segment `text` in a padded, highlighted winbar block. `%` in the
 --- text is doubled so engine output can't inject statusline control codes; the
 --- surrounding spaces give the block its tab-like padding.
----@param group string  highlight group (linked to a TabLine* group by default)
+---@param group string  highlight group (a distinct-background DadbodUIWinbar* group)
 ---@param text string
 ---@return string
 local function winbar_block(group, text)
@@ -410,17 +494,18 @@ local function winbar_block(group, text)
 end
 
 --- Compose the result-window winbar from its blocks, in display order: pagination
---- info (when paged), the time/row `summary`, then the page-nav hints. Each present
---- block is a padded, highlighted tab (pagination emphasized via DadbodUIWinbarPage,
---- the rest via DadbodUIWinbar), and the blocks are spread across the window width
---- with `%=` -- the fill (DadbodUIWinbarFill) paints the gaps -- so the first sits
---- hard left and the last hard right (justify-content: space-between). '' when there
---- is nothing to show. Adding a new piece of result feedback means adding a block.
+--- info (when paged), the time/row `summary`, then the page-nav arrows. Each present
+--- block is a padded, distinctly-coloured tab (DadbodUIWinbarPage / DadbodUIWinbar /
+--- DadbodUIWinbarNav), left-aligned and separated by a fill-coloured gap, with the
+--- fill (DadbodUIWinbarFill) painting the rest of the bar. '' when there is nothing
+--- to show. Adding a new piece of result feedback means adding a block here.
 ---@param page DadbodUI.PageState|nil
 ---@param summary string|nil
 ---@param rows integer|nil
+---@param nav_keys? { prev: string, next: string }  page-step keys (defaults `[`/`]`)
 ---@return string
-function M._winbar_text(page, summary, rows)
+function M._winbar_text(page, summary, rows, nav_keys)
+  nav_keys = nav_keys or { prev = '[', next = ']' }
   local blocks = {}
   local function add(group, text)
     if text ~= nil and text ~= '' then
@@ -429,11 +514,13 @@ function M._winbar_text(page, summary, rows)
   end
   add('DadbodUIWinbarPage', M._page_segment(page, rows))
   add('DadbodUIWinbar', summary)
-  add('DadbodUIWinbar', M._nav_segment(page))
+  add('DadbodUIWinbarNav', M._nav_segment(page, nav_keys.prev, nav_keys.next))
   if #blocks == 0 then
     return ''
   end
-  return table.concat(blocks, '%#DadbodUIWinbarFill#%=')
+  -- Left-aligned tabs with a fill-coloured gap between them, then fill to the
+  -- right edge so the bar's tail matches the window rather than the last block.
+  return table.concat(blocks, '%#DadbodUIWinbarFill# ') .. '%#DadbodUIWinbarFill#'
 end
 
 --- Re-execute the current result's query at `delta` pages from the current page
@@ -467,7 +554,8 @@ function M._step_page(delta)
 
   M.set_pending(vim.tbl_extend('force', state, { page = new_page }))
   -- No "Loading page N" notification: the result winbar carries the page state
-  -- (page number + row range), so the feedback stays inline.
+  -- and shows a "running" segment for the load (painted from `_on_pre`), so the
+  -- feedback stays inline and the command line stays quiet.
   bridge.execute_lines(vim.split(sql, '\n'), state.url)
 end
 
@@ -886,14 +974,7 @@ function M.attach(drawer)
     end,
   })
   bridge.on_pre(function(info)
-    -- Claim the origin armed by the query controller (synchronous: this fires
-    -- inside the `:DB` call, before any other execution can interleave).
-    if pending_origin ~= nil then
-      origins[info.output_file] = pending_origin
-      pending_origin = nil
-    end
-    M._show(info.output_file)
-    M._claim_pending(info.output_file)
+    M._on_pre(info.output_file)
   end, { group = group })
   bridge.on_post(function(info)
     M._on_post(info.output_file)

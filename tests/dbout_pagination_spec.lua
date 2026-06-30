@@ -34,36 +34,60 @@ describe('dbout: _page_segment', function()
 end)
 
 describe('dbout: _nav_segment', function()
-  it('renders the prev/next hints when paged', function()
-    assert.equals('[ prev  ] next', dbout._nav_segment(state()))
+  it('renders left/right arrows around the configured page-step keys', function()
+    assert.equals('← [   ] →', dbout._nav_segment(state(), '[', ']'))
+  end)
+
+  it('reflects rebound keys', function()
+    assert.equals('← <C-p>   <C-n> →', dbout._nav_segment(state(), '<C-p>', '<C-n>'))
   end)
 
   it('returns nil for an unpaginated result', function()
-    assert.is_nil(dbout._nav_segment(nil))
+    assert.is_nil(dbout._nav_segment(nil, '[', ']'))
+  end)
+end)
+
+describe('dbout: _nav_keys', function()
+  it('reads the configured [ / ] results mappings', function()
+    local keys = dbout._nav_keys(require('dadbod-ui.config').resolve())
+    assert.same({ prev = '[', next = ']' }, keys)
+  end)
+
+  it('reflects a rebound page-step key', function()
+    local cfg = require('dadbod-ui.config').resolve({ mappings = { results = { next_page = { key = '<Tab>' } } } })
+    assert.equals('<Tab>', dbout._nav_keys(cfg).next)
   end)
 end)
 
 describe('dbout: _winbar_text', function()
-  -- The bar is statusline-syntax: each block is `%#<group># <text> ` and the
-  -- blocks are spread with `%#DadbodUIWinbarFill#%=` (justify-content: space-between).
-  it('styles the pagination, summary and nav blocks and spreads them with %=', function()
-    local text = dbout._winbar_text(state({ page = 2 }), '✓ finished in 0.004s · 200 rows', 200)
+  -- The bar is statusline-syntax: each block is `%#<group># <text> `, blocks are
+  -- left-aligned and separated by a `%#DadbodUIWinbarFill# ` gap, and the fill
+  -- group paints the bar's tail.
+  it('builds distinctly-coloured page, summary and nav blocks left-to-right', function()
+    local text =
+      dbout._winbar_text(state({ page = 2 }), '✓ finished in 0.004s · 200 rows', 200, { prev = '[', next = ']' })
     assert.equals(
       '%#DadbodUIWinbarPage# Page 2 · rows 201-400 · 200/page '
-        .. '%#DadbodUIWinbarFill#%=%#DadbodUIWinbar# ✓ finished in 0.004s · 200 rows '
-        .. '%#DadbodUIWinbarFill#%=%#DadbodUIWinbar# [ prev  ] next ',
+        .. '%#DadbodUIWinbarFill# %#DadbodUIWinbar# ✓ finished in 0.004s · 200 rows '
+        .. '%#DadbodUIWinbarFill# %#DadbodUIWinbarNav# ← [   ] → '
+        .. '%#DadbodUIWinbarFill#',
       text
     )
   end)
 
   it('renders only the summary block when the result is not paged', function()
-    assert.equals('%#DadbodUIWinbar# ✓ finished in 0.004s ', dbout._winbar_text(nil, '✓ finished in 0.004s', nil))
+    assert.equals(
+      '%#DadbodUIWinbar# ✓ finished in 0.004s %#DadbodUIWinbarFill#',
+      dbout._winbar_text(nil, '✓ finished in 0.004s', nil)
+    )
   end)
 
   it('renders only the pagination + nav blocks when query_time is off (no summary)', function()
     assert.equals(
-      '%#DadbodUIWinbarPage# Page 1 · rows 1-200 · 200/page %#DadbodUIWinbarFill#%=%#DadbodUIWinbar# [ prev  ] next ',
-      dbout._winbar_text(state(), nil, 200)
+      '%#DadbodUIWinbarPage# Page 1 · rows 1-200 · 200/page '
+        .. '%#DadbodUIWinbarFill# %#DadbodUIWinbarNav# ← [   ] → '
+        .. '%#DadbodUIWinbarFill#',
+      dbout._winbar_text(state(), nil, 200, { prev = '[', next = ']' })
     )
   end)
 
@@ -72,6 +96,6 @@ describe('dbout: _winbar_text', function()
   end)
 
   it('doubles a literal % in engine summary text so it is not a control code', function()
-    assert.equals('%#DadbodUIWinbar# 50%% done ', dbout._winbar_text(nil, '50% done', nil))
+    assert.equals('%#DadbodUIWinbar# 50%% done %#DadbodUIWinbarFill#', dbout._winbar_text(nil, '50% done', nil))
   end)
 end)
