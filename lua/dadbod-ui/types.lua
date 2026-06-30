@@ -262,9 +262,24 @@
 ---@field disable_mappings_sql boolean
 ---@field disable_mappings_javascript boolean
 ---@field icons table
+---@field query_time DadbodUI.QueryTimeConfig
 ---@field mappings table<string, table<string, DadbodUI.Mapping>>
 ---@field buffer_name_generator? DadbodUI.BufferNameGenerator
 ---@field table_name_sorter? DadbodUI.TableNameSorter
+
+--- Inline post-execute feedback (time + row count). See `query_time` in the
+--- config defaults.
+---@class DadbodUI.QueryTimeConfig
+---@field enabled boolean  master switch; also gates suppression of dadbod's echoes
+---@field result_buffer boolean  virtual line at the top of the `.dbout` buffer
+---@field query_buffer boolean  ghost text trailing the executed line in the SQL buffer
+---@field show_row_count boolean  append `· N rows` to the summary
+
+--- Where a query was executed from, so the post-execute summary can trail ghost
+--- text on that line (dadbod-ui.dbout).
+---@class DadbodUI.QueryOrigin
+---@field bufnr integer  the SQL query buffer
+---@field lnum integer  1-based line the cursor was on at execute time
 
 --- A single configurable keybinding. `key` is a string, a list of strings
 --- (aliases), or `'none'` to disable. `mode` (default `'n'`) is the mode(s) it
