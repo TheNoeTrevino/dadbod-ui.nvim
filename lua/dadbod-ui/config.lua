@@ -49,6 +49,65 @@ M.defaults = {
   buffer_name_generator = nil,
   ---@type DadbodUI.TableNameSorter|nil  custom table-list sorter
   table_name_sorter = nil,
+  -- Keybindings, grouped by context. Each entry is `{ key, desc, mode? }`; set a
+  -- key to 'none' to disable that action (it is then neither bound nor shown in
+  -- the `?` help window). Overrides deep-merge, so `mappings.sidebar.delete.key`
+  -- can be changed on its own. Display order + section titles are fixed (see
+  -- `M.mapping_order` / `M.mapping_sections`). The single source of truth for
+  -- both the live keymaps and the help window -- see `dadbod-ui.mappings`.
+  mappings = {
+    sidebar = {
+      help = { key = '?', desc = 'Toggle this help window' },
+      toggle = { key = { 'o', '<CR>' }, desc = 'Open/Toggle selected item' },
+      toggle_split = { key = 'S', desc = 'Open selected item in a split' },
+      quit = { key = 'q', desc = 'Close the drawer' },
+      add_connection = { key = 'A', desc = 'Add a connection' },
+      delete = { key = 'd', desc = 'Delete selected item' },
+      rename = { key = 'r', desc = 'Rename/edit buffer, connection, or saved query' },
+      redraw = { key = 'R', desc = 'Redraw / refresh' },
+      duplicate = { key = 'D', desc = 'Duplicate connection' },
+      set_group = { key = 'G', desc = 'Add/remove connection to a group' },
+      toggle_details = { key = 'H', desc = 'Toggle database details' },
+      first_sibling = { key = '<C-k>', desc = 'Go to first sibling' },
+      last_sibling = { key = '<C-j>', desc = 'Go to last sibling' },
+      prev_sibling = { key = 'K', desc = 'Go to previous sibling' },
+      next_sibling = { key = 'J', desc = 'Go to next sibling' },
+      goto_parent = { key = '<C-p>', desc = 'Go to parent node' },
+      goto_child = { key = '<C-n>', desc = 'Go to child node' },
+    },
+    query = {
+      execute = { key = '<Leader>S', desc = 'Execute query (whole buffer / visual selection)', mode = { 'n', 'v' } },
+      edit_bind_params = { key = '<Leader>E', desc = 'Edit bind parameters' },
+      save_query = { key = '<Leader>W', desc = 'Save the current query (tmp buffers)' },
+    },
+    results = {
+      jump_foreign = { key = '<C-]>', desc = 'Jump to the foreign key table' },
+      cell_value = { key = 'vic', desc = 'Select the cell value under the cursor', binds = { { mode = 'n', lhs = 'vic' }, { mode = 'o', lhs = 'ic' } } },
+      yank_header = { key = 'yh', desc = 'Yank the result header as CSV' },
+      toggle_layout = { key = '<Leader>R', desc = 'Toggle result layout (row / expanded)' },
+    },
+  },
+}
+
+-- Fixed (non-overridable) presentation metadata for `mappings`: the section
+-- titles + their order in the help window, and the id order within each context
+-- (used for both deterministic help rendering and keymap setup). Kept off
+-- `defaults` so user overrides only touch keys/descriptions, never structure.
+M.mapping_sections = {
+  { group = 'sidebar', title = 'Sidebar' },
+  { group = 'query', title = 'Query Buffer' },
+  { group = 'results', title = 'DB Results' },
+}
+
+M.mapping_order = {
+  sidebar = {
+    'help', 'toggle', 'toggle_split', 'quit', 'add_connection', 'delete',
+    'rename', 'redraw', 'duplicate', 'set_group', 'toggle_details',
+    'first_sibling', 'last_sibling', 'prev_sibling', 'next_sibling',
+    'goto_parent', 'goto_child',
+  },
+  query = { 'execute', 'edit_bind_params', 'save_query' },
+  results = { 'jump_foreign', 'cell_value', 'yank_header', 'toggle_layout' },
 }
 
 -- The two function-valued options used the capitalized `g:Db_ui_*` globals.
