@@ -120,10 +120,14 @@ describe('notifications', function()
   it('confirm returns true only on a Yes selection', function()
     state.setup({})
     ---@diagnostic disable-next-line: duplicate-set-field
-    vim.fn.confirm = function() return 1 end
+    vim.fn.confirm = function()
+      return 1
+    end
     assert.is_true(notifications.confirm('Delete it?'))
     ---@diagnostic disable-next-line: duplicate-set-field
-    vim.fn.confirm = function() return 2 end
+    vim.fn.confirm = function()
+      return 2
+    end
     assert.is_false(notifications.confirm('Delete it?'))
   end)
 end)

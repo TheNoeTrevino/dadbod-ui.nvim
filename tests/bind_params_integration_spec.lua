@@ -12,7 +12,8 @@ local bridge = require('dadbod-ui.bridge')
 local fixture = '/tmp/dbui_bp_integration.db'
 
 local function make_drawer(overrides)
-  local cfg = config.resolve(vim.tbl_extend('force', { save_location = '/tmp/dbui_bp_int', show_help = false }, overrides or {}))
+  local cfg =
+    config.resolve(vim.tbl_extend('force', { save_location = '/tmp/dbui_bp_int', show_help = false }, overrides or {}))
   local instance = state.new(cfg):populate({ env = {}, g_dbs = { qa = 'sqlite:' .. fixture }, file_entries = {} })
   local d = drawer_mod.new(instance)
   d.connector = bridge.connect -- real connection

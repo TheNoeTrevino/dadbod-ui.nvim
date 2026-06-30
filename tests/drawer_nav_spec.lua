@@ -52,7 +52,7 @@ describe('drawer: sibling navigation', function()
     assert.equals(1, cursor_line(d))
   end)
 
-  it('next skips over a node\'s children', function()
+  it("next skips over a node's children", function()
     d:set_cursor(1)
     d:toggle_line() -- expand 'a'; line 2 becomes its New query child
     d:set_cursor(1)
