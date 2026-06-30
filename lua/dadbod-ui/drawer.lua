@@ -278,6 +278,23 @@ local function line_for(node)
   return indent .. node.icon .. sep .. node.label .. trailer
 end
 
+--- Apply the highlight ranges for ONE line (0-based `lnum`) as extmarks in the
+--- `dadbod_ui` namespace. The caller is responsible for clearing the namespace
+--- over the affected range first. Shared by the full `paint` and the single-line
+--- `repaint_db_node` so an animated frame keeps the same colors as a full render.
+---@param bufnr integer
+---@param lnum integer
+---@param hls DadbodUI.Highlight[]
+---@return nil
+local function apply_line_highlights(bufnr, lnum, hls)
+  for _, hl in ipairs(hls) do
+    vim.api.nvim_buf_set_extmark(bufnr, highlights.NS, lnum, hl.col_start, {
+      end_col = hl.col_end,
+      hl_group = hl.group,
+    })
+  end
+end
+
 --- Paint a node list into `bufnr`: map each node to its display string (via
 --- `line_for`), overwrite the buffer under a `modifiable` toggle, then re-apply
 --- the per-node highlights as extmarks in the `dadbod_ui` namespace (cleared
@@ -307,12 +324,7 @@ local function paint(bufnr, nodes, icons)
 
   vim.api.nvim_buf_clear_namespace(bufnr, highlights.NS, 0, -1)
   for i, hls in ipairs(line_hls) do
-    for _, hl in ipairs(hls) do
-      vim.api.nvim_buf_set_extmark(bufnr, highlights.NS, i - 1, hl.col_start, {
-        end_col = hl.col_end,
-        hl_group = hl.group,
-      })
-    end
+    apply_line_highlights(bufnr, i - 1, hls)
   end
 end
 
@@ -351,10 +363,15 @@ function Drawer:repaint_db_node(key_name, frame)
   for idx, node in ipairs(self.content) do
     if node.type == 'db' and node.key_name == key_name then
       node.loading_frame = frame
+      local text = line_for(node)
       local bo = vim.bo[bufnr]
       bo.modifiable = true
-      pcall(vim.api.nvim_buf_set_lines, bufnr, idx - 1, idx, false, { line_for(node) })
+      pcall(vim.api.nvim_buf_set_lines, bufnr, idx - 1, idx, false, { text })
       bo.modifiable = false
+      -- Rewriting the line drops its extmarks, so re-apply the node's highlights
+      -- (over just this line) -- otherwise the db row goes uncolored mid-spin.
+      vim.api.nvim_buf_clear_namespace(bufnr, highlights.NS, idx - 1, idx)
+      apply_line_highlights(bufnr, idx - 1, highlights.highlights_for(node, text, self.icons))
       return
     end
   end

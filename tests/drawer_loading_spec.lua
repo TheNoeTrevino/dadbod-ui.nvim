@@ -106,6 +106,26 @@ describe('drawer loading: repaint_db_node', function()
     d:repaint_db_node('does-not-exist', '@@')
     assert.same(before, lines(d))
   end)
+
+  it('keeps the db line highlighted after a repaint (does not go uncolored)', function()
+    local highlights = require('dadbod-ui.highlights')
+    d = make_drawer({ a = 'postgres://h/a' })
+    d:open()
+    local entry = entry_named(d, 'a')
+    -- find the db line index
+    local idx
+    for i, node in ipairs(d.content) do
+      if node.type == 'db' and node.key_name == entry.key_name then
+        idx = i - 1
+        break
+      end
+    end
+    assert.is_number(idx)
+    d:repaint_db_node(entry.key_name, '@@')
+    -- the icon (at least) is re-highlighted as an extmark on that line
+    local marks = vim.api.nvim_buf_get_extmarks(d.bufnr, highlights.NS, { idx, 0 }, { idx, -1 }, {})
+    assert.is_true(#marks > 0)
+  end)
 end)
 
 describe('drawer loading: lifecycle marker', function()
