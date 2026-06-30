@@ -137,7 +137,9 @@
 ---@field save_path string
 ---@field conn? string  live connection handle, set when connected
 ---@field conn_error? string  last connection error, if any
+---@field connect_ms? integer  elapsed ms of the last successful connect (shown in the details view, not a popup)
 ---@field conn_tried boolean  whether a connection was attempted
+---@field loading? boolean  transient: connecting/introspecting (drawer shows the loading icon); cleared on data-land/error
 ---@field expanded boolean  drawer expand state
 ---@field schema_support boolean  does the adapter expose schemas
 ---@field quote boolean  whether the adapter quotes identifiers (used by M8)
@@ -156,6 +158,11 @@
 --                                      (connect + schema/table introspection)
 --   DadbodUI.ConnectionsController  -> lua/dadbod-ui/connections_controller.lua
 --                                      (interactive connections.json CRUD)
+--
+-- The loading spinner (dadbod-ui.spinner) is a leaf module, not a class: it owns
+-- the braille frames/interval and a registry of named libuv timers, each entry a
+-- `{ timer: uv.uv_timer_t, tick: fun(): nil }`. It requires nothing from the project,
+-- so its shapes are kept inline rather than shared here.
 
 --- Public connection summary (connections_list()).
 ---@class DadbodUI.ConnectionInfo
@@ -181,6 +188,7 @@
 ---@field content? string  helper SQL template (table_helper nodes)
 ---@field file_path? string  on-disk path (buffer / saved_query / dbout nodes)
 ---@field saved? boolean  true for saved-query nodes (vs tmp/open buffers)
+---@field loading_frame? string  trailing spinner frame for a connecting db node (appended after the label; animated in place by repaint_db_node)
 
 --- A command spec for the bridge concurrency helpers.
 ---@class DadbodUI.CommandSpec

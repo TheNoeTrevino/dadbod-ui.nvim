@@ -71,9 +71,15 @@ describe('drawer: render', function()
     d:open()
     vim.api.nvim_win_set_cursor(d.winid, { 1, 0 })
     d:toggle_line()
-    local l = lines(d)
-    assert.equals('▾ dev', l[1])
-    assert.equals('  + New query', l[2])
+    -- New query renders immediately; the db node keeps its fold icon and trails
+    -- the connection spinner until the deferred (blocking) connect resolves.
+    local key = d.content[1].key_name
+    assert.equals('  + New query', lines(d)[2])
+    assert.equals('▾ dev ' .. require('dadbod-ui.spinners').dots[1], lines(d)[1])
+    vim.wait(500, function()
+      return not d.instance.dbs[key].loading
+    end)
+    assert.equals('▾ dev', lines(d)[1]) -- loading cleared (offline connector: not connected)
     d:toggle_line()
     assert.equals('▸ dev', lines(d)[1])
     assert.is_nil(lines(d)[2])
