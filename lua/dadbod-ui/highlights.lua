@@ -48,7 +48,13 @@ function M.define()
   link('DadbodUIHelp', 'Comment')
   link('DadbodUIHelpKey', 'String')
   link('DadbodUIConnectionSource', 'Comment')
-  link('DadbodUIQueryTime', 'Comment') -- post-execute time/row summary (dbout + ghost text)
+  link('DadbodUIQueryTime', 'Comment') -- post-execute time/row summary (query-buffer ghost text)
+  -- Result-window winbar blocks. Linked to the user's TabLine* groups so the bar
+  -- reads like their tabline (emphasized page block + plainer summary/nav blocks,
+  -- a fill that paints the space-between gaps).
+  link('DadbodUIWinbarPage', 'TabLineSel')
+  link('DadbodUIWinbar', 'TabLine')
+  link('DadbodUIWinbarFill', 'TabLineFill')
 
   local light = vim.o.background == 'light'
   vim.api.nvim_set_hl(0, 'DadbodUIConnectionOk', { default = true, fg = light and '#00AA00' or '#88FF88' })
