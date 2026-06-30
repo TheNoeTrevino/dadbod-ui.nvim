@@ -48,6 +48,7 @@ function M.define()
   link('DadbodUIHelp', 'Comment')
   link('DadbodUIHelpKey', 'String')
   link('DadbodUIConnectionSource', 'Comment')
+  link('DadbodUIQueryTime', 'Comment') -- post-execute time/row summary (dbout + ghost text)
 
   local light = vim.o.background == 'light'
   vim.api.nvim_set_hl(0, 'DadbodUIConnectionOk', { default = true, fg = light and '#00AA00' or '#88FF88' })
