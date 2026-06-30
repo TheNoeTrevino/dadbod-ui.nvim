@@ -327,6 +327,23 @@ function M.execute_file(file, url, quiet)
   vim.cmd(string.format('%sDB %s < %s', silent_prefix(quiet), fn.fnameescape(url), fn.fnameescape(file)))
 end
 
+--- Write `lines` to a temp file (named with the adapter's input extension) and
+--- execute it against `url` via `execute_file`. The rewritten SQL can be
+--- multi-statement and contain arbitrary characters, so we write it out and let
+--- dadbod read it rather than building a `DB <text>` command -- this sidesteps
+--- every shell / command-line escaping pitfall. The shared "write then run a
+--- temp file" path used by both the query controller and pagination re-execution.
+---@param lines string[]
+---@param url string  resolved connection url
+---@param quiet? boolean
+---@return nil
+function M.execute_lines(lines, url, quiet)
+  local ext = M.input_extension(url) or 'sql'
+  local file = fn.tempname() .. '.' .. ext
+  fn.writefile(lines, file)
+  M.execute_file(file, url, quiet)
+end
+
 -- dadbod fires `doautocmd User {output}/DBExecute{Pre,Post}`; the original UI
 -- matches these with the trailing-suffix pattern `*DBExecutePre|Post`.
 ---@param suffix string
