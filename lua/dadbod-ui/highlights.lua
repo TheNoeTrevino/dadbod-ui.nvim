@@ -48,11 +48,30 @@ function M.define()
   link('DadbodUIHelp', 'Comment')
   link('DadbodUIHelpKey', 'String')
   link('DadbodUIConnectionSource', 'Comment')
-  link('DadbodUIQueryTime', 'Comment') -- post-execute time/row summary (dbout + ghost text)
+  link('DadbodUIQueryTime', 'Comment') -- post-execute time/row summary (query-buffer ghost text)
 
   local light = vim.o.background == 'light'
   vim.api.nvim_set_hl(0, 'DadbodUIConnectionOk', { default = true, fg = light and '#00AA00' or '#88FF88' })
   vim.api.nvim_set_hl(0, 'DadbodUIConnectionError', { default = true, fg = light and '#AA0000' or '#ff8888' })
+
+  -- Result-window winbar blocks (tab-style, each a distinct background). `default`
+  -- so a colorscheme or the user can override; the defaults give a powerline-ish
+  -- look out of the box: page = accent, summary = muted, nav = action accent, fill
+  -- = the bar's base (Neovim's WinBar) so the gaps/tail read as window background.
+  local function hl(name, opts)
+    opts.default = true
+    vim.api.nvim_set_hl(0, name, opts)
+  end
+  if light then
+    hl('DadbodUIWinbarPage', { fg = '#ffffff', bg = '#3d59a1' })
+    hl('DadbodUIWinbar', { fg = '#1a1b26', bg = '#c4c8da' })
+    hl('DadbodUIWinbarNav', { fg = '#ffffff', bg = '#33635c' })
+  else
+    hl('DadbodUIWinbarPage', { fg = '#1a1b26', bg = '#7aa2f7' })
+    hl('DadbodUIWinbar', { fg = '#c0caf5', bg = '#3b4261' })
+    hl('DadbodUIWinbarNav', { fg = '#1a1b26', bg = '#73daca' })
+  end
+  hl('DadbodUIWinbarFill', { link = 'WinBar' })
 end
 
 --- The highlight ranges for one painted line. Pure: derives every byte column

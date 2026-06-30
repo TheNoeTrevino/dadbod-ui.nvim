@@ -17,6 +17,7 @@ M.defaults = {
   default_query = 'SELECT * from "{table}" LIMIT 200;',
   execute_on_save = false,
   auto_execute_table_helpers = false,
+  page_size = 200,
   env_variable_url = 'DBUI_URL',
   env_variable_name = 'DBUI_NAME',
   dotenv_variable_prefix = 'DB_UI_',
@@ -101,6 +102,8 @@ M.defaults = {
       },
       yank_header = { key = 'yh', desc = 'Yank the result header as CSV' },
       toggle_layout = { key = '<Leader>R', desc = 'Toggle result layout (row / expanded)' },
+      next_page = { key = ']', desc = 'Next page of results' },
+      prev_page = { key = '[', desc = 'Previous page of results' },
     },
   },
 }
@@ -136,7 +139,7 @@ M.mapping_order = {
     'goto_child',
   },
   query = { 'execute', 'edit_bind_params', 'save_query' },
-  results = { 'jump_foreign', 'cell_value', 'yank_header', 'toggle_layout' },
+  results = { 'jump_foreign', 'cell_value', 'yank_header', 'toggle_layout', 'next_page', 'prev_page' },
 }
 
 -- The two function-valued options used the capitalized `g:Db_ui_*` globals.
