@@ -259,7 +259,13 @@ function Drawer:build_content()
   self:render_dbs()
   if #self.instance.dbs_list == 0 then
     self:add({ label = '" No connections', icon = '', level = 0, type = 'help', action = 'noaction' })
-    self:add({ label = 'Add connection', icon = self.icons.add_connection, level = 0, type = 'add_connection', action = 'call_method' })
+    self:add({
+      label = 'Add connection',
+      icon = self.icons.add_connection,
+      level = 0,
+      type = 'add_connection',
+      action = 'call_method',
+    })
   end
   self:render_dbout_list()
   return self.content
@@ -431,7 +437,8 @@ function Drawer:render_dbs()
         toggle_state = gs,
       })
       if gs.expanded then
-        vim.iter(dbs)
+        vim
+          .iter(dbs)
           :filter(function(member)
             return (member.group or '') == group
           end)

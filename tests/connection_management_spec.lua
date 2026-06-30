@@ -202,7 +202,11 @@ describe('connection management: duplicate', function()
     local seed = { { name = 'main', url = 'sqlite:' .. dir .. '/main.db' } }
     connections.write_file(dir .. '/connections.json', seed)
     -- prompts: name, url, group (ungrouped here)
-    d = make_drawer({ save_location = dir, file_entries = seed, inputs = { 'analytics', 'sqlite:' .. dir .. '/analytics.db', '' } })
+    d = make_drawer({
+      save_location = dir,
+      file_entries = seed,
+      inputs = { 'analytics', 'sqlite:' .. dir .. '/analytics.db', '' },
+    })
 
     d:connections():duplicate_connection(entry_named(d, 'main'))
     local file = stored(d.instance.connections_path)
@@ -260,7 +264,11 @@ describe('connection management: duplicate', function()
   end)
 
   it('can duplicate a variable-source connection into an editable file one', function()
-    d = make_drawer({ save_location = dir, g_dbs = { dev = 'postgres://h/dev' }, inputs = { 'dev_file', 'postgres://h/dev', '' } })
+    d = make_drawer({
+      save_location = dir,
+      g_dbs = { dev = 'postgres://h/dev' },
+      inputs = { 'dev_file', 'postgres://h/dev', '' },
+    })
     d:connections():duplicate_connection(entry_named(d, 'dev'))
     local file = stored(d.instance.connections_path)
     assert.equals(1, #file)
@@ -446,7 +454,11 @@ describe('connection management: preserves state across an edit', function()
   end)
 
   it('keeps an unrelated connection expanded after adding another', function()
-    d = make_drawer({ save_location = dir, g_dbs = { dev = 'postgres://h/dev' }, inputs = { 'sqlite:' .. dir .. '/qa.db', 'qa' } })
+    d = make_drawer({
+      save_location = dir,
+      g_dbs = { dev = 'postgres://h/dev' },
+      inputs = { 'sqlite:' .. dir .. '/qa.db', 'qa' },
+    })
     d:open()
     entry_named(d, 'dev').expanded = true
     d:connections():add_connection()

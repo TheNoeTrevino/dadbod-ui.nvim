@@ -38,7 +38,9 @@ describe('connections: from_global', function()
   end)
 
   it('resolves funcref urls', function()
-    local r = connections.from_global(function() return 'postgres://localhost/fn' end, nil)
+    local r = connections.from_global(function()
+      return 'postgres://localhost/fn'
+    end, nil)
     assert.equals('fn', r[1].name)
   end)
 end)

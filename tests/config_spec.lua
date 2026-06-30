@@ -51,7 +51,9 @@ describe('config', function()
   end)
 
   it('takes a function from setup opts by identity', function()
-    local fn = function() return 'x' end
+    local fn = function()
+      return 'x'
+    end
     assert.equals(fn, config.resolve({ buffer_name_generator = fn }).buffer_name_generator)
   end)
 end)

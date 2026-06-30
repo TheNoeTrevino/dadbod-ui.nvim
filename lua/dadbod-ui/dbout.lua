@@ -82,7 +82,7 @@ function M.save_dbout(file)
   local content = ''
   local input = bridge.dbout_input(file)
   if input ~= nil and vim.fn.filereadable(input) == 1 then
-    content = (vim.fn.readfile(input, '', 1)[1]) or ''
+    content = vim.fn.readfile(input, '', 1)[1] or ''
     if #content > 30 then
       content = content:sub(1, 31) .. '...'
     end
