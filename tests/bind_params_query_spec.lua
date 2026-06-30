@@ -77,9 +77,19 @@ describe('bind params: execute flow', function()
     vim.api.nvim_buf_set_lines(0, 0, -1, false, lines)
   end
 
-  it('runs the whole buffer directly when there are no placeholders', function()
+  it('auto-paginates a plain whole-buffer SELECT as page 1 (tempfile, not %DB)', function()
     d = make_drawer()
     open_query({ 'SELECT 1' })
+    d:query():execute_query()
+    -- sqlite is a paginated adapter: the SELECT runs as page 1 (LIMIT/OFFSET) from
+    -- a temp file rather than the raw %DB path.
+    assert.equals(0, calls.buffer)
+    assert.same({ { 'SELECT 1 LIMIT 200 OFFSET 0' } }, calls.files)
+  end)
+
+  it('runs a whole-buffer non-paginatable query directly through %DB', function()
+    d = make_drawer()
+    open_query({ 'SELECT 1 LIMIT 10' }) -- already paged: not rewritten, stays on %DB
     d:query():execute_query()
     assert.equals(1, calls.buffer)
     assert.equals(0, #calls.files)
@@ -94,7 +104,8 @@ describe('bind params: execute flow', function()
     vim.cmd('normal! \27')
     d:query():execute_query(true)
     assert.equals(0, calls.buffer) -- never goes through %DB
-    assert.same({ { 'SELECT 1' } }, calls.files)
+    -- the selection is a plain SELECT on sqlite, so it auto-paginates as page 1
+    assert.same({ { 'SELECT 1 LIMIT 200 OFFSET 0' } }, calls.files)
     assert.equals(entry_named(d, 'qa').conn, calls.last_url)
   end)
 
@@ -113,7 +124,8 @@ describe('bind params: execute flow', function()
     -- keys are the full placeholder text (':id'), matching the b:dbui_bind_params contract
     assert.same({ [':id'] = '5' }, vim.b[query_buf].dbui_bind_params)
     assert.equals(0, calls.buffer)
-    assert.same({ { 'SELECT * FROM contacts WHERE id = 5' } }, calls.files)
+    -- the substituted query is a plain SELECT, so it auto-paginates as page 1
+    assert.same({ { 'SELECT * FROM contacts WHERE id = 5 LIMIT 200 OFFSET 0' } }, calls.files)
     -- execution targets the captured connection url, not the current buffer's b:db
     assert.equals(entry_named(d, 'qa').conn, calls.last_url)
   end)
