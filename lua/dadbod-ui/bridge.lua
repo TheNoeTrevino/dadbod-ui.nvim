@@ -277,24 +277,38 @@ end
 
 -- Asynchronous execution -----------------------------------------------------
 
+-- `'silent '` when `quiet`, else `''`. Prefixing a `:DB` invocation with
+-- `:silent` suppresses dadbod's synchronous `DB: Running query...` echo while
+-- leaving errors intact (we use `silent`, not `silent!`, so a failed dispatch
+-- still raises and reaches the caller's pcall). dadbod's *async* `finished in`
+-- echo fires later from its job callback and is handled separately (dbout).
+---@param quiet? boolean
+---@return string
+local function silent_prefix(quiet)
+  return quiet and 'silent ' or ''
+end
+
 --- Run `sql` against `url` through dadbod's `:DB`. Non-blocking: dadbod manages
 --- the job, writes a `.dbout` result file, and fires `*DBExecutePre` /
 --- `*DBExecutePost`. Drive the in-buffer loading indicator from `on_pre` /
---- `on_post`.
+--- `on_post`. Pass `quiet` to suppress dadbod's `Running query...` echo.
 ---@param url string  resolved connection url
 ---@param sql string  the query text (single statement)
-function M.execute(url, sql)
+---@param quiet? boolean
+function M.execute(url, sql, quiet)
   require_dadbod()
-  vim.cmd(string.format('DB %s %s', fn.fnameescape(url), sql))
+  vim.cmd(string.format('%sDB %s %s', silent_prefix(quiet), fn.fnameescape(url), sql))
 end
 
 --- Execute the whole current buffer against its `b:db` (dadbod's `%DB`). The
 --- buffer must carry a valid `b:db`; non-blocking, same event contract as
---- `execute`. Used by the on-save / execute-query path.
+--- `execute`. Used by the on-save / execute-query path. Pass `quiet` to suppress
+--- dadbod's `Running query...` echo.
+---@param quiet? boolean
 ---@return nil
-function M.execute_buffer()
+function M.execute_buffer(quiet)
   require_dadbod()
-  vim.cmd('%DB')
+  vim.cmd(silent_prefix(quiet) .. '%DB')
 end
 
 --- Execute SQL read from `file` against `url` (dadbod's `DB <url> < file`). Used
@@ -306,10 +320,11 @@ end
 --- prompt resolves. Non-blocking, same event contract as `execute`.
 ---@param file string
 ---@param url string  resolved connection url
+---@param quiet? boolean
 ---@return nil
-function M.execute_file(file, url)
+function M.execute_file(file, url, quiet)
   require_dadbod()
-  vim.cmd(string.format('DB %s < %s', fn.fnameescape(url), fn.fnameescape(file)))
+  vim.cmd(string.format('%sDB %s < %s', silent_prefix(quiet), fn.fnameescape(url), fn.fnameescape(file)))
 end
 
 -- dadbod fires `doautocmd User {output}/DBExecute{Pre,Post}`; the original UI

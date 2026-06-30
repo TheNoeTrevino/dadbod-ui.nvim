@@ -317,7 +317,12 @@ function Query:setup_buffer(entry, opts, name)
         self:save_query()
       end
     end
-    mappings.apply(self.config.mappings.query, config_mod.mapping_order.query, handlers, { buffer = bufnr, silent = true, nowait = true })
+    mappings.apply(
+      self.config.mappings.query,
+      config_mod.mapping_order.query,
+      handlers,
+      { buffer = bufnr, silent = true, nowait = true }
+    )
   end
 
   local group = vim.api.nvim_create_augroup('dadbod_ui_query_' .. bufnr, { clear = true })
@@ -440,11 +445,11 @@ end
 ---@param lines string[]
 ---@param entry DadbodUI.ConnectionEntry
 ---@return nil
-function Query:run_from_file(lines, entry)
+function Query:run_from_file(lines, entry, quiet)
   local ext = bridge.input_extension(entry.conn) or 'sql'
   local file = vim.fn.tempname() .. '.' .. ext
   vim.fn.writefile(lines, file)
-  bridge.execute_file(file, entry.conn)
+  bridge.execute_file(file, entry.conn, quiet)
 end
 
 --- Execute the current query buffer (or visual selection) through dadbod. The
@@ -468,22 +473,29 @@ end
 ---@return nil
 function Query:execute_query(is_visual)
   local notify = require('dadbod-ui.notifications')
+  local dbout = require('dadbod-ui.dbout')
   local lines = self:get_lines(is_visual)
   local pattern = self.config.bind_param_pattern
   local names = bind_params.detect(lines, pattern)
 
-  -- Shared tail: dispatch `action` through dadbod, surface its error as a
-  -- notification, announce the async run, and remember the query. Both the
-  -- fast path and the bind-param path end the same way.
+  -- Inline post-execute feedback (time + row count) replaces dadbod's command-
+  -- line echoes when enabled: run quietly, and remember WHERE we executed from so
+  -- dbout can trail ghost text on that line once the result lands.
+  local quiet = self.config.query_time.enabled
+  local origin = { bufnr = vim.api.nvim_get_current_buf(), lnum = vim.fn.line('.') }
+
+  -- Shared tail: arm the ghost-text origin (consumed synchronously by dbout's
+  -- DBExecutePre hook), dispatch `action` through dadbod, surface its error as a
+  -- notification, and remember the query. Both the fast path and the bind-param
+  -- path end the same way.
   ---@param action fun(): nil
   ---@return nil
   local function run(action)
+    dbout.arm_origin(origin)
     local ok, err = pcall(action)
     if not ok then
+      dbout.disarm_origin()
       return notify.error(clean_execute_error(err))
-    end
-    if bridge.can_cancel() then
-      notify.info('Executing query...')
     end
     self.last_query = lines
   end
@@ -491,7 +503,9 @@ function Query:execute_query(is_visual)
   if #names == 0 then
     if not is_visual then
       -- Whole buffer, no placeholders: run it directly (no marks needed).
-      return run(bridge.execute_buffer)
+      return run(function()
+        bridge.execute_buffer(quiet)
+      end)
     end
     -- Visual selection, no placeholders: run the text we read via getregion from
     -- a temp file, so we never touch the '<'/'>' marks.
@@ -500,7 +514,7 @@ function Query:execute_query(is_visual)
       return notify.error('Buffer not attached to any database')
     end
     return run(function()
-      self:run_from_file(lines, entry)
+      self:run_from_file(lines, entry, quiet)
     end)
   end
 
@@ -518,7 +532,7 @@ function Query:execute_query(is_visual)
     vim.b[bufnr].dbui_bind_params = values
     local final = bind_params.substitute(lines, values, pattern)
     run(function()
-      self:run_from_file(final, entry)
+      self:run_from_file(final, entry, quiet)
     end)
   end)
 end
