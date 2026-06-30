@@ -40,3 +40,33 @@ describe('table_helpers: get', function()
     assert.is_nil(table_helpers.get('sqlite', cfg).Columns)
   end)
 end)
+
+describe('table_helpers: ordered_names', function()
+  it('puts List first and follows the canonical sequence', function()
+    local pg = table_helpers.get('postgresql', config.resolve())
+    assert.same(
+      { 'List', 'Columns', 'Indexes', 'Primary Keys', 'Foreign Keys', 'References' },
+      table_helpers.ordered_names(pg)
+    )
+  end)
+
+  it('orders the same regardless of the input table layout', function()
+    local order = table_helpers.ordered_names({
+      References = 'x',
+      List = 'x',
+      ['Foreign Keys'] = 'x',
+      Columns = 'x',
+    })
+    assert.same({ 'List', 'Columns', 'Foreign Keys', 'References' }, order)
+  end)
+
+  it('sorts unknown/adapter-specific helpers alphabetically after the canonical ones', function()
+    local order = table_helpers.ordered_names({
+      List = 'x',
+      Describe = 'x',
+      Constraints = 'x',
+      Custom = 'x',
+    })
+    assert.same({ 'List', 'Constraints', 'Custom', 'Describe' }, order)
+  end)
+end)

@@ -14,26 +14,11 @@
 local bridge = require('dadbod-ui.bridge')
 local bind_params = require('dadbod-ui.bind_params')
 local schemas = require('dadbod-ui.schemas')
+local spinner = require('dadbod-ui.spinner')
+local spinners = require('dadbod-ui.spinners')
 local utils = require('dadbod-ui.utils')
 
 local M = {}
-
--- The braille `dots12` spinner: 56 frames cycled every 80ms.
-local SPINNER = {
-  interval = 80,
-  frames = {
-    '⢀⠀', '⡀⠀', '⠄⠀', '⢂⠀', '⡂⠀', '⠅⠀', '⢃⠀', '⡃⠀',
-    '⠍⠀', '⢋⠀', '⡋⠀', '⠍⠁', '⢋⠁', '⡋⠁', '⠍⠉', '⠋⠉',
-    '⠋⠉', '⠉⠙', '⠉⠙', '⠉⠩', '⠈⢙', '⠈⡙', '⢈⠩', '⡀⢙',
-    '⠄⡙', '⢂⠩', '⡂⢘', '⠅⡘', '⢃⠨', '⡃⢐', '⠍⡐', '⢋⠠',
-    '⡋⢀', '⠍⡁', '⢋⠁', '⡋⠁', '⠍⠉', '⠋⠉', '⠋⠉', '⠉⠙',
-    '⠉⠙', '⠉⠩', '⠈⢙', '⠈⡙', '⠈⠩', '⠀⢙', '⠀⡙', '⠀⠩',
-    '⠀⢘', '⠀⡘', '⠀⠨', '⠀⢐', '⠀⡐', '⠀⠠', '⠀⢀', '⠀⡀',
-  },
-}
-
--- output_file -> { timer = uv_timer, buf = integer, frame = integer }
-local spinners = {}
 
 -- The drawer this module re-renders through; set on attach.
 ---@type DadbodUI.Drawer|nil
@@ -42,50 +27,19 @@ local attached = nil
 -- True once the session autocmds / event subscriptions are registered.
 local registered = false
 
---- The spinner line for `frame`.
----@param frame integer
+--- The result-buffer spinner line for `frame` (the `dots12` braille glyph).
+---@param frame string
 ---@return string
 local function spinner_line(frame)
-  return ' ' .. SPINNER.frames[frame] .. ' Executing query...'
-end
-
---- Stop and forget the spinner for `output_file`, if any.
----@param output_file string
----@return nil
-local function stop_spinner(output_file)
-  local s = spinners[output_file]
-  if s == nil then
-    return
-  end
-  spinners[output_file] = nil
-  pcall(function()
-    s.timer:stop()
-    if not s.timer:is_closing() then
-      s.timer:close()
-    end
-  end)
-end
-
---- Write the current frame into the output buffer (which dadbod leaves
---- `nomodifiable`, so we flip it for the write). dadbod's reload discards these
---- buffer-only edits when the rows arrive.
----@param output_file string
----@return nil
-local function paint(output_file)
-  local s = spinners[output_file]
-  if s == nil then
-    return
-  end
-  if not vim.api.nvim_buf_is_valid(s.buf) then
-    return stop_spinner(output_file)
-  end
-  vim.bo[s.buf].modifiable = true
-  pcall(vim.api.nvim_buf_set_lines, s.buf, 0, -1, false, { spinner_line(s.frame) })
-  s.frame = s.frame % #SPINNER.frames + 1
+  return ' ' .. frame .. ' Executing query...'
 end
 
 --- Start animating the loading spinner in the result buffer for `output_file`.
 --- No-op when the progress bar is disabled or the output buffer is not open yet.
+--- The animation itself (frames, timing, timer hygiene) lives in `spinner`; we
+--- only own how a frame is painted into the result buffer (which dadbod leaves
+--- `nomodifiable`, so we flip it for the write; dadbod's reload discards these
+--- buffer-only edits when the rows arrive).
 ---@param output_file string
 ---@return nil
 function M._show(output_file)
@@ -96,27 +50,20 @@ function M._show(output_file)
   if buf < 0 then
     return
   end
-  stop_spinner(output_file)
-  local timer = vim.uv.new_timer()
-  if timer == nil then
-    return
-  end
-  spinners[output_file] = { timer = timer, buf = buf, frame = 1 }
-  paint(output_file)
-  timer:start(
-    SPINNER.interval,
-    SPINNER.interval,
-    vim.schedule_wrap(function()
-      paint(output_file)
-    end)
-  )
+  spinner.start(output_file, spinners.dots12, function(frame)
+    if not vim.api.nvim_buf_is_valid(buf) then
+      return spinner.stop(output_file)
+    end
+    vim.bo[buf].modifiable = true
+    pcall(vim.api.nvim_buf_set_lines, buf, 0, -1, false, { spinner_line(frame) })
+  end)
 end
 
 --- Stop the spinner for `output_file` (dadbod has reloaded the rows by now).
 ---@param output_file string
 ---@return nil
 function M._hide(output_file)
-  stop_spinner(output_file)
+  spinner.stop(output_file)
 end
 
 --- Record an executed result file under the drawer's `Query results` section and
