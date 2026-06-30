@@ -34,6 +34,16 @@ describe('drawer: help banner', function()
     assert.equals('▸ dev', lines(d)[1])
   end)
 
+  -- Any help line whose text contains `needle`.
+  local function has(float_lines, needle)
+    for _, line in ipairs(float_lines) do
+      if line:find(needle, 1, true) then
+        return true
+      end
+    end
+    return false
+  end
+
   it('opens a floating window on first toggle and closes it on second', function()
     d = make_drawer({ dev = 'postgres://h/dev' }, { show_help = false })
     d:open()
@@ -45,15 +55,39 @@ describe('drawer: help banner', function()
 
     local float_buf = vim.api.nvim_win_get_buf(d.help_winid)
     local float_lines = vim.api.nvim_buf_get_lines(float_buf, 0, -1, false)
-    assert.is_truthy(vim.tbl_contains(float_lines, '  o - Open/Toggle selected item'))
-    assert.is_truthy(vim.tbl_contains(float_lines, '  H - Toggle database details'))
-    assert.is_truthy(vim.tbl_contains(float_lines, '  D - Duplicate connection'))
+    -- Sectioned by context, each header followed by its mappings.
+    assert.is_truthy(vim.tbl_contains(float_lines, 'Sidebar'))
+    assert.is_truthy(vim.tbl_contains(float_lines, 'Query Buffer'))
+    assert.is_truthy(vim.tbl_contains(float_lines, 'DB Results'))
+    -- Sidebar entries, now key-aligned and aggregating aliases (o / <CR>).
+    assert.is_truthy(has(float_lines, 'o / <CR>'))
+    assert.is_truthy(has(float_lines, 'Open/Toggle selected item'))
+    assert.is_truthy(has(float_lines, 'Toggle database details'))
+    assert.is_truthy(has(float_lines, 'Duplicate connection'))
+    -- Query + results mappings now surface too (they were missing before).
+    assert.is_truthy(has(float_lines, 'Edit bind parameters'))
+    assert.is_truthy(has(float_lines, 'Jump to the foreign key table'))
 
     -- drawer buffer is unchanged - help is not rendered inline
     assert.equals('▸ dev', lines(d)[1])
 
     d:toggle_help()
     assert.is_nil(d.help_winid)
+  end)
+
+  it('omits an action whose key is set to none, and rebinds from config', function()
+    d = make_drawer({ dev = 'postgres://h/dev' }, {
+      show_help = false,
+      mappings = { sidebar = { duplicate = { key = 'none' }, delete = { key = 'x' } } },
+    })
+    d:open()
+    d:toggle_help()
+    local float_buf = vim.api.nvim_win_get_buf(d.help_winid)
+    local float_lines = vim.api.nvim_buf_get_lines(float_buf, 0, -1, false)
+    -- Disabled action is gone from help; the surviving one keeps its description.
+    assert.is_falsy(has(float_lines, 'Duplicate connection'))
+    assert.is_truthy(has(float_lines, 'Delete selected item'))
+    d:toggle_help()
   end)
 end)
 

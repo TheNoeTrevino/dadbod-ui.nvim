@@ -427,17 +427,17 @@ function M.setup_buffer(bufnr)
   if config.disable_mappings or config.disable_mappings_dbout then
     return
   end
-  ---@param mode string|string[]
-  ---@param lhs string
-  ---@param fn fun()
-  local function map(mode, lhs, fn)
-    vim.keymap.set(mode, lhs, fn, { buffer = bufnr, silent = true, nowait = true })
-  end
-  map('n', '<C-]>', M.jump_to_foreign_table)
-  map('n', 'vic', M.get_cell_value)
-  map('o', 'ic', M.get_cell_value)
-  map('n', 'yh', M.yank_header)
-  map('n', '<Leader>R', M.toggle_layout)
+  local config_mod = require('dadbod-ui.config')
+  local mappings = require('dadbod-ui.mappings')
+  -- Keyed by the ids in `config.mappings.results`; the same data drives the help
+  -- window. `cell_value` binds different keys per mode (`vic`/`ic`) via its
+  -- explicit `binds`, so the handler ignores the mode argument.
+  mappings.apply(config.mappings.results, config_mod.mapping_order.results, {
+    jump_foreign = M.jump_to_foreign_table,
+    cell_value = M.get_cell_value,
+    yank_header = M.yank_header,
+    toggle_layout = M.toggle_layout,
+  }, { buffer = bufnr, silent = true, nowait = true })
 end
 
 --- Register the session-wide autocmds and bridge subscriptions once: `.dbout`
