@@ -137,6 +137,7 @@
 ---@field save_path string
 ---@field conn? string  live connection handle, set when connected
 ---@field conn_error? string  last connection error, if any
+---@field connect_ms? integer  elapsed ms of the last successful connect (shown in the details view, not a popup)
 ---@field conn_tried boolean  whether a connection was attempted
 ---@field loading? boolean  transient: connecting/introspecting (drawer shows the loading icon); cleared on data-land/error
 ---@field expanded boolean  drawer expand state

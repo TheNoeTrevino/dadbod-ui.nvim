@@ -478,11 +478,15 @@ function Drawer:render_db(record, level)
     label = label .. ' ' .. self.icons.connection_ok
   end
   if self.show_details then
+    local parts = { entry.scheme, entry.source }
     if entry.group ~= '' then
-      label = label .. string.format(' (%s - %s - %s %s)', entry.scheme, entry.source, self.icons.group, entry.group)
-    else
-      label = label .. string.format(' (%s - %s)', entry.scheme, entry.source)
+      table.insert(parts, string.format('%s %s', self.icons.group, entry.group))
     end
+    -- The connect timing lives here (the H-toggle details), not in a popup.
+    if entry.connect_ms then
+      table.insert(parts, string.format('%dms', entry.connect_ms))
+    end
+    label = label .. ' (' .. table.concat(parts, ' - ') .. ')'
   end
   -- While connecting/introspecting the db node keeps its own fold icon and name
   -- fixed; the loading state shows as a spinner APPENDED after the label (a
