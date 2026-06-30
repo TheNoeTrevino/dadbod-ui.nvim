@@ -44,16 +44,34 @@ describe('dbout: _nav_segment', function()
 end)
 
 describe('dbout: _winbar_text', function()
-  it('joins pagination, summary and nav segments in order', function()
+  -- The bar is statusline-syntax: each block is `%#<group># <text> ` and the
+  -- blocks are spread with `%#DadbodUIWinbarFill#%=` (justify-content: space-between).
+  it('styles the pagination, summary and nav blocks and spreads them with %=', function()
     local text = dbout._winbar_text(state({ page = 2 }), '✓ finished in 0.004s · 200 rows', 200)
-    assert.equals('Page 2 · rows 201-400 · 200/page │ ✓ finished in 0.004s · 200 rows │ [ prev  ] next', text)
+    assert.equals(
+      '%#DadbodUIWinbarPage# Page 2 · rows 201-400 · 200/page '
+        .. '%#DadbodUIWinbarFill#%=%#DadbodUIWinbar# ✓ finished in 0.004s · 200 rows '
+        .. '%#DadbodUIWinbarFill#%=%#DadbodUIWinbar# [ prev  ] next ',
+      text
+    )
   end)
 
-  it('drops the pagination/nav segments when the result is not paged', function()
-    assert.equals('✓ finished in 0.004s', dbout._winbar_text(nil, '✓ finished in 0.004s', nil))
+  it('renders only the summary block when the result is not paged', function()
+    assert.equals('%#DadbodUIWinbar# ✓ finished in 0.004s ', dbout._winbar_text(nil, '✓ finished in 0.004s', nil))
   end)
 
-  it('shows just the pagination segments when query_time is off (no summary)', function()
-    assert.equals('Page 1 · rows 1-200 · 200/page │ [ prev  ] next', dbout._winbar_text(state(), nil, 200))
+  it('renders only the pagination + nav blocks when query_time is off (no summary)', function()
+    assert.equals(
+      '%#DadbodUIWinbarPage# Page 1 · rows 1-200 · 200/page %#DadbodUIWinbarFill#%=%#DadbodUIWinbar# [ prev  ] next ',
+      dbout._winbar_text(state(), nil, 200)
+    )
+  end)
+
+  it('returns an empty string when there is nothing to show', function()
+    assert.equals('', dbout._winbar_text(nil, nil, nil))
+  end)
+
+  it('doubles a literal % in engine summary text so it is not a control code', function()
+    assert.equals('%#DadbodUIWinbar# 50%% done ', dbout._winbar_text(nil, '50% done', nil))
   end)
 end)

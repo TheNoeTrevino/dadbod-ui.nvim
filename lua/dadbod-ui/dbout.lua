@@ -225,19 +225,17 @@ local function clear_on(buf, name, events, fn)
   vim.api.nvim_create_autocmd(events, { group = group, buffer = buf, once = true, callback = fn })
 end
 
---- Pin the summary to the top of the result window via `winbar`. We deliberately
---- avoid a `virt_lines_above` extmark on the first line: Neovim cannot draw a
---- virtual line above a buffer's first line (there is no screen row above it), so
---- such an extmark exists but never renders until an unrelated scroll happens to
---- repaint the window. `winbar` is the purpose-built window-top line -- it renders
---- immediately and consumes no buffer line, so line numbers / row counting /
---- cell-nav stay intact. `%` is the statusline escape, so any in the
---- engine-provided text is doubled; the leading `%#...#` colors the whole bar.
+--- Pin `winbar` (a fully-formed statusline-syntax string from `_winbar_text`) to
+--- the top of the result window. We deliberately avoid a `virt_lines_above`
+--- extmark on the first line: Neovim cannot draw a virtual line above a buffer's
+--- first line (there is no screen row above it), so such an extmark exists but
+--- never renders until an unrelated scroll happens to repaint the window. `winbar`
+--- is the purpose-built window-top line -- it renders immediately and consumes no
+--- buffer line, so line numbers / row counting / cell-nav stay intact.
 ---@param buf integer
----@param text string
+---@param winbar string
 ---@return nil
-local function render_result_summary(buf, text)
-  local winbar = '%#DadbodUIQueryTime#' .. text:gsub('%%', '%%%%')
+local function render_result_summary(buf, winbar)
   for _, win in ipairs(vim.fn.win_findbuf(buf)) do
     pcall(vim.api.nvim_set_option_value, 'winbar', winbar, { win = win })
   end
@@ -401,22 +399,41 @@ function M._nav_segment(state)
   return '[ prev  ] next'
 end
 
---- Compose the result-window winbar from its segments, in display order:
---- pagination info (when paged), the time/row `summary`, then the page-nav hints.
---- nil/empty segments are dropped and the rest joined by ` │ `. Adding a new piece
---- of result feedback means adding a segment to this list.
+--- Wrap a plain segment `text` in a padded, highlighted winbar block. `%` in the
+--- text is doubled so engine output can't inject statusline control codes; the
+--- surrounding spaces give the block its tab-like padding.
+---@param group string  highlight group (linked to a TabLine* group by default)
+---@param text string
+---@return string
+local function winbar_block(group, text)
+  return string.format('%%#%s# %s ', group, (text:gsub('%%', '%%%%')))
+end
+
+--- Compose the result-window winbar from its blocks, in display order: pagination
+--- info (when paged), the time/row `summary`, then the page-nav hints. Each present
+--- block is a padded, highlighted tab (pagination emphasized via DadbodUIWinbarPage,
+--- the rest via DadbodUIWinbar), and the blocks are spread across the window width
+--- with `%=` -- the fill (DadbodUIWinbarFill) paints the gaps -- so the first sits
+--- hard left and the last hard right (justify-content: space-between). '' when there
+--- is nothing to show. Adding a new piece of result feedback means adding a block.
 ---@param page DadbodUI.PageState|nil
 ---@param summary string|nil
 ---@param rows integer|nil
 ---@return string
 function M._winbar_text(page, summary, rows)
-  local segments = { M._page_segment(page, rows), summary, M._nav_segment(page) }
-  return table.concat(
-    vim.tbl_filter(function(s)
-      return s ~= nil and s ~= ''
-    end, segments),
-    ' │ '
-  )
+  local blocks = {}
+  local function add(group, text)
+    if text ~= nil and text ~= '' then
+      blocks[#blocks + 1] = winbar_block(group, text)
+    end
+  end
+  add('DadbodUIWinbarPage', M._page_segment(page, rows))
+  add('DadbodUIWinbar', summary)
+  add('DadbodUIWinbar', M._nav_segment(page))
+  if #blocks == 0 then
+    return ''
+  end
+  return table.concat(blocks, '%#DadbodUIWinbarFill#%=')
 end
 
 --- Re-execute the current result's query at `delta` pages from the current page
