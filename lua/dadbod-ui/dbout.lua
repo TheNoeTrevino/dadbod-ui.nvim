@@ -27,6 +27,45 @@ local attached = nil
 -- True once the session autocmds / event subscriptions are registered.
 local registered = false
 
+-- Extmark namespace for the ghost text trailing the executed line in the query
+-- buffer (cleared before each repaint). The result-buffer summary is rendered as
+-- a `winbar`, not an extmark -- see render_result_summary for why.
+local NS_QUERY = vim.api.nvim_create_namespace('dadbod_ui_query_time_query')
+
+-- Where the next query was executed from, so the summary can trail ghost text on
+-- that line. `pending_origin` is armed by the query controller right before it
+-- dispatches and consumed synchronously by the DBExecutePre hook, which moves it
+-- into `origins` keyed by the result file (so concurrent runs don't collide).
+---@type DadbodUI.QueryOrigin|nil
+local pending_origin = nil
+---@type table<string, DadbodUI.QueryOrigin>
+local origins = {}
+
+--- Remember the buffer + line a query is being executed from. Called by the
+--- query controller immediately before dispatch; the DBExecutePre hook claims it.
+---@param origin DadbodUI.QueryOrigin
+---@return nil
+function M.arm_origin(origin)
+  pending_origin = origin
+end
+
+--- Drop an armed origin that never reached execution (dispatch errored before
+--- DBExecutePre fired), so it can't attach to an unrelated later run.
+---@return nil
+function M.disarm_origin()
+  pending_origin = nil
+end
+
+--- The effective config: the attached drawer's, or the session singleton's when a
+--- dbout buffer is touched before the drawer ever opened.
+---@return DadbodUI.Config
+local function current_config()
+  if attached ~= nil then
+    return attached.config
+  end
+  return require('dadbod-ui.state').get().config
+end
+
 --- The result-buffer spinner line for `frame` (the `dots12` braille glyph).
 ---@param frame string
 ---@return string
@@ -64,6 +103,220 @@ end
 ---@return nil
 function M._hide(output_file)
   spinner.stop(output_file)
+end
+
+-- Post-execute summary (time + row count) -----------------------------------
+--
+-- When `query_time` is enabled we suppress dadbod's command-line echoes (see
+-- bridge `quiet` + the scheduled clear in `_on_post`) and instead surface the
+-- completion inline: a virtual line atop the `.dbout` buffer and/or ghost text
+-- trailing the line the query ran from. dadbod hands us the exact timing for
+-- free -- it stores `runtime` (float seconds) and `exit_status` on the result
+-- buffer's `b:db` -- so we never run our own timer.
+
+--- A line made only of table-drawing characters with at least one dash: the
+--- column rule under a header (`---+---`, `+------+`).
+---@param line string
+---@return boolean
+local function is_rule(line)
+  return line:match('^[%s%-+|]+$') ~= nil and line:find('%-') ~= nil
+end
+
+--- The explicit row-count footer an engine prints, scanned from the bottom of
+--- `lines` (it sits in the last few). postgres `(N rows)`, mysql `N rows in
+--- set`, sqlserver `(N rows affected)`. nil when none of those match -- so the
+--- caller can pass just the buffer tail here and only read the whole buffer for
+--- the line-counting fallback. Pure, for unit tests.
+---@param lines string[]
+---@return integer|nil
+function M._footer_rows(lines)
+  for i = #lines, math.max(1, #lines - 4), -1 do
+    local l = lines[i]
+    local n = l:match('%((%d+)%s+rows?%)') -- postgres: (200 rows)
+      or l:match('^%s*(%d+)%s+rows?%s+in%s+set') -- mysql:    200 rows in set
+      or l:match('%((%d+)%s+rows?%s+affected%)') -- sqlserver: (200 rows affected)
+    if n ~= nil then
+      return tonumber(n)
+    end
+  end
+  return nil
+end
+
+--- Best-effort row count for a result buffer's `lines`. Prefers the explicit
+--- engine footer (`_footer_rows`); falls back to counting the data lines under
+--- the first column rule (sqlite column mode, mysql batch). Returns nil when it
+--- cannot tell -- the caller then omits the count rather than guessing.
+---@param lines string[]
+---@return integer|nil
+function M._count_rows(lines)
+  local footer = M._footer_rows(lines)
+  if footer ~= nil then
+    return footer
+  end
+  -- Fallback: count non-blank, non-rule data lines beneath the first rule.
+  local rule_at
+  for i, l in ipairs(lines) do
+    if is_rule(l) then
+      rule_at = i
+      break
+    end
+  end
+  if rule_at == nil then
+    return nil
+  end
+  local count = 0
+  for i = rule_at + 1, #lines do
+    local l = lines[i]
+    if l:match('^%s*$') then
+      break -- a blank line closes the result block
+    end
+    if not is_rule(l) then
+      count = count + 1
+    end
+  end
+  return count > 0 and count or nil
+end
+
+--- The one-line summary string. `runtime` is dadbod's float seconds (nil omits
+--- the duration); a non-zero/`nil`-status query reads as aborted; `rows` nil
+--- omits the count. Pure, for unit tests.
+---@param runtime number|nil
+---@param exit_status integer|nil
+---@param rows integer|nil
+---@return string
+function M._summary_text(runtime, exit_status, rows)
+  local ok = exit_status == 0 or exit_status == nil
+  local icon = ok and '✓' or '✗'
+  local verb = ok and 'finished' or 'aborted'
+  local text
+  if runtime ~= nil then
+    text = string.format('%s %s %s %.3fs', icon, verb, ok and 'in' or 'after', runtime)
+  else
+    text = string.format('%s %s', icon, verb)
+  end
+  if rows ~= nil then
+    text = text .. string.format(' · %d row%s', rows, rows == 1 and '' or 's')
+  end
+  return text
+end
+
+--- Register a one-shot teardown: run `fn` the next time any of `events` fires on
+--- `buf`, in a fresh per-buffer augroup (`name` + bufnr) so a repaint replaces
+--- rather than stacks the cleanup. Used to drop the winbar / ghost text.
+---@param buf integer
+---@param name string  augroup name stem; the buffer number is appended
+---@param events string|string[]
+---@param fn fun(): nil
+---@return nil
+local function clear_on(buf, name, events, fn)
+  local group = vim.api.nvim_create_augroup(name .. '_' .. buf, { clear = true })
+  vim.api.nvim_create_autocmd(events, { group = group, buffer = buf, once = true, callback = fn })
+end
+
+--- Pin the summary to the top of the result window via `winbar`. We deliberately
+--- avoid a `virt_lines_above` extmark on the first line: Neovim cannot draw a
+--- virtual line above a buffer's first line (there is no screen row above it), so
+--- such an extmark exists but never renders until an unrelated scroll happens to
+--- repaint the window. `winbar` is the purpose-built window-top line -- it renders
+--- immediately and consumes no buffer line, so line numbers / row counting /
+--- cell-nav stay intact. `%` is the statusline escape, so any in the
+--- engine-provided text is doubled; the leading `%#...#` colors the whole bar.
+---@param buf integer
+---@param text string
+---@return nil
+local function render_result_summary(buf, text)
+  local winbar = '%#DadbodUIQueryTime#' .. text:gsub('%%', '%%%%')
+  for _, win in ipairs(vim.fn.win_findbuf(buf)) do
+    pcall(vim.api.nvim_set_option_value, 'winbar', winbar, { win = win })
+  end
+  -- winbar is window-local; drop it when this result buffer leaves its window so a
+  -- stale summary can't linger over whatever is shown there next (a later result
+  -- repaints its own bar from _on_post).
+  clear_on(buf, 'dadbod_ui_query_time_winbar', 'BufWinLeave', function()
+    local win = vim.fn.bufwinid(buf)
+    if win ~= -1 then
+      pcall(vim.api.nvim_set_option_value, 'winbar', '', { win = win })
+    end
+  end)
+end
+
+--- Trail the summary as ghost text at the end of the executed line in the query
+--- buffer, and clear it on the next edit (so stale timing never lingers over a
+--- query the user has since changed).
+---@param origin DadbodUI.QueryOrigin
+---@param text string
+---@return nil
+local function render_ghost(origin, text)
+  if not vim.api.nvim_buf_is_valid(origin.bufnr) then
+    return
+  end
+  local lnum = math.min(origin.lnum, vim.api.nvim_buf_line_count(origin.bufnr)) - 1
+  if lnum < 0 then
+    return
+  end
+  vim.api.nvim_buf_clear_namespace(origin.bufnr, NS_QUERY, 0, -1)
+  pcall(vim.api.nvim_buf_set_extmark, origin.bufnr, NS_QUERY, lnum, 0, {
+    virt_text = { { '  ' .. text, 'DadbodUIQueryTime' } },
+    virt_text_pos = 'eol',
+    hl_mode = 'combine',
+  })
+  clear_on(origin.bufnr, 'dadbod_ui_query_time', { 'TextChanged', 'TextChangedI', 'InsertEnter' }, function()
+    pcall(vim.api.nvim_buf_clear_namespace, origin.bufnr, NS_QUERY, 0, -1)
+  end)
+end
+
+--- Handle a finished async execution: render the inline time/row summary (per
+--- `query_time` config), swallow dadbod's trailing command-line echo, and stop
+--- the loading spinner. The result buffer has been reloaded with rows by the time
+--- this runs, so `b:db.runtime`/`exit_status` and the row count are available.
+---@param output_file string
+---@return nil
+function M._on_post(output_file)
+  local origin = origins[output_file]
+  origins[output_file] = nil
+
+  local cfg = current_config().query_time
+  if not cfg.enabled then
+    return M._hide(output_file)
+  end
+
+  local buf = utils.loaded_bufnr(output_file)
+  if buf >= 0 then
+    local db = vim.fn.getbufvar(buf, 'db')
+    local runtime = type(db) == 'table' and tonumber(db.runtime) or nil
+    local status = type(db) == 'table' and tonumber(db.exit_status) or 0
+    local rows
+    if cfg.show_row_count and status == 0 then
+      -- The footer (the common case) lives in the last lines, so try it against
+      -- just the tail; only the sqlite-column-mode fallback needs the full grid.
+      local total = vim.api.nvim_buf_line_count(buf)
+      rows = M._footer_rows(vim.api.nvim_buf_get_lines(buf, math.max(0, total - 5), total, false))
+      if rows == nil then
+        rows = M._count_rows(vim.api.nvim_buf_get_lines(buf, 0, -1, false))
+      end
+    end
+    local text = M._summary_text(runtime, status, rows)
+    if cfg.result_buffer then
+      render_result_summary(buf, text)
+    end
+    if cfg.query_buffer and origin ~= nil then
+      render_ghost(origin, text)
+    end
+  end
+  -- dadbod's async job callback echoes `DB: Query ... finished in ...` on the
+  -- command line the instant this hook returns (autoload/db.vim), and `:silent`
+  -- can't reach that async echo. On the next tick, once it has fired, clear the
+  -- command line and flush a repaint so the cleared line shows without a stray
+  -- flash. (A message UI that captures echoes synchronously, e.g. Noice, needs
+  -- its own route filter -- we can only clear the built-in command line.)
+  vim.schedule(function()
+    pcall(vim.cmd, "echo ''")
+    if buf >= 0 and vim.api.nvim_buf_is_valid(buf) then
+      pcall(vim.api.nvim__redraw, { buf = buf, valid = false, flush = true })
+    end
+  end)
+
+  M._hide(output_file)
 end
 
 --- Record an executed result file under the drawer's `Query results` section and
@@ -117,16 +370,6 @@ end
 -- on the schema adapters in `dadbod-ui.schemas`. The foreign-key jump's
 -- introspection lookup and the jump itself both go through `bridge` (the engine
 -- boundary); this module never touches `:DB`/`db#` directly.
-
---- The effective config: the attached drawer's, or the session singleton's when a
---- dbout buffer is touched before the drawer ever opened.
----@return DadbodUI.Config
-local function current_config()
-  if attached ~= nil then
-    return attached.config
-  end
-  return require('dadbod-ui.state').get().config
-end
 
 --- Pure fold level for `lnum`, given a (sparse is fine) map of line number ->
 --- text covering at least `lnum`..`lnum + 2`. Port of `db_ui#dbout#foldexpr`:
@@ -330,7 +573,9 @@ function M.jump_to_foreign_table()
   -- result rows are { foreign_table_name, foreign_column_name, foreign_table_schema }
   local row = result[1]
   local query = M.foreign_select(template, row[3], row[1], row[2], field_value)
-  bridge.execute(url, query)
+  -- Run quietly when the inline summary is on, so dadbod's `Running query...`
+  -- echo doesn't reappear for the jump (the summary still renders via on_post).
+  bridge.execute(url, query, current_config().query_time.enabled)
 end
 
 --- Visually select the cell value under the cursor (the `vic` text object / the
@@ -475,10 +720,16 @@ function M.attach(drawer)
     end,
   })
   bridge.on_pre(function(info)
+    -- Claim the origin armed by the query controller (synchronous: this fires
+    -- inside the `:DB` call, before any other execution can interleave).
+    if pending_origin ~= nil then
+      origins[info.output_file] = pending_origin
+      pending_origin = nil
+    end
     M._show(info.output_file)
   end, { group = group })
   bridge.on_post(function(info)
-    M._hide(info.output_file)
+    M._on_post(info.output_file)
   end, { group = group })
 end
 

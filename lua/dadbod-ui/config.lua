@@ -38,6 +38,18 @@ M.defaults = {
   force_echo_notifications = false,
   disable_info_notifications = false,
   use_nvim_notify = false,
+  -- Post-execute feedback: instead of dadbod's `DB: Running query...` /
+  -- `finished in ...` command-line echoes (and our own "Executing query..."
+  -- notification), show the completion + elapsed time inline. `result_buffer`
+  -- pins a `winbar` summary to the top of the `.dbout` window; `query_buffer` puts
+  -- ghost text trailing the line you executed from. When `enabled`, dadbod's two
+  -- echoes are suppressed so the inline summary is the single source of feedback.
+  query_time = {
+    enabled = true,
+    result_buffer = true,
+    query_buffer = true,
+    show_row_count = true,
+  },
   is_oracle_legacy = false,
   debug = false,
   disable_mappings = false,
@@ -82,7 +94,11 @@ M.defaults = {
     },
     results = {
       jump_foreign = { key = '<C-]>', desc = 'Jump to the foreign key table' },
-      cell_value = { key = 'vic', desc = 'Select the cell value under the cursor', binds = { { mode = 'n', lhs = 'vic' }, { mode = 'o', lhs = 'ic' } } },
+      cell_value = {
+        key = 'vic',
+        desc = 'Select the cell value under the cursor',
+        binds = { { mode = 'n', lhs = 'vic' }, { mode = 'o', lhs = 'ic' } },
+      },
       yank_header = { key = 'yh', desc = 'Yank the result header as CSV' },
       toggle_layout = { key = '<Leader>R', desc = 'Toggle result layout (row / expanded)' },
     },
@@ -101,10 +117,23 @@ M.mapping_sections = {
 
 M.mapping_order = {
   sidebar = {
-    'help', 'toggle', 'toggle_split', 'quit', 'add_connection', 'delete',
-    'rename', 'redraw', 'duplicate', 'set_group', 'toggle_details',
-    'first_sibling', 'last_sibling', 'prev_sibling', 'next_sibling',
-    'goto_parent', 'goto_child',
+    'help',
+    'toggle',
+    'toggle_split',
+    'quit',
+    'add_connection',
+    'delete',
+    'rename',
+    'redraw',
+    'duplicate',
+    'set_group',
+    'toggle_details',
+    'first_sibling',
+    'last_sibling',
+    'prev_sibling',
+    'next_sibling',
+    'goto_parent',
+    'goto_child',
   },
   query = { 'execute', 'edit_bind_params', 'save_query' },
   results = { 'jump_foreign', 'cell_value', 'yank_header', 'toggle_layout' },
