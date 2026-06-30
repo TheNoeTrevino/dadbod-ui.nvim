@@ -33,21 +33,21 @@ local function is_connected(entry)
 end
 
 local HELP_LINES = {
-  '" o - Open/Toggle selected item',
-  '" S - Open/Toggle selected item in vertical split',
-  '" d - Delete selected item',
-  '" R - Redraw',
-  '" A - Add connection',
-  '" D - Duplicate connection',
-  '" G - Add/remove connection to a group',
-  '" H - Toggle database details',
-  '" r - Rename/Edit buffer/connection/saved query',
-  '" q - Close drawer',
-  '" <C-j>/<C-k> - Go to last/first sibling',
-  '" K/J - Go to prev/next sibling',
-  '" <C-p>/<C-n> - Go to parent/child node',
-  '" <Leader>W - (sql) Save currently opened query',
-  '" <Leader>S - (sql) Execute query in visual or normal mode',
+  'o - Open/Toggle selected item',
+  'S - Open/Toggle selected item in vertical split',
+  'd - Delete selected item',
+  'R - Redraw',
+  'A - Add connection',
+  'D - Duplicate connection',
+  'G - Add/remove connection to a group',
+  'H - Toggle database details',
+  'r - Rename/Edit buffer/connection/saved query',
+  'q - Close drawer',
+  '<C-j>/<C-k> - Go to last/first sibling',
+  'K/J - Go to prev/next sibling',
+  '<C-p>/<C-n> - Go to parent/child node',
+  '<Leader>W - (sql) Save currently opened query',
+  '<Leader>S - (sql) Execute query in visual or normal mode',
 }
 
 local M = {}
@@ -60,7 +60,7 @@ local M = {}
 --- Drawer-owned transient VIEW state (group expand + the show_* flags below);
 --- entries own DOMAIN expand. See the ownership note above `toggle_line`.
 ---@field groups table<string, { expanded: boolean }>  per-group expand state
----@field show_help boolean
+---@field help_winid? integer  floating help window id, nil when closed
 ---@field show_details boolean
 ---@field input DadbodUI.UiInput  prompt backend (injectable for specs)
 ---@field confirm DadbodUI.Confirm  yes/no backend (injectable for specs)
@@ -85,7 +85,7 @@ function M.new(instance)
     config = instance.config,
     content = {},
     groups = {},
-    show_help = false,
+    help_winid = nil,
     show_details = false,
     input = vim.ui.input,
     confirm = function(msg)
@@ -383,18 +383,73 @@ function Drawer:render_help()
     self:add({ label = '" Press ? for help', icon = '', level = 0, type = 'help', action = 'noaction' })
     self:add({ label = '', icon = '', level = 0, type = 'help', action = 'noaction' })
   end
-  if self.show_help then
-    for _, line in ipairs(HELP_LINES) do
-      self:add({ label = line, icon = '', level = 0, type = 'help', action = 'noaction' })
-    end
-    self:add({ label = '', icon = '', level = 0, type = 'help', action = 'noaction' })
-  end
 end
 
 ---@return DadbodUI.Drawer
 function Drawer:toggle_help()
-  self.show_help = not self.show_help
-  return self:render()
+  if self.help_winid and vim.api.nvim_win_is_valid(self.help_winid) then
+    vim.api.nvim_win_close(self.help_winid, true)
+    self.help_winid = nil
+    return self
+  end
+
+  local lines = vim.list_slice(HELP_LINES)
+  local max_len = 0
+  for _, line in ipairs(lines) do
+    if #line > max_len then
+      max_len = #line end
+  end
+
+  local width = math.min(max_len + 4, vim.o.columns - 4)
+  local height = #lines
+  local row = math.floor((vim.o.lines - height) / 2)
+  local col = math.floor((vim.o.columns - width) / 2)
+
+  local buf = vim.api.nvim_create_buf(false, true)
+  local padded = {}
+  for _, line in ipairs(lines) do
+    padded[#padded + 1] = '  ' .. line
+  end
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, padded)
+  vim.bo[buf].modifiable = false
+  vim.bo[buf].readonly = true
+  vim.bo[buf].bufhidden = 'wipe'
+
+  local winid = vim.api.nvim_open_win(buf, true, {
+    relative = 'editor',
+    row = row,
+    col = col,
+    width = width,
+    height = height,
+    border = 'rounded',
+    title = ' Help ',
+    title_pos = 'center',
+    style = 'minimal',
+  })
+  self.help_winid = winid
+
+  local function close()
+    if vim.api.nvim_win_is_valid(winid) then
+      vim.api.nvim_win_close(winid, true)
+    end
+    self.help_winid = nil
+  end
+
+  for _, key in ipairs({ 'q', '<Esc>', '?' }) do
+    vim.keymap.set('n', key, close, { buffer = buf, nowait = true, silent = true })
+  end
+
+  vim.api.nvim_create_autocmd('BufLeave', {
+    buffer = buf,
+    once = true,
+    callback = function()
+      -- window may already be gone if a keymap closed it
+      pcall(vim.api.nvim_win_close, winid, true)
+      self.help_winid = nil
+    end,
+  })
+
+  return self
 end
 
 ---@return DadbodUI.Drawer
@@ -777,7 +832,7 @@ end
 -- Expand/UI state ownership ---------------------------------------------------
 --
 -- Two coherent owners:
---   * DRAWER owns transient VIEW state -- `show_help`, `show_details`,
+--   * DRAWER owns transient VIEW state -- `help_winid`, `show_details`,
 --     `show_dbout_list`, and group expand (`self.groups`, via `group_state`).
 --     None of it is domain data; it resets with a fresh drawer.
 --   * ENTRIES own DOMAIN expand -- `entry.expanded` and the `.expanded` flag on
@@ -789,10 +844,10 @@ end
 -- type for what each points at), so a toggle is one generic flip, plus an
 -- optional `on_expand` for the db's lazy introspection.
 --
--- `show_dbout_list` is the lone exception: like the `show_help`/`show_details`
--- booleans it is flipped by name, here on the `call_method` path. It is left
--- there deliberately to keep the action branches (`call_method`/`open`)
--- untouched -- those are actions, not expand-state flips.
+-- `show_dbout_list` is the lone exception: like the `show_details` boolean it
+-- is flipped by name, here on the `call_method` path. It is left there
+-- deliberately to keep the action branches (`call_method`/`open`) untouched --
+-- those are actions, not expand-state flips.
 
 --- Act on the node under the cursor. Toggles groups/dbs/sections; opens query,
 --- buffer, saved-query and table-helper nodes through the query controller (in
