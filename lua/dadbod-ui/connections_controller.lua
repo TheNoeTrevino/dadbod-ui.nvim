@@ -60,7 +60,8 @@ function Controller:read_store()
   end)
   if corrupt then
     require('dadbod-ui.notifications').error(
-      'Could not read connections file; refusing to overwrite it. Fix or remove: ' .. (self.instance.connections_path or '')
+      'Could not read connections file; refusing to overwrite it. Fix or remove: '
+        .. (self.instance.connections_path or '')
     )
     return nil
   end
@@ -127,33 +128,36 @@ function Controller:rename_connection(entry)
   if entry.source ~= 'file' then
     return notify.error('Cannot edit connections added via variables.')
   end
-  self.input({ prompt = string.format('Edit connection url for "%s": ', entry.name), default = entry.url }, function(url)
-    if url == nil then
-      return
-    end
-    local resolved, err = validate_url(url)
-    if resolved == nil then
-      return notify.error(err or 'Invalid connection url.')
-    end
-    self.input({ prompt = 'Edit connection name: ', default = entry.name }, function(name)
-      if name == nil then
+  self.input(
+    { prompt = string.format('Edit connection url for "%s": ', entry.name), default = entry.url },
+    function(url)
+      if url == nil then
         return
       end
-      name = vim.trim(name)
-      if name == '' then
-        return notify.error('Please enter valid name.')
+      local resolved, err = validate_url(url)
+      if resolved == nil then
+        return notify.error(err or 'Invalid connection url.')
       end
-      local store = self:read_store()
-      if store == nil then
-        return
-      end
-      local list, rename_err = connections.rename_connection(store, entry.name, entry.url, name, resolved)
-      if list == nil then
-        return notify.error(rename_err or 'Could not rename connection.')
-      end
-      self:commit_connections(list)
-    end)
-  end)
+      self.input({ prompt = 'Edit connection name: ', default = entry.name }, function(name)
+        if name == nil then
+          return
+        end
+        name = vim.trim(name)
+        if name == '' then
+          return notify.error('Please enter valid name.')
+        end
+        local store = self:read_store()
+        if store == nil then
+          return
+        end
+        local list, rename_err = connections.rename_connection(store, entry.name, entry.url, name, resolved)
+        if list == nil then
+          return notify.error(rename_err or 'Could not rename connection.')
+        end
+        self:commit_connections(list)
+      end)
+    end
+  )
 end
 
 --- Duplicate a connection into the file store (`D`). Prompts for a name

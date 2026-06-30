@@ -129,7 +129,8 @@ end
 ---@param entries DadbodUI.FileConnection[]
 ---@return DadbodUI.ConnectionRecord[]
 function M.from_file(entries)
-  return vim.iter(entries)
+  return vim
+    .iter(entries)
     :map(function(conn)
       return record(conn.name, conn.url, 'file', conn.group)
     end)
@@ -270,7 +271,8 @@ end
 ---@return DadbodUI.FileConnection[]
 function M.delete_connection(list, name, url)
   local resolved = bridge.resolve(url):lower()
-  return vim.iter(list)
+  return vim
+    .iter(list)
     :filter(function(conn)
       return not same_conn(conn, name, resolved)
     end)

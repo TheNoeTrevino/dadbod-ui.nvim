@@ -288,10 +288,7 @@ local function bigquery()
     callable = 'filter',
     args = { '--format=csv', '--max_rows=100000' },
     schemes_query = string.format('SELECT schema_name FROM `%s`.INFORMATION_SCHEMA.SCHEMATA', region),
-    schemes_tables_query = string.format(
-      'SELECT table_schema, table_name FROM `%s`.INFORMATION_SCHEMA.TABLES',
-      region
-    ),
+    schemes_tables_query = string.format('SELECT table_schema, table_name FROM `%s`.INFORMATION_SCHEMA.TABLES', region),
     parse_results = function(results, min_len)
       return results_parser(vslice(results, 1), ',', min_len)
     end,
@@ -470,7 +467,8 @@ end
 function M.normalize_table_list(scheme, raw)
   local lower = scheme:lower()
   if lower:match('^sqlite') then
-    local flattened = vim.iter(raw)
+    local flattened = vim
+      .iter(raw)
       :map(function(chunk)
         return vim.split(chunk, '%s+', { trimempty = true })
       end)
