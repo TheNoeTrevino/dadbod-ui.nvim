@@ -97,6 +97,50 @@ function M.get_conn_info(key_name)
   }
 end
 
+--- Jump to (or adopt) the query buffer for the current db context. Backs
+--- `:DBUIFindBuffer`: a buffer already carrying the `b:dbui_*` contract is
+--- revealed in the drawer; a bare buffer resolves/connects a db and adopts it.
+---@return nil
+function M.find_buffer()
+  drawer():find_buffer()
+end
+
+--- Rename the current query buffer's on-disk file (and move its buffer tracking).
+--- Backs `:DBUIRenameBuffer`; delegates to the drawer's rename path for the buffer
+--- under the cursor / in focus.
+---@return nil
+function M.rename_buffer()
+  drawer():rename_buffer(vim.api.nvim_buf_get_name(0), vim.b.dbui_db_key_name, false)
+end
+
+--- Echo the last executed query and its runtime. Backs `:DBUILastQueryInfo`.
+--- Mirrors the original `db_ui#print_last_query_info`.
+---@return nil
+function M.print_last_query_info()
+  local notify = require('dadbod-ui.notifications')
+  local info = drawer():query():get_last_query_info()
+  if #info.last_query == 0 then
+    return notify.info('No queries ran.')
+  end
+  local content = { 'Last query:' }
+  vim.list_extend(content, info.last_query)
+  if info.last_query_time ~= '' then
+    content[#content + 1] = 'Time: ' .. info.last_query_time .. ' sec.'
+  end
+  notify.info(content, { echo = true })
+end
+
+--- Connection/table info for the current query buffer, or the last query's
+--- runtime for a `.dbout` result buffer -- a drop-in for the original
+--- `db_ui#statusline()`, safe to embed in a `statusline`/`winbar` expression.
+--- Reads the `b:dbui_*` contract; never opens the drawer window. Delegates to
+--- `Drawer:statusline` (which holds the query controller for the dbout runtime).
+---@param opts? DadbodUI.StatuslineOpts
+---@return string
+function M.statusline(opts)
+  return drawer():statusline(opts)
+end
+
 --- Reset session state (drops the cached instance and drawer). For tests/cleanup.
 function M.reset()
   state.reset()
