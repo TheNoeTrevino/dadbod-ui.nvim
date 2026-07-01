@@ -98,6 +98,13 @@ M.defaults = {
   buffer_name_generator = nil,
   ---@type DadbodUI.TableNameSorter|nil  custom table-list sorter
   table_name_sorter = nil,
+  -- User-configurable lifecycle hooks (see `DadbodUI.Hooks`). A table of optional
+  -- functions fired around connect / execute / cancel. `on_connect(event)` is a
+  -- transform: returning a string rewrites the connection url before connecting
+  -- (e.g. swap a `$password` placeholder for a real secret). Its post/execute/
+  -- cancel siblings are observers. A throwing hook is caught + notified, never
+  -- aborting the underlying operation. Empty by default; set via `setup{}` opts.
+  hooks = {},
   -- Keybindings, grouped by context. Each entry is `{ key, desc, mode? }`; set a
   -- key to 'none' to disable that action (it is then neither bound nor shown in
   -- the `?` help window). Overrides deep-merge, so `mappings.sidebar.delete.key`
@@ -133,6 +140,7 @@ M.defaults = {
       execute = { key = '<Leader>S', desc = 'Execute query (whole buffer / visual selection)', mode = { 'n', 'v' } },
       edit_bind_params = { key = '<Leader>E', desc = 'Edit bind parameters' },
       save_query = { key = '<Leader>W', desc = 'Save the current query (tmp buffers)' },
+      cancel = { key = '<Leader>C', desc = 'Cancel the running query' },
     },
     results = {
       jump_foreign = { key = '<C-]>', desc = 'Jump to the foreign key table' },
@@ -185,7 +193,7 @@ M.mapping_order = {
     'goto_parent',
     'goto_child',
   },
-  query = { 'execute', 'edit_bind_params', 'save_query' },
+  query = { 'execute', 'edit_bind_params', 'save_query', 'cancel' },
   results = { 'jump_foreign', 'cell_value', 'yank_header', 'toggle_layout', 'next_page', 'prev_page', 'export' },
 }
 
