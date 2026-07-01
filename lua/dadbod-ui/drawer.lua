@@ -1088,6 +1088,47 @@ function Drawer:rename_buffer(buffer, key_name, is_saved_query)
   end)
 end
 
+--- Connection/table info for the current buffer, for embedding in a `statusline`
+--- or `winbar`. A query buffer renders `<prefix><db_name><sep><schema><sep><table>`
+--- from the `b:dbui_*` contract, keeping only the requested, non-empty fields; a
+--- `.dbout` result buffer renders `Last query time: <t> sec.` when a runtime is
+--- known. Returns `''` for any other buffer, so it stays inert in unrelated
+--- windows. Port of `db_ui#statusline`.
+---@param opts? DadbodUI.StatuslineOpts
+---@return string
+function Drawer:statusline(opts)
+  opts = opts or {}
+  local key_name = vim.b.dbui_db_key_name or ''
+  local is_dbout = vim.bo.filetype == 'dbout'
+  if not is_dbout and key_name == '' then
+    return ''
+  end
+  if is_dbout then
+    local time = self:query():get_last_query_info().last_query_time
+    return time ~= '' and ('Last query time: ' .. time .. ' sec.') or ''
+  end
+  local entry = self.instance.dbs[key_name]
+  if entry == nil then
+    return ''
+  end
+  ---@type table<string, string>
+  local data = {
+    db_name = entry.name,
+    schema = vim.b.dbui_schema_name or '',
+    table = vim.b.dbui_table_name or '',
+  }
+  -- Embedded in `statusline`/`winbar`, so this runs on every redraw; a plain loop
+  -- over the (<=3) shown fields avoids allocating an iterator and closures per tick.
+  local parts = {}
+  for _, field in ipairs(opts.show or { 'db_name', 'schema', 'table' }) do
+    local value = data[field]
+    if value ~= nil and value ~= '' then
+      parts[#parts + 1] = value
+    end
+  end
+  return (opts.prefix or 'DBUI: ') .. table.concat(parts, opts.separator or ' -> ')
+end
+
 --- Refresh the tree (`R`): re-discover connections from disk and re-render.
 --- A finer-grained per-database refresh arrives with schema introspection.
 ---@return nil

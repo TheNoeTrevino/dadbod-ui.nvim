@@ -318,6 +318,21 @@
 ---@field query_buffer boolean  ghost text trailing the executed line in the SQL buffer
 ---@field show_row_count boolean  append `· N rows` to the summary
 
+--- The most recently executed query and its wall-clock runtime, surfaced by
+--- `:DBUILastQueryInfo` and the dbout branch of `statusline`. `last_query_time`
+--- is dadbod's `b:db.runtime` (seconds, as a string) recorded when the async
+--- result lands, or `''` before any query finished.
+---@class DadbodUI.LastQueryInfo
+---@field last_query string[]  lines of the most recently executed query
+---@field last_query_time string  runtime in seconds ('' before any result)
+
+--- Options for `require('dadbod-ui').statusline()` (mirrors the original
+--- `db_ui#statusline()` opts dict). All optional; defaults match the original.
+---@class DadbodUI.StatuslineOpts
+---@field prefix? string  leading text (default 'DBUI: ')
+---@field separator? string  joiner between the shown fields (default ' -> ')
+---@field show? string[]  fields to show, in order (default { 'db_name', 'schema', 'table' })
+
 --- Where a query was executed from, so the post-execute summary can trail ghost
 --- text on that line (dadbod-ui.dbout).
 ---@class DadbodUI.QueryOrigin
