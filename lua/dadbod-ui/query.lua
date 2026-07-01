@@ -44,6 +44,7 @@ end
 ---@field select DadbodUI.UiSelect  picker backend for the edit flow (injectable)
 ---@field introspect DadbodUI.Introspect  connect / load-saved-queries backend
 ---@field last_query string[]  lines of the most recently executed query
+---@field last_query_time string  runtime of the last result in seconds ('' until one lands)
 local Query = {}
 Query.__index = Query
 
@@ -69,6 +70,7 @@ function M.new(drawer)
       end,
     }),
     last_query = {},
+    last_query_time = '',
   }, Query)
 end
 
@@ -693,11 +695,41 @@ function Query:save_query()
   end)
 end
 
---- The last executed query and its (M11) timing. Port of
---- `s:query.get_last_query_info`.
----@return { last_query: string[] }
+--- The last executed query and its runtime. `last_query` is captured
+--- synchronously on dispatch; `last_query_time` (seconds) is recorded by
+--- `dadbod-ui.dbout` once the async result lands (dadbod's `b:db.runtime`), so it
+--- is `''` until the first result comes back. Port of `s:query.get_last_query_info`.
+---@return DadbodUI.LastQueryInfo
 function Query:get_last_query_info()
-  return { last_query = self.last_query }
+  return { last_query = self.last_query, last_query_time = self.last_query_time }
+end
+
+--- Best-effort connection name for a buffer that carries no `b:dbui_db_key_name`
+--- yet, inferred from its on-disk location so `find_buffer` can adopt a plain
+--- `.sql` file opened under the tmp-query or save directory. A tmp-location file
+--- matches the `<name>-…` buffer prefix (stripping a leading `db_ui.` root); a
+--- save-location file lives in a per-connection subdir named for the db. Returns
+--- `''` when nothing matches. Port of `s:query.get_saved_query_db_name`.
+---@return string
+function Query:get_saved_query_db_name()
+  local dir = vim.fn.expand('%:p:h')
+  local tmp = self.instance.tmp_location
+  if tmp ~= '' and tmp == dir then
+    local filename = vim.fn.expand('%:t')
+    if vim.fn.fnamemodify(filename, ':r') == 'db_ui' then
+      filename = vim.fn.fnamemodify(filename, ':e')
+    end
+    local match = vim.iter(self.instance.dbs_list):find(function(record)
+      return filename:match('^' .. vim.pesc(record.name) .. '%-') ~= nil
+    end)
+    if match ~= nil then
+      return match.name
+    end
+  end
+  if vim.fn.fnamemodify(dir, ':h') == self.instance.save_path then
+    return vim.fn.fnamemodify(dir, ':t')
+  end
+  return ''
 end
 
 M.Query = Query
