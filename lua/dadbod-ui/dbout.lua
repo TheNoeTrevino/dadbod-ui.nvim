@@ -936,6 +936,9 @@ function M.setup_buffer(bufnr)
     toggle_layout = M.toggle_layout,
     next_page = M.next_page,
     prev_page = M.prev_page,
+    export = function()
+      require('dadbod-ui.export').export_interactive(bufnr)
+    end,
   }, { buffer = bufnr, silent = true, nowait = true })
 end
 

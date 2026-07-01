@@ -25,3 +25,7 @@ end, { nargs = 0, desc = 'Close the dadbod-ui drawer' })
 command('DBUIAddConnection', function()
   require('dadbod-ui').add_connection()
 end, { nargs = 0, desc = 'Add a dadbod-ui connection' })
+
+command('DBUIExportResult', function()
+  require('dadbod-ui.export').export_interactive(vim.api.nvim_get_current_buf())
+end, { nargs = 0, desc = 'Export the current query result to a file' })
