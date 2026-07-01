@@ -1109,10 +1109,10 @@ end
 ---@return nil
 function Drawer:paste_line()
   local notify = require('dadbod-ui.notifications')
-  if self.cut == nil then
+  local cut = self.cut
+  if cut == nil then
     return
   end
-  local cut = self.cut
   local item = self:get_current_item()
   if item == nil then
     return
