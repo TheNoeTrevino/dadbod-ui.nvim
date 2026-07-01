@@ -126,3 +126,66 @@ describe('query buffers: open', function()
     assert.is_true(has_line(d, 'Buffers (1)'))
   end)
 end)
+
+describe('query buffers: filename extension', function()
+  local d
+
+  after_each(function()
+    if d then
+      d:close()
+      d = nil
+    end
+  end)
+
+  it('names a New query buffer with the adapter query-input extension', function()
+    d = make_drawer({ qa = 'sqlite:/tmp/qa.db' })
+    local entry = entry_named(d, 'qa')
+    assert.equals('sql', entry.extension)
+    local name = d:query():generate_buffer_name(entry, { label = '', filetype = entry.filetype })
+    -- <slug(name-query)>-<time>.sql -- a real .sql file so formatters/linters attach.
+    assert.matches('qa%-query%-[%d%-]+%.sql$', name)
+  end)
+
+  it('names a table-helper buffer with the extension too', function()
+    d = make_drawer({ qa = 'sqlite:/tmp/qa.db' })
+    local entry = entry_named(d, 'qa')
+    local name = d:query()
+      :generate_buffer_name(entry, { table = 'contacts', label = 'List', filetype = entry.filetype })
+    assert.matches('qa%-contacts%-List%-[%d%-]+%.sql$', name)
+  end)
+
+  it('uses the extension from the adapter, not a hardcoded sql (mysql -> sql ext, mysql filetype)', function()
+    d = make_drawer({ my = 'mysql://h/shop' })
+    local entry = entry_named(d, 'my')
+    -- mysql's query-input extension is sql; its filetype is the distinct `mysql`.
+    assert.equals('sql', entry.extension)
+    assert.equals('mysql', entry.filetype)
+    local name = d:query():generate_buffer_name(entry, { label = '', filetype = entry.filetype })
+    assert.matches('%.sql$', name)
+  end)
+
+  it('sets the buffer filetype to entry.filetype even with a .sql name', function()
+    d = make_drawer({ my = 'mysql://h/shop' })
+    d:open()
+    local entry = entry_named(d, 'my')
+    d:query():open({ type = 'query', key_name = entry.key_name }, 'edit')
+    local bufnr = vim.api.nvim_get_current_buf()
+    -- The explicit setlocal filetype= stays authoritative over the .sql name's
+    -- own detection (which would give `sql`).
+    assert.equals('mysql', vim.bo.filetype)
+    assert.matches('%.sql$', vim.api.nvim_buf_get_name(bufnr))
+    pcall(vim.api.nvim_buf_delete, bufnr, { force = true })
+  end)
+
+  it('respects buffer_name_generator without forcing an extension', function()
+    d = make_drawer({ qa = 'sqlite:/tmp/qa.db' }, {
+      buffer_name_generator = function()
+        return 'custom-name'
+      end,
+    })
+    local entry = entry_named(d, 'qa')
+    local name = d:query():generate_buffer_name(entry, { label = '', filetype = entry.filetype })
+    assert.matches('qa%-custom%-name$', name)
+    assert.is_nil(name:match('%.sql$'))
+  end)
+end)

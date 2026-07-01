@@ -55,6 +55,30 @@ describe('state: populate', function()
     assert.equals('/tmp/dbui_test/Local_pg', inst.dbs['Local_pg_g:dbs'].save_path)
   end)
 
+  it('resolves the adapter query-input extension onto the entry', function()
+    local inst = state.new(cfg):populate({
+      env = {},
+      g_dbs = { pg = 'postgres://h/shop', lite = 'sqlite:/tmp/x.db' },
+      file_entries = {},
+    })
+    assert.equals('sql', inst.dbs['pg_g:dbs'].extension)
+    assert.equals('sql', inst.dbs['lite_g:dbs'].extension)
+  end)
+
+  it('restores a tmp-location buffer whose name carries the .sql extension', function()
+    local tmp = vim.fn.tempname()
+    vim.fn.mkdir(tmp, 'p')
+    -- A previously generated New query buffer, now carrying a real .sql extension.
+    local restored = tmp .. '/qa-query-2020-01-01-00-00-00.sql'
+    vim.fn.writefile({ 'select 1;' }, restored)
+    local inst = state.new(config.resolve({ save_location = '/tmp/dbui_test', tmp_query_location = tmp })):populate({
+      env = {},
+      g_dbs = { qa = 'sqlite:/tmp/qa.db' },
+      file_entries = {},
+    })
+    assert.is_true(vim.tbl_contains(inst.dbs['qa_g:dbs'].buffers.list, restored))
+  end)
+
   it('connections_list reports name/url/source and not-connected', function()
     local inst = state.new(cfg):populate({
       env = {},

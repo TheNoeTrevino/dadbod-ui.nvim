@@ -36,18 +36,31 @@ local function expand_dir(path)
   return (vim.fn.fnamemodify(path, ':p'):gsub('/$', ''))
 end
 
+--- The adapter's canonical query-input file extension (`sql` for
+--- postgres/mysql/sqlite, adapter-specific otherwise), defaulting to `sql` when
+--- dadbod can't answer. This is the extension a genuine query file for the
+--- adapter would carry, so naming generated buffers with it makes external SQL
+--- tooling (formatters/linters/LSP that key off the filename) attach and run.
+---@param url string
+---@return string
+local function resolve_extension(url)
+  local ok, ext = pcall(bridge.input_extension, url)
+  return (ok and ext ~= '') and ext or 'sql'
+end
+
 --- The query-buffer filetype for an adapter: the schema metadata's own filetype
 --- if it declares one, else dadbod's input extension (mongodb's `js` is mapped
 --- to `javascript`), defaulting to `sql`. Mirrors the original's
---- `populate_schema_info`.
+--- `populate_schema_info`. Note this may differ from `resolve_extension` (e.g.
+--- mysql/plsql filetypes over a `sql` extension) -- the extension names the file,
+--- the filetype drives Neovim's syntax/behaviour.
 ---@param url string
 ---@param scheme_info DadbodUI.SchemaAdapter
 ---@return string
 local function resolve_filetype(url, scheme_info)
   local filetype = scheme_info.filetype
   if filetype == nil or filetype == '' then
-    local ok, ext = pcall(bridge.input_extension, url)
-    filetype = (ok and ext ~= '') and ext or 'sql'
+    filetype = resolve_extension(url)
   end
   if filetype == 'js' then
     return 'javascript'
@@ -103,6 +116,7 @@ local function make_entry(record, save_path, config, old_buffers)
     quote = scheme_info.quote ~= nil and scheme_info.quote ~= 0,
     default_scheme = scheme_info.default_scheme or '',
     filetype = resolve_filetype(record.url, scheme_info),
+    extension = resolve_extension(record.url),
     table_helpers = table_helpers.get(scheme, config),
     tables = { expanded = false, list = {}, items = {} },
     schemas = { expanded = false, list = {}, items = {} },
