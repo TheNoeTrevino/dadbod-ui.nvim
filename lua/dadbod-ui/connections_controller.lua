@@ -237,9 +237,10 @@ function Controller:set_group(entry)
   end)
 end
 
---- Reorder a file connection one slot up or down among its group siblings. Only
---- file-source connections are persistable; discovered ones are refused with a
---- notification (mirroring the `set_group`/`rename` guards).
+--- Move a file connection one slot up or down in the drawer's visual order,
+--- crossing group boundaries (see `connections.move_connection`). Only file-source
+--- connections are persistable; discovered ones are refused with a notification
+--- (mirroring the `set_group`/`rename` guards).
 ---@param entry DadbodUI.ConnectionEntry
 ---@param direction 'up'|'down'
 ---@return nil
@@ -253,30 +254,6 @@ function Controller:move_connection(entry, direction)
     return
   end
   local list, err = connections.move_connection(store, entry.name, entry.url, direction)
-  if list == nil then
-    return notify.error(err or 'Could not move connection.')
-  end
-  self:commit_connections(list)
-end
-
---- Paste a previously cut connection, re-inserting it relative to a target and
---- adopting `group` (the cut/paste move). `cut` carries the cut connection's
---- identity (name + url); `after_name`/`after_url` name the target to land after
---- (nil => append at the end of the list). The cut connection is always a
---- file-source one (the drawer refuses to cut a discovered connection), so no
---- source guard is needed here.
----@param cut { name: string, url: string }
----@param group string
----@param after_name? string
----@param after_url? string
----@return nil
-function Controller:paste_connection(cut, group, after_name, after_url)
-  local notify = require('dadbod-ui.notifications')
-  local store = self:read_store()
-  if store == nil then
-    return
-  end
-  local list, err = connections.paste_connection(store, cut.name, cut.url, group, after_name, after_url)
   if list == nil then
     return notify.error(err or 'Could not move connection.')
   end
