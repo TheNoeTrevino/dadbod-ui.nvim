@@ -9,8 +9,17 @@ local function make_drawer(g_dbs, overrides)
   local instance = state.new(cfg):populate({ env = {}, g_dbs = g_dbs, file_entries = {} })
   local d = drawer_mod.new(instance)
   -- Keep render specs offline: expanding a connection would otherwise connect.
+  -- The drawer-expand path connects via `async_connector`; return an empty conn
+  -- (state.is_connected treats '' as not connected) so no real probe is spawned.
   d.connector = function()
     return ''
+  end
+  d.async_connector = function(_, on_result)
+    -- Defer like the real (vim.system-backed) backend so the loading spinner is
+    -- observable between expand and resolution.
+    vim.schedule(function()
+      on_result(true, '')
+    end)
   end
   return d
 end
