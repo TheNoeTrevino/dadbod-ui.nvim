@@ -16,8 +16,15 @@ local function make_drawer()
   })
   local d = drawer_mod.new(instance)
   -- Keep navigation specs offline: expansion would otherwise try to connect.
+  -- The expand path connects via `async_connector`; return an empty conn so no
+  -- real probe is spawned (state.is_connected treats '' as not connected).
   d.connector = function()
     return ''
+  end
+  d.async_connector = function(_, on_result)
+    vim.schedule(function()
+      on_result(true, '')
+    end)
   end
   return d
 end

@@ -174,6 +174,89 @@ function M.connect(url)
   return fn['db#connect'](url)
 end
 
+--- Non-blocking variant of `connect`. dadbod's `db#connect` runs its auth probe
+--- through the SYNCHRONOUS `systemlist`, which blocks Neovim for a full round-trip
+--- to the server (the "UI freezes while connecting" symptom). This reproduces the
+--- exact probe dadbod would run -- same per-adapter command, same auth input --
+--- but dispatches it via `vim.system` (async), calling `on_result(ok, conn)` on
+--- the main loop when it lands. `conn` is the resolved (authed) url on success,
+--- or the error message on failure.
+---
+--- Faithfulness / fallbacks: adapters that short-circuit auth (`auth_input` is
+--- `v:false`, e.g. bigquery/jq) resolve immediately with no probe, exactly as
+--- `db#connect` returns early. If the probe fails with an auth error AND the url
+--- carries a user but no password, we defer to the BLOCKING `db#connect` so its
+--- `inputsecret` prompt + password caching behave identically -- blocking there
+--- is moot since the user is being prompted anyway. Any error building the probe
+--- (unknown adapter shape, etc.) also falls back to the blocking connect, so this
+--- is never worse than the original, only faster in the common no-prompt case.
+---@param url string
+---@param on_result fun(ok: boolean, conn: string)
+---@return nil
+function M.connect_async(url, on_result)
+  require_dadbod()
+  local resolved = M.resolve(url)
+  local function finish(ok, conn)
+    vim.schedule(function()
+      on_result(ok, conn)
+    end)
+  end
+  -- Fall back to the faithful blocking connect (identical prompting/messaging).
+  local function fallback_sync()
+    vim.schedule(function()
+      local ok, conn = pcall(M.connect, url)
+      on_result(ok, conn)
+    end)
+  end
+
+  -- Build the probe dadbod's `db#connect` runs (mirrors its `s:filter(url, in)` +
+  -- `auth_input` contract). Guarded: any failure here drops to the blocking path.
+  local built, probe = pcall(function()
+    local auth_input = M.adapter_call(resolved, 'auth_input', {}, '\n')
+    -- `v:false` => the adapter needs no auth probe; connect returns immediately.
+    if auth_input == false or auth_input == nil then
+      return { short_circuit = true }
+    end
+    auth_input = tostring(auth_input)
+    if M.supports(resolved, 'input') then
+      -- The adapter reads its auth input from a file (`-f <tmp>`), not stdin.
+      -- Mirror dadbod's `s:filter`: `db#adapter#dispatch(url, 'input', in)` --
+      -- dispatch forwards the file arg (adapter_call would drop it).
+      local input_file = fn.tempname()
+      fn.writefile(vim.split(auth_input, '\n', { plain = true }), input_file, 'b')
+      return { cmd = M.dispatch(resolved, 'input', input_file), input_file = input_file }
+    end
+    local op = M.supports(resolved, 'filter') and 'filter' or 'interactive'
+    return { cmd = M.dispatch(resolved, op), stdin = auth_input }
+  end)
+  if not built then
+    return fallback_sync()
+  end
+  if probe.short_circuit then
+    return finish(true, resolved)
+  end
+
+  vim.system(probe.cmd, { text = true, stdin = probe.stdin }, function(obj)
+    if probe.input_file then
+      pcall(fn.delete, probe.input_file)
+    end
+    if obj.code == 0 then
+      return finish(true, resolved)
+    end
+    -- Mirror `db#connect`'s auth-retry guard: output matches the adapter's auth
+    -- pattern (case-insensitive) AND the url has a user with no password. Only
+    -- then is a password prompt warranted -- defer to the blocking connect for it.
+    local pattern = M.adapter_call(resolved, 'auth_pattern', {}, 'auth\\|login')
+    local out = (obj.stdout or '') .. '\n' .. (obj.stderr or '')
+    local needs_auth = fn.match(out, '\\c' .. pattern) > -1 and fn.match(resolved, '^[^:]*://[^:/@]*@') > -1
+    if needs_auth then
+      return fallback_sync()
+    end
+    local err = obj.stderr ~= nil and obj.stderr ~= '' and obj.stderr or (obj.stdout or '')
+    finish(false, 'DB exec error: ' .. err)
+  end)
+end
+
 --- Whether dadbod exposes async cancellation (i.e. the async path is available).
 ---@return boolean
 function M.can_cancel()

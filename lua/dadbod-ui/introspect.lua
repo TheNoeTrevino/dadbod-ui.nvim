@@ -23,7 +23,8 @@ local M = {}
 
 ---@class DadbodUI.Introspect
 ---@field config DadbodUI.Config
----@field connector fun(url: string): string  connect backend (injectable for specs)
+---@field connector fun(url: string): string  synchronous connect backend (injectable for specs)
+---@field async_connector fun(url: string, on_result: fun(ok: boolean, conn: string)): nil  non-blocking connect backend (injectable for specs)
 ---@field render fun(): nil  re-render callback (the drawer's render)
 ---@field repaint fun(key_name: string, frame: string): nil  single-line db-node repaint (the drawer's repaint_db_node); animates the loading spinner without a full render
 local Introspect = {}
@@ -34,44 +35,48 @@ Introspect.__index = Introspect
 --- (connecting and saved-query refresh never render). `repaint` drives the
 --- per-frame loading animation on a single db node (defaults to a no-op so a
 --- controller built without it -- e.g. the query controller -- never crashes).
----@param opts { config: DadbodUI.Config, connector: fun(url: string): string, render: fun(): nil, repaint?: fun(key_name: string, frame: string): nil }
+---@param opts { config: DadbodUI.Config, connector: fun(url: string): string, async_connector?: fun(url: string, on_result: fun(ok: boolean, conn: string)): nil, render: fun(): nil, repaint?: fun(key_name: string, frame: string): nil }
 ---@return DadbodUI.Introspect
 function M.new(opts)
   return setmetatable({
     config = opts.config,
     connector = opts.connector,
+    async_connector = opts.async_connector or bridge.connect_async,
     render = opts.render,
     repaint = opts.repaint or function() end,
   }, Introspect)
 end
 
---- Connect a connection if not already connected. Errors are captured on the
---- entry (surfaced as the error icon) and notified, mirroring the original.
+--- Fire the `on_connect` hook and return the (possibly rewritten) url to connect
+--- with. It may return a rewritten url (e.g. a `$password` placeholder swapped
+--- for a real secret); when it does, we connect with THAT, so `entry.conn` -- and
+--- hence every downstream execution / introspection reading `b:db`/`entry.conn`
+--- -- uses the authed connection. A nil / non-string return (or a throwing hook)
+--- leaves the original url.
 ---@param entry DadbodUI.ConnectionEntry
----@return DadbodUI.ConnectionEntry
-function Introspect:connect(entry)
-  if state.is_connected(entry) then
-    return entry
-  end
-  -- No "Connecting..." notification: the drawer's inline loading indicator on
-  -- the db node communicates progress. Success is silent too -- the connection_ok
-  -- icon signals it and the elapsed time lands in the details view (`H`) rather
-  -- than a popup. Only a failure interrupts with a notification.
-  -- Fire `on_connect` BEFORE connecting. It may return a rewritten url (e.g. a
-  -- `$password` placeholder swapped for a real secret); when it does, we connect
-  -- with THAT, so `entry.conn` -- and hence every downstream execution /
-  -- introspection reading `b:db`/`entry.conn` -- uses the authed connection. A
-  -- nil / non-string return (or a throwing hook) leaves the original url.
-  local hooks = require('dadbod-ui.hooks')
-  local url = hooks.transform(self.config, 'on_connect', {
+---@return string
+function Introspect:_pre_connect(entry)
+  return require('dadbod-ui.hooks').transform(self.config, 'on_connect', {
     url = entry.url,
     name = entry.name,
     key_name = entry.key_name,
     group = entry.group,
   }) or entry.url
+end
 
-  local started = vim.uv.hrtime()
-  local ok, conn = pcall(self.connector, url)
+--- Fold a connect outcome into `entry` and fire `on_connect_post`. Shared by the
+--- synchronous and async connect paths so their result handling is identical.
+--- No "Connecting..." notification: the drawer's inline loading indicator on the
+--- db node communicates progress. Success is silent too -- the connection_ok icon
+--- signals it and the elapsed time lands in the details view (`H`) rather than a
+--- popup. Only a failure interrupts with a notification.
+---@param entry DadbodUI.ConnectionEntry
+---@param url string  the url connected with (post-`on_connect`)
+---@param ok boolean
+---@param conn string  the resolved connection on success, or the error on failure
+---@param started integer  vim.uv.hrtime() captured before the connect
+---@return nil
+function Introspect:_apply_connect(entry, url, ok, conn, started)
   if ok then
     entry.conn = conn
     entry.conn_error = ''
@@ -98,8 +103,45 @@ function Introspect:connect(entry)
   else
     post.error = tostring(conn)
   end
-  hooks.run(self.config, 'on_connect_post', post)
+  require('dadbod-ui.hooks').run(self.config, 'on_connect_post', post)
+end
+
+--- Connect a connection if not already connected (SYNCHRONOUS -- blocks Neovim).
+--- Kept for the query / manual-assign paths that must have a live `b:db` before
+--- proceeding on the same tick. Errors are captured on the entry (surfaced as the
+--- error icon) and notified, mirroring the original. The drawer-expand path uses
+--- the non-blocking `connect_async` instead.
+---@param entry DadbodUI.ConnectionEntry
+---@return DadbodUI.ConnectionEntry
+function Introspect:connect(entry)
+  if state.is_connected(entry) then
+    return entry
+  end
+  local url = self:_pre_connect(entry)
+  local started = vim.uv.hrtime()
+  local ok, conn = pcall(self.connector, url)
+  self:_apply_connect(entry, url, ok, conn, started)
   return entry
+end
+
+--- Connect a connection WITHOUT blocking Neovim, invoking `on_done` (on the main
+--- loop) once the outcome has been folded into `entry`. The auth probe runs via
+--- `async_connector` (dadbod's probe dispatched through `vim.system`), so the UI
+--- stays responsive -- and the drawer's spinner can animate -- during the
+--- server round-trip. No-op-safe if already connected.
+---@param entry DadbodUI.ConnectionEntry
+---@param on_done fun(): nil
+---@return nil
+function Introspect:connect_async(entry, on_done)
+  if state.is_connected(entry) then
+    return on_done()
+  end
+  local url = self:_pre_connect(entry)
+  local started = vim.uv.hrtime()
+  self.async_connector(url, function(ok, conn)
+    self:_apply_connect(entry, url, ok, conn, started)
+    on_done()
+  end)
 end
 
 --- Introspect a connected entry: schema-supporting adapters fan out their
@@ -115,21 +157,28 @@ function Introspect:populate(entry)
   end
 end
 
---- Connect then introspect a connection on expand. `bridge.connect` is
---- SYNCHRONOUS and blocks Neovim, so we paint the static loading indicator first
---- (mark `loading` + render) and only THEN `vim.schedule` the blocking connect --
---- the same deferral the tables path already used -- so the frame is visible
---- before the freeze. The animated spinner can only run during the async
---- `run_many` window of `populate_schemas`; the blocking connect + sqlite table
---- fetch show the static frame only (a timer can't tick while the loop is blocked).
+--- Connect then introspect a connection on expand, WITHOUT blocking Neovim. We
+--- paint the loading indicator first (mark `loading` + render) and START the
+--- animated spinner, then run the connect via `connect_async` -- dadbod's auth
+--- probe dispatched through `vim.system` -- so the server round-trip no longer
+--- freezes the UI (the old code merely `vim.schedule`d the blocking `db#connect`,
+--- deferring the freeze by one tick but not removing it). Because the connect is
+--- async now, the event loop is free to tick the spinner timer across the WHOLE
+--- window -- connect and the `populate_schemas` fan-out both -- rather than
+--- showing a frozen static frame during the connect. `populate_schemas` keeps the
+--- spinner running (a seamless restart); the failure branch and the sqlite
+--- tables path stop it. (sqlite's `tables` call is a brief local block, so its
+--- frame may still sit for that moment.)
 ---@param entry DadbodUI.ConnectionEntry
 ---@return nil
 function Introspect:expand_db(entry)
   self:load_saved_queries(entry)
   entry.loading = true
   self.render()
-  vim.schedule(function()
-    self:connect(entry)
+  spinner.start(entry.key_name, spinners.dots, function(frame)
+    self.repaint(entry.key_name, frame)
+  end)
+  self:connect_async(entry, function()
     if not state.is_connected(entry) then
       entry.loading = false
       spinner.stop(entry.key_name)
