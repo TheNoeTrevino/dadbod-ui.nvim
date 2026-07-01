@@ -67,6 +67,11 @@ M.defaults = {
     query_buffer = true,
     show_row_count = true,
   },
+  -- Show the connection a query buffer targets in a right-aligned `winbar` at the
+  -- top of the buffer's window, formatted `group/name` (or just `name` when the
+  -- connection is ungrouped). Follows the buffer into new splits; the `.dbout`
+  -- result buffers (which own their winbar) and the drawer are untouched.
+  show_buffer_connection = true,
   -- Native CLI result export (see specs/native-export.md). `prefer_native` writes
   -- the CLI's own output when it can emit the target format directly (DECISION-001);
   -- turn it off to force the consistent Lua formatters for every adapter.
