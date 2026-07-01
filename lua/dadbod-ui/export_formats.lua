@@ -29,6 +29,27 @@ local function is_null(v)
   return v == M.NULL
 end
 
+-- Lua-pattern-escape `s` (like `vim.pesc`) and `map(fn, list)` (like
+-- `vim.tbl_map`), reimplemented with only stdlib so this module stays free of the
+-- `vim` API -- it must load and run inside a `vim.uv` worker thread (see
+-- `dadbod-ui.export`.\_transform_async), which has no `vim` global.
+---@param s string
+---@return string
+local function pesc(s)
+  return (s:gsub('[%^%$%(%)%%%.%[%]%*%+%-%?]', '%%%1'))
+end
+
+---@param fn fun(v: any): any
+---@param list any[]
+---@return any[]
+local function map(fn, list)
+  local out = {}
+  for i = 1, #list do
+    out[i] = fn(list[i])
+  end
+  return out
+end
+
 --- Whether `s` may be emitted as a bare JSON/SQL numeric or boolean literal under
 --- `coerce_numbers`. Strict on purpose: a plain boolean, or a number with no
 --- leading zeros, no leading/trailing dot, and no exponent -- so `007`, `1.`,
@@ -75,13 +96,13 @@ local function csv_field(value, opts)
   local quoting = opts.quote ~= nil and opts.quote ~= ''
   if not quoting then
     if opts.escape_delimiter ~= nil and value:find(opts.delimiter, 1, true) then
-      value = value:gsub(vim.pesc(opts.delimiter), opts.escape_delimiter)
+      value = value:gsub(pesc(opts.delimiter), opts.escape_delimiter)
     end
     return value
   end
   local q = opts.quote
   if needs_quote(value, opts.delimiter, q) then
-    return q .. value:gsub(vim.pesc(q), q .. q) .. q
+    return q .. value:gsub(pesc(q), q .. q) .. q
   end
   return value
 end
@@ -235,14 +256,14 @@ function M.markdown(data)
     return '| ' .. table.concat(cells, ' | ') .. ' |'
   end
   local lines = {}
-  lines[#lines + 1] = pipe(vim.tbl_map(md_cell, data.columns))
+  lines[#lines + 1] = pipe(map(md_cell, data.columns))
   local rule = {}
   for i = 1, #data.columns do
     rule[i] = '---'
   end
   lines[#lines + 1] = pipe(rule)
   for _, row in ipairs(data.rows) do
-    lines[#lines + 1] = pipe(vim.tbl_map(md_cell, row))
+    lines[#lines + 1] = pipe(map(md_cell, row))
   end
   return table.concat(lines, '\n')
 end

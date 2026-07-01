@@ -221,6 +221,143 @@ describe('export._write (real writer)', function()
   end)
 end)
 
+describe('export.export: progress spinner hook', function()
+  it('starts the spinner with the format then stops it with the token (success)', function()
+    local events = {}
+    local _, d = deps({ stdout = 'id,name\n1,Ann\n' })
+    d.progress = {
+      start = function(fmt)
+        events[#events + 1] = 'start:' .. fmt
+        return 42
+      end,
+      stop = function(token)
+        events[#events + 1] = 'stop:' .. tostring(token)
+      end,
+    }
+    export.export({
+      url = 'sqlite:/tmp/x.db',
+      scheme = 'sqlite',
+      format = 'csv',
+      query = 'SELECT 1',
+      path = vim.fn.tempname() .. '.csv',
+      prefer_native = true,
+    }, d)
+    assert.are.same({ 'start:csv', 'stop:42' }, events)
+  end)
+
+  it('still stops the spinner when the CLI fails', function()
+    local events = {}
+    local _, d = deps({ code = 1, stderr = 'boom' })
+    d.progress = {
+      start = function()
+        return 7
+      end,
+      stop = function(token)
+        events[#events + 1] = 'stop:' .. tostring(token)
+      end,
+    }
+    export.export({
+      url = 'sqlite:/tmp/x.db',
+      scheme = 'sqlite',
+      format = 'csv',
+      query = 'SELECT 1',
+      path = vim.fn.tempname() .. '.csv',
+      prefer_native = true,
+    }, d)
+    assert.are.same({ 'stop:7' }, events)
+  end)
+end)
+
+describe('export._transform_async (off-thread transform)', function()
+  it('runs a small payload inline: the callback fires synchronously', function()
+    local content, rows, fired
+    export._transform_async('postgres', 'id,name\n1,Ann\n', 'json', {}, 'people', function(ok, c, r)
+      fired = ok
+      content, rows = c, r
+    end)
+    assert.is_true(fired) -- already called before control returns => inline
+    assert.are.equal(1, rows)
+    assert.is_truthy(content:find('"name"', 1, true))
+  end)
+
+  it('offloads a large payload to a worker thread, matching the inline result', function()
+    -- Build > threshold CSV so the worker path is taken.
+    local parts = { 'id,name,note' }
+    for i = 1, 6000 do
+      parts[#parts + 1] = string.format('%d,Name %d,"has, comma"', i, i)
+    end
+    local csv = table.concat(parts, '\n')
+    assert.is_true(#csv > export._TRANSFORM_THRESHOLD)
+
+    local opts = { coerce_numbers = false, wrap_table_name = true, indent = '\t' }
+    local want = export._transform_sync('postgres', csv, 'json', opts, 'people')
+
+    local got, got_rows, done
+    export._transform_async('postgres', csv, 'json', opts, 'people', function(ok, content, rows)
+      assert.is_true(ok)
+      got, got_rows, done = content, rows, true
+    end)
+    assert.is_true(vim.wait(20000, function()
+      return done
+    end, 20))
+    assert.are.equal(6000, got_rows)
+    assert.are.equal(want, got) -- worker output is byte-identical to inline
+  end)
+end)
+
+describe('export.export: large result via the worker (end to end)', function()
+  it('writes the file from the worker completion without a fast-context error', function()
+    -- Regression: uv.new_work's after-callback runs in a fast event context, so
+    -- the real writer's vim.fn.expand (and notify) must be scheduled onto the main
+    -- loop. Drive the REAL writer + REAL transform (worker) with a > threshold,
+    -- non-native (postgres json) payload.
+    local parts = { 'id,name' }
+    for i = 1, 6000 do
+      parts[#parts + 1] = string.format('%d,Name %d', i, i)
+    end
+    local big = table.concat(parts, '\n') .. '\n'
+    assert.is_true(#big > export._TRANSFORM_THRESHOLD)
+
+    local path = vim.fn.tempname() .. '.json'
+    local notes = {}
+    export.export({
+      url = 'postgres://x',
+      scheme = 'postgres',
+      format = 'json',
+      query = 'SELECT * FROM people',
+      path = path,
+      source = 'people',
+      prefer_native = true,
+      format_opts = { wrap_table_name = true, indent = '\t' },
+    }, {
+      bridge = {
+        command = function(u)
+          return { 'psql', u }
+        end,
+      },
+      run = function(_, _, on_done)
+        on_done({ code = 0, stdout = big, stderr = '' })
+      end,
+      -- no `write`/`transform` overrides: real M._write + real worker transform
+      notify = {
+        info = function(m)
+          notes[#notes + 1] = { 'info', m }
+        end,
+        error = function(m)
+          notes[#notes + 1] = { 'error', m }
+        end,
+      },
+    })
+    assert.is_true(vim.wait(20000, function()
+      return #notes > 0
+    end, 20))
+    assert.are.equal('info', notes[1][1]) -- success, not a fast-context error
+    assert.are.equal(1, vim.fn.filereadable(path))
+    local content = table.concat(vim.fn.readfile(path), '\n')
+    assert.is_truthy(content:find('"people"', 1, true)) -- wrapped json actually written
+  end)
+end)
+
 describe('export.resolve_buffer', function()
   it('recovers url, scheme, query and source from a dbout buffer', function()
     local input = vim.fn.tempname() .. '.sql'
@@ -330,6 +467,22 @@ describe('export.export_interactive', function()
     assert.are.equal(vim.fn.getcwd() .. '/widgets.csv', prompted_default)
     assert.are.equal('/tmp/widgets.csv', cap.written.path)
     assert.are.equal('id,name\n1,Ann\n', cap.written.content) -- native sqlite csv verbatim
+  end)
+
+  it('refuses to start a second export while one is already in progress', function()
+    local dbout = require('dadbod-ui.dbout')
+    local buf = setup_buffer()
+    local cap, base = deps()
+    local picker_called = false
+    base.select = function()
+      picker_called = true
+    end
+    local tok = dbout.export_start(buf, 'csv') -- simulate an in-flight export
+    export.export_interactive(buf, base)
+    dbout.export_stop(buf, tok) -- cleanup the global state
+    assert.is_false(picker_called) -- never reached the format picker
+    assert.are.equal('error', cap.notes[1].kind)
+    assert.is_truthy(cap.notes[1].msg:find('already in progress', 1, true))
   end)
 
   it('aborts cleanly when the format picker is cancelled (no export)', function()
