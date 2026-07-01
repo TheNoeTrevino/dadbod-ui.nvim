@@ -20,7 +20,7 @@ describe('config', function()
     assert.equals('left', c.win_position)
     assert.equals(true, c.show_help)
     assert.equals('horizontal', c.result_layout)
-    assert.same({ 'new_query', 'buffers', 'saved_queries', 'schemas' }, c.drawer_sections)
+    assert.same({ 'new_query', 'buffers', 'saved_queries', 'schemas', 'procedures' }, c.drawer_sections)
   end)
 
   it('lets setup opts override defaults', function()
