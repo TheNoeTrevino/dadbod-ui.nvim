@@ -1088,6 +1088,102 @@ function Drawer:rename_buffer(buffer, key_name, is_saved_query)
   end)
 end
 
+--- Resolve which connection to adopt for a buffer that has no `b:dbui_db_key_name`
+--- yet, then hand it to `cb`. `saved_name` is the best-effort name inferred from
+--- the buffer's path (`Query:get_saved_query_db_name`): non-empty picks that db by
+--- name; otherwise a lone connection is taken automatically and several prompt the
+--- (injectable) selector. `cb` receives the entry, or nil when nothing resolves or
+--- the user cancels. Port of `s:get_db` (callback-shaped for the async selector).
+---@param saved_name string
+---@param cb fun(entry: DadbodUI.ConnectionEntry|nil)
+---@return nil
+function Drawer:pick_db(saved_name, cb)
+  local list = self.instance.dbs_list
+  ---@param r DadbodUI.ConnectionRecord|nil
+  ---@return DadbodUI.ConnectionEntry|nil
+  local function entry_of(r)
+    return r and self.instance.dbs[r.key_name] or nil
+  end
+  if #list == 0 then
+    return cb(nil)
+  end
+  if saved_name ~= '' then
+    return cb(entry_of(vim.iter(list):find(function(r)
+      return r.name:lower() == saved_name:lower()
+    end)))
+  end
+  if #list == 1 then
+    return cb(entry_of(list[1]))
+  end
+  self:query().select(list, {
+    prompt = 'Select db to assign this buffer to:',
+    ---@param r DadbodUI.ConnectionRecord
+    ---@return string
+    format_item = function(r)
+      return r.name
+    end,
+  }, function(choice)
+    cb(entry_of(choice))
+  end)
+end
+
+--- Jump to (or adopt) the query buffer for the current db context, backing
+--- `:DBUIFindBuffer`. A buffer that already carries the `b:dbui_*` contract is
+--- registered and revealed in the drawer directly; a bare buffer first resolves a
+--- connection (`pick_db`), connects it, and writes the contract before revealing.
+--- Opens the drawer, moves the cursor onto the buffer's node, expands its
+--- connection, then returns focus to the query window. Port of `db_ui#find_buffer`.
+---@return nil
+function Drawer:find_buffer()
+  local notify = require('dadbod-ui.notifications')
+  if #self.instance.dbs_list == 0 then
+    return notify.error('No database entries found in DBUI.')
+  end
+  local key = vim.b.dbui_db_key_name
+  local entry = key and self.instance.dbs[key] or nil
+  if entry ~= nil then
+    return self:reveal_buffer(entry)
+  end
+  local saved_name = self:query():get_saved_query_db_name()
+  self:pick_db(saved_name, function(chosen)
+    if chosen == nil then
+      return notify.error('No database entries selected or found.')
+    end
+    self:introspect():connect(chosen)
+    notify.info('Assigned buffer to db ' .. chosen.name)
+    self:reveal_buffer(chosen)
+  end)
+end
+
+--- Attach `entry`'s contract to the current buffer (as an existing buffer), then
+--- open the drawer, place the cursor on the buffer's node, expand the connection,
+--- and hand focus back to the query window. Shared tail of `find_buffer`.
+---@param entry DadbodUI.ConnectionEntry
+---@return nil
+function Drawer:reveal_buffer(entry)
+  local bufname = vim.api.nvim_buf_get_name(0)
+  self:query():setup_buffer(entry, { existing_buffer = true }, bufname)
+  -- Feed vim-dadbod-completion when it is installed, mirroring the original.
+  if vim.fn.exists('*vim_dadbod_completion#fetch') == 1 then
+    pcall(vim.fn['vim_dadbod_completion#fetch'], vim.api.nvim_get_current_buf())
+  end
+  entry.expanded = true
+  entry.buffers.expanded = true
+  self:open()
+  local row = 0
+  for idx, node in ipairs(self.content) do
+    if node.type == 'buffer' and node.key_name == entry.key_name and node.file_path == bufname then
+      row = idx
+      break
+    end
+  end
+  if row > 0 then
+    pcall(vim.api.nvim_win_set_cursor, self.winid, { row, 0 })
+  end
+  -- Back to the window we came from (the query buffer), as the original does.
+  vim.cmd('wincmd p')
+end
+
 --- Connection/table info for the current buffer, for embedding in a `statusline`
 --- or `winbar`. A query buffer renders `<prefix><db_name><sep><schema><sep><table>`
 --- from the `b:dbui_*` contract, keeping only the requested, non-empty fields; a

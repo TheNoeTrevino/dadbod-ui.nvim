@@ -97,6 +97,14 @@ function M.get_conn_info(key_name)
   }
 end
 
+--- Jump to (or adopt) the query buffer for the current db context. Backs
+--- `:DBUIFindBuffer`: a buffer already carrying the `b:dbui_*` contract is
+--- revealed in the drawer; a bare buffer resolves/connects a db and adopts it.
+---@return nil
+function M.find_buffer()
+  drawer():find_buffer()
+end
+
 --- Connection/table info for the current query buffer, or the last query's
 --- runtime for a `.dbout` result buffer -- a drop-in for the original
 --- `db_ui#statusline()`, safe to embed in a `statusline`/`winbar` expression.
