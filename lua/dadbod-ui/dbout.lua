@@ -395,6 +395,13 @@ function M._on_post(output_file)
         rows = M._data_rows(vim.api.nvim_buf_get_lines(buf, 0, -1, false))
       end
     end
+    -- A page that came back with fewer rows than a full page is the last one:
+    -- record it so `]` can refuse to advance into empty result pages (a partial
+    -- or empty page means there is nothing after it). Left unset when the row
+    -- count is unknown, so the guard only fires when we are certain.
+    if page ~= nil and rows ~= nil then
+      vim.b[buf].dbui_page = vim.tbl_extend('force', page, { last = rows < page.page_size })
+    end
     local summary = want_summary and M._summary_text(runtime, status, cfg.show_row_count and rows or nil) or nil
     if want_winbar then
       set_winbar(buf, M._winbar_text(page, summary, rows, M._nav_keys(config)))
@@ -543,6 +550,11 @@ function M._step_page(delta)
     return notify.info('Pagination is not active for this result (already limited or not a plain SELECT).')
   end
 
+  if delta > 0 and state.last then
+    -- The current page returned fewer rows than a full page, so there is nothing
+    -- after it: don't step forward into empty result pages.
+    return notify.info('Already on the last page of results.')
+  end
   local new_page = math.max(1, state.page + delta)
   if new_page == state.page then
     return -- already on page 1 and stepping back
