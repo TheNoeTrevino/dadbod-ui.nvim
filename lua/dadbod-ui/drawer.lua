@@ -48,6 +48,7 @@ local M = {}
 ---@field confirm DadbodUI.Confirm  yes/no backend (injectable for specs)
 ---@field connector fun(url: string): string  connect backend (injectable for specs)
 ---@field show_dbout_list boolean  whether the Query results section is expanded
+---@field cut? { name: string, url: string, key_name: string, group: string }  a pending cut connection awaiting paste (drives the bottom indicator)
 ---@field _query? DadbodUI.Query  lazily-built query controller
 ---@field _introspect? DadbodUI.Introspect  lazily-built introspection controller
 ---@field _connections? DadbodUI.ConnectionsController  lazily-built CRUD controller
@@ -75,6 +76,7 @@ function M.new(instance)
     end,
     connector = bridge.connect,
     show_dbout_list = false,
+    cut = nil,
     _query = nil,
     _introspect = nil,
     _connections = nil,
@@ -330,7 +332,30 @@ function Drawer:render()
   -- is_open() guarantees a live window, hence a buffer; narrow bufnr to non-nil.
   local bufnr = assert(self.bufnr)
   paint(bufnr, self:build_content(), self.icons)
+  self:update_cut_indicator()
   return self
+end
+
+--- Pin (or clear) the pending-cut status line at the BOTTOM of the drawer window.
+--- We use the window-local `statusline` rather than an end-of-buffer virtual line:
+--- the statusline is always pinned at the window's bottom edge (a virt_line scrolls
+--- with the buffer and can fall off-screen), and it costs no buffer line, so it
+--- never shifts content or perturbs the `content[]`->line indexing the navigation
+--- relies on. Cleared by resetting the option to '' (restoring the global default).
+--- `%` is escaped so a connection name can't inject statusline items.
+---@return nil
+function Drawer:update_cut_indicator()
+  if not self:is_open() then
+    return
+  end
+  local wo = vim.wo[self.winid]
+  if self.cut == nil then
+    wo.statusline = ''
+    return
+  end
+  local label = self.cut.group ~= '' and (self.cut.group .. '/' .. self.cut.name) or self.cut.name
+  label = label:gsub('%%', '%%%%')
+  wo.statusline = string.format('  Cut: %s - p to paste, <Esc> to cancel', label)
 end
 
 --- Repaint a SINGLE db node's line in place, setting its icon to `frame` -- the
@@ -912,6 +937,113 @@ function Drawer:set_group_line()
   end
 end
 
+--- Place the cursor on the `db` node for `key_name` (best-effort). Used to keep a
+--- connection under the cursor after a reorder/paste re-renders and shuffles the
+--- line list.
+---@param key_name string
+---@return nil
+function Drawer:focus_db(key_name)
+  if not self:is_open() then
+    return
+  end
+  for idx, node in ipairs(self.content) do
+    if node.type == 'db' and node.key_name == key_name then
+      pcall(vim.api.nvim_win_set_cursor, self.winid, { idx, 0 })
+      return
+    end
+  end
+end
+
+--- Move the connection under the cursor up/down among its group siblings
+--- (`<C-Up>`/`<C-Down>`). Keeps the cursor on the moved connection after the
+--- re-render (its group -- hence key_name -- is unchanged by a reorder).
+---@param direction 'up'|'down'
+---@return nil
+function Drawer:move_line(direction)
+  local item = self:get_current_item()
+  if item == nil or item.type ~= 'db' or item.key_name == nil then
+    return
+  end
+  local entry = self.instance.dbs[item.key_name]
+  self:connections():move_connection(entry, direction)
+  self:focus_db(item.key_name)
+end
+
+--- Cut the connection under the cursor for a move/paste (`x`). Stores the cut's
+--- identity (name + url + group) on the drawer so paste can resolve it after a
+--- repopulate. Only file-source connections can be moved; discovered ones are
+--- refused. Pressing `x` again on the already-cut connection clears the pending
+--- cut. The bottom indicator reflects the pending state on the next render.
+---@return nil
+function Drawer:cut_line()
+  local item = self:get_current_item()
+  if item == nil or item.type ~= 'db' or item.key_name == nil then
+    return
+  end
+  local entry = self.instance.dbs[item.key_name]
+  if entry.source ~= 'file' then
+    return require('dadbod-ui.notifications').error('Cannot move connections added via variables.')
+  end
+  if self.cut ~= nil and self.cut.key_name == entry.key_name then
+    self.cut = nil
+  else
+    self.cut = { name = entry.name, url = entry.url, key_name = entry.key_name, group = entry.group }
+  end
+  self:render()
+end
+
+--- Cancel a pending cut (`<Esc>`), clearing the indicator. A no-op (no re-render)
+--- when nothing is cut, so `<Esc>` stays cheap in the common case.
+---@return nil
+function Drawer:cancel_cut()
+  if self.cut == nil then
+    return
+  end
+  self.cut = nil
+  self:render()
+end
+
+--- Paste the pending cut connection at the cursor (`p`). A `db` target drops the
+--- cut immediately after it, adopting that connection's group; a `group` header
+--- target adopts the group and appends after its last file member (or at the end
+--- when the group has no file anchor). Clears the pending cut and keeps the cursor
+--- on the pasted connection (which may carry a new key_name after a group change).
+---@return nil
+function Drawer:paste_line()
+  local notify = require('dadbod-ui.notifications')
+  if self.cut == nil then
+    return
+  end
+  local cut = self.cut
+  local item = self:get_current_item()
+  if item == nil then
+    return
+  end
+  local group, after_name, after_url
+  if item.type == 'db' and item.key_name ~= nil then
+    local target = self.instance.dbs[item.key_name]
+    group = target.group
+    -- Only file connections live in connections.json, so only they can anchor an
+    -- insert position; pasting next to a discovered connection adopts its group
+    -- and appends at the end.
+    if target.source == 'file' then
+      after_name, after_url = target.name, target.url
+    end
+  elseif item.type == 'group' and item.group ~= nil then
+    group = item.group
+    for _, r in ipairs(self.instance.dbs_list) do
+      if (r.group or '') == group and r.source == 'file' then
+        after_name, after_url = r.name, r.url
+      end
+    end
+  else
+    return notify.error('Move the cursor onto a connection or group to paste.')
+  end
+  self.cut = nil
+  self:connections():paste_connection(cut, group, after_name, after_url)
+  self:focus_db(require('dadbod-ui.connections').key_name(cut.name, 'file', group))
+end
+
 --- Duplicate the connection under the cursor (`D`).
 ---@return nil
 function Drawer:duplicate_line()
@@ -1372,6 +1504,21 @@ function Drawer:sidebar_handlers()
     end,
     set_group = function()
       self:set_group_line()
+    end,
+    move_up = function()
+      self:move_line('up')
+    end,
+    move_down = function()
+      self:move_line('down')
+    end,
+    cut = function()
+      self:cut_line()
+    end,
+    paste = function()
+      self:paste_line()
+    end,
+    cancel_cut = function()
+      self:cancel_cut()
     end,
     toggle_details = function()
       self:toggle_details()
