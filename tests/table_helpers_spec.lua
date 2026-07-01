@@ -69,4 +69,71 @@ describe('table_helpers: ordered_names', function()
     })
     assert.same({ 'List', 'Constraints', 'Custom', 'Describe' }, order)
   end)
+
+  it('honors a custom order param, reordering built-ins', function()
+    local order = table_helpers.ordered_names({
+      List = 'x',
+      Columns = 'x',
+      Indexes = 'x',
+    }, { 'Columns', 'List', 'Indexes' })
+    assert.same({ 'Columns', 'List', 'Indexes' }, order)
+  end)
+
+  it('places a user-added helper at its configured position in a custom order', function()
+    local order = table_helpers.ordered_names({
+      List = 'x',
+      Columns = 'x',
+      Custom = 'x',
+    }, { 'Custom', 'List', 'Columns' })
+    assert.same({ 'Custom', 'List', 'Columns' }, order)
+  end)
+
+  it('skips a name in the order list that this adapter does not have', function()
+    local order = table_helpers.ordered_names({
+      List = 'x',
+      Columns = 'x',
+    }, { 'List', 'Indexes', 'Columns', 'Foreign Keys' })
+    assert.same({ 'List', 'Columns' }, order)
+  end)
+
+  it('sorts a present helper not named in the order list alphabetically after the ordered ones', function()
+    local order = table_helpers.ordered_names({
+      List = 'x',
+      Columns = 'x',
+      Custom = 'x',
+      Constraints = 'x',
+    }, { 'Columns', 'List' })
+    assert.same({ 'Columns', 'List', 'Constraints', 'Custom' }, order)
+  end)
+
+  it('falls back to fully alphabetical when order is empty', function()
+    local order = table_helpers.ordered_names({
+      List = 'x',
+      Columns = 'x',
+      Indexes = 'x',
+    }, {})
+    assert.same({ 'Columns', 'Indexes', 'List' }, order)
+  end)
+
+  it('falls back to fully alphabetical when order names are all unknown', function()
+    local order = table_helpers.ordered_names({
+      List = 'x',
+      Columns = 'x',
+    }, { 'DoesNotExist', 'AlsoMissing' })
+    assert.same({ 'Columns', 'List' }, order)
+  end)
+
+  it('defaults to the module canonical order when order is not passed', function()
+    local pg = table_helpers.get('postgresql', config.resolve())
+    assert.same(table_helpers.ordered_names(pg), table_helpers.ordered_names(pg, nil))
+  end)
+
+  it('uses the resolved config default table_helpers_order (unchanged behavior)', function()
+    local cfg = config.resolve()
+    local pg = table_helpers.get('postgresql', cfg)
+    assert.same(
+      { 'List', 'Columns', 'Indexes', 'Primary Keys', 'Foreign Keys', 'References' },
+      table_helpers.ordered_names(pg, cfg.table_helpers_order)
+    )
+  end)
 end)

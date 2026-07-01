@@ -14,6 +14,13 @@ M.defaults = {
   save_location = '~/.local/share/db_ui',
   tmp_query_location = '',
   table_helpers = {},
+  -- Display order for a table's helpers (`List`, `Columns`, ..., plus any
+  -- adapter extra or user-added `table_helpers` entry) under an expanded
+  -- table in the drawer. Named helpers render first, in this sequence, when
+  -- present for the adapter (a name the adapter doesn't have is skipped, not
+  -- shown blank); any present helper not named here falls back after those,
+  -- sorted alphabetically. Defaults to the original vim-dadbod-ui sequence.
+  table_helpers_order = { 'List', 'Columns', 'Indexes', 'Primary Keys', 'Foreign Keys', 'References' },
   default_query = 'SELECT * from "{table}" LIMIT 200;',
   execute_on_save = false,
   auto_execute_table_helpers = false,

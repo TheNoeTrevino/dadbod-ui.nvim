@@ -273,6 +273,7 @@
 ---@field save_location string
 ---@field tmp_query_location string
 ---@field table_helpers table<string, table<string, string>>
+---@field table_helpers_order string[]  display order for a table's helpers
 ---@field default_query string
 ---@field execute_on_save boolean
 ---@field auto_execute_table_helpers boolean

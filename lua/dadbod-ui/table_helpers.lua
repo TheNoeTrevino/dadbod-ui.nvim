@@ -286,28 +286,37 @@ end
 -- regardless of `pairs()` iteration order.
 local helper_order = { 'List', 'Columns', 'Indexes', 'Primary Keys', 'Foreign Keys', 'References' }
 
---- The names in `helper_map`, ordered for display: the canonical sequence
---- above first (only those actually present), then any remaining helpers
---- alphabetically.
+--- The names in `helper_map`, ordered for display: `order` first (only names
+--- actually present in `helper_map`, in `order` sequence -- names absent from
+--- `helper_map` are skipped, no blank nodes), then any remaining present
+--- helpers (adapter extras, or user-added helpers not named in `order`)
+--- alphabetically, so the tail stays deterministic regardless of `pairs()`
+--- iteration order. `order` defaults to the module's canonical sequence, so
+--- existing callers (and the default `table_helpers_order` config) are
+--- unaffected; an empty or all-unknown `order` degrades gracefully to "every
+--- present helper, alphabetically".
 ---@param helper_map table<string, string>
+---@param order? string[]
 ---@return string[]
-function M.ordered_names(helper_map)
-  local is_canonical = {} -- name -> true, for the "is this a known helper" test
-  for _, name in ipairs(helper_order) do
-    is_canonical[name] = true
+function M.ordered_names(helper_map, order)
+  order = order or helper_order
+  local is_ordered = {} -- name -> true, for the "already placed by `order`" test
+  for _, name in ipairs(order) do
+    is_ordered[name] = true
   end
-  -- Canonical names that are present, kept in `helper_order` sequence.
+  -- Names from `order` that are present, kept in `order` sequence.
   local ordered = vim
-    .iter(helper_order)
+    .iter(order)
     :filter(function(name)
       return helper_map[name] ~= nil
     end)
     :totable()
-  -- Everything else (adapter extras, user-added helpers), sorted alphabetically.
+  -- Everything else (adapter extras, user-added helpers not named in `order`),
+  -- sorted alphabetically.
   local extras = vim
     .iter(vim.tbl_keys(helper_map))
     :filter(function(name)
-      return not is_canonical[name]
+      return not is_ordered[name]
     end)
     :totable()
   table.sort(extras)
