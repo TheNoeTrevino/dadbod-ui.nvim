@@ -407,6 +407,177 @@ describe('connection management: delete', function()
   end)
 end)
 
+describe('connection management: reorder + cut/paste', function()
+  local d, dir
+  before_each(function()
+    dir = vim.fn.tempname()
+  end)
+  after_each(function()
+    if d then
+      d:close()
+      d = nil
+    end
+    vim.fn.delete(dir, 'rf')
+  end)
+
+  local function stored_names(path)
+    return vim.tbl_map(function(c)
+      return c.name
+    end, stored(path))
+  end
+
+  local function db_line(drawer, name)
+    for idx, node in ipairs(drawer.content) do
+      if node.type == 'db' and node.label:find(name, 1, true) then
+        return idx
+      end
+    end
+  end
+
+  it('moves a connection down: reorders both json and the drawer', function()
+    local seed = {
+      { name = 'a', url = 'sqlite:' .. dir .. '/a.db' },
+      { name = 'b', url = 'sqlite:' .. dir .. '/b.db' },
+    }
+    connections.write_file(dir .. '/connections.json', seed)
+    d = make_drawer({ save_location = dir, file_entries = seed })
+    d:open()
+    vim.api.nvim_win_set_cursor(d.winid, { db_line(d, 'a'), 0 })
+    d:move_line('down')
+
+    assert.same({ 'b', 'a' }, stored_names(d.instance.connections_path))
+    -- the cursor followed the moved connection
+    assert.equals(d:current_line(), db_line(d, 'a'))
+  end)
+
+  it('clamps: moving the first connection up does nothing', function()
+    local seed = {
+      { name = 'a', url = 'sqlite:' .. dir .. '/a.db' },
+      { name = 'b', url = 'sqlite:' .. dir .. '/b.db' },
+    }
+    connections.write_file(dir .. '/connections.json', seed)
+    d = make_drawer({ save_location = dir, file_entries = seed })
+    d:open()
+    vim.api.nvim_win_set_cursor(d.winid, { db_line(d, 'a'), 0 })
+    d:move_line('up')
+    assert.same({ 'a', 'b' }, stored_names(d.instance.connections_path))
+  end)
+
+  it('refuses to move a discovered (variable) connection', function()
+    d = make_drawer({ save_location = dir, g_dbs = { dev = 'postgres://h/dev' } })
+    d:connections():move_connection(entry_named(d, 'dev'), 'down')
+    assert.is_truthy(notifications.get_last_msg():find('via variables'))
+  end)
+
+  it('cut then paste onto another connection reorders and adopts its group', function()
+    local seed = {
+      { name = 'a', url = 'sqlite:' .. dir .. '/a.db' },
+      { name = 'b', url = 'sqlite:' .. dir .. '/b.db', group = 'G' },
+    }
+    connections.write_file(dir .. '/connections.json', seed)
+    d = make_drawer({ save_location = dir, file_entries = seed })
+    d.groups['G'] = { expanded = true }
+    d:open()
+    -- cut a
+    vim.api.nvim_win_set_cursor(d.winid, { db_line(d, 'a'), 0 })
+    d:cut_line()
+    assert.is_not_nil(d.cut)
+    assert.is_truthy(vim.wo[d.winid].statusline:find('Cut:'))
+    -- paste onto b (in group G)
+    vim.api.nvim_win_set_cursor(d.winid, { db_line(d, 'b'), 0 })
+    d:paste_line()
+
+    assert.is_nil(d.cut)
+    assert.is_falsy(vim.wo[d.winid].statusline:find('Cut:')) -- indicator cleared
+    local a = vim.tbl_filter(function(c)
+      return c.name == 'a'
+    end, stored(d.instance.connections_path))[1]
+    assert.equals('G', a.group) -- adopted b's group
+  end)
+
+  it('pastes onto a group header, adopting the group', function()
+    local seed = {
+      { name = 'a', url = 'sqlite:' .. dir .. '/a.db' },
+      { name = 'b', url = 'sqlite:' .. dir .. '/b.db', group = 'G' },
+    }
+    connections.write_file(dir .. '/connections.json', seed)
+    d = make_drawer({ save_location = dir, file_entries = seed })
+    d.groups['G'] = { expanded = true }
+    d:open()
+    vim.api.nvim_win_set_cursor(d.winid, { db_line(d, 'a'), 0 })
+    d:cut_line()
+    -- move cursor onto the group header line and paste
+    local group_line
+    for idx, node in ipairs(d.content) do
+      if node.type == 'group' and node.group == 'G' then
+        group_line = idx
+      end
+    end
+    vim.api.nvim_win_set_cursor(d.winid, { group_line, 0 })
+    d:paste_line()
+
+    local a = vim.tbl_filter(function(c)
+      return c.name == 'a'
+    end, stored(d.instance.connections_path))[1]
+    assert.equals('G', a.group)
+  end)
+
+  it('cancels a pending cut, clearing the indicator without mutating', function()
+    local seed = { { name = 'a', url = 'sqlite:' .. dir .. '/a.db' } }
+    connections.write_file(dir .. '/connections.json', seed)
+    d = make_drawer({ save_location = dir, file_entries = seed })
+    d:open()
+    vim.api.nvim_win_set_cursor(d.winid, { db_line(d, 'a'), 0 })
+    d:cut_line()
+    assert.is_not_nil(d.cut)
+    d:cancel_cut()
+    assert.is_nil(d.cut)
+    assert.is_falsy(vim.wo[d.winid].statusline:find('Cut:'))
+    assert.same({ 'a' }, stored_names(d.instance.connections_path))
+  end)
+
+  it('pressing cut again on the same connection clears the pending cut', function()
+    local seed = { { name = 'a', url = 'sqlite:' .. dir .. '/a.db' } }
+    connections.write_file(dir .. '/connections.json', seed)
+    d = make_drawer({ save_location = dir, file_entries = seed })
+    d:open()
+    vim.api.nvim_win_set_cursor(d.winid, { db_line(d, 'a'), 0 })
+    d:cut_line()
+    d:cut_line()
+    assert.is_nil(d.cut)
+  end)
+
+  it('refuses to cut a discovered (variable) connection', function()
+    d = make_drawer({ save_location = dir, g_dbs = { dev = 'postgres://h/dev' } })
+    d:open()
+    vim.api.nvim_win_set_cursor(d.winid, { 1, 0 })
+    d:cut_line()
+    assert.is_nil(d.cut)
+    assert.is_truthy(notifications.get_last_msg():find('via variables'))
+  end)
+
+  it('rejects a paste that would collide with a same-name connection in the group', function()
+    local seed = {
+      { name = 'dev', url = 'sqlite:' .. dir .. '/a.db', group = 'G' },
+      { name = 'dev', url = 'sqlite:' .. dir .. '/b.db' },
+    }
+    connections.write_file(dir .. '/connections.json', seed)
+    d = make_drawer({ save_location = dir, file_entries = seed })
+    d.groups['G'] = { expanded = true }
+    d:open()
+    -- cut the ungrouped dev, paste onto the grouped dev -> illegal duplicate in G
+    d.cut = { name = 'dev', url = 'sqlite:' .. dir .. '/b.db', key_name = 'dev_file', group = '' }
+    for idx, node in ipairs(d.content) do
+      if node.type == 'group' and node.group == 'G' then
+        vim.api.nvim_win_set_cursor(d.winid, { idx, 0 })
+      end
+    end
+    d:paste_line()
+    assert.equals(2, #stored(d.instance.connections_path)) -- nothing merged
+    assert.is_truthy(notifications.get_last_msg():find('already exists'))
+  end)
+end)
+
 describe('connection management: redraw', function()
   local d, dir
   before_each(function()
