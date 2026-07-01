@@ -93,6 +93,31 @@
 ---@field list string[]
 ---@field items table<string, DadbodUI.SchemaItem>
 
+--- A single stored procedure or function. `content` is the pre-built DDL/source
+--- query for this routine (from the adapter's `routine_definition`), so opening
+--- the drawer node reuses the table-helper open path verbatim (fill a query
+--- buffer with `content`, run it to view the source).
+---@class DadbodUI.RoutineItem
+---@field name string
+---@field kind 'procedure' | 'function'
+---@field content string  the DDL/source query that renders this routine's definition
+
+--- The routines under one schema (schema-supporting adapters). Mirrors
+--- `DadbodUI.SchemaItem`'s nesting so the drawer renders it the same way.
+---@class DadbodUI.RoutineSchemaItem
+---@field expanded boolean
+---@field list DadbodUI.RoutineItem[]
+
+--- The stored procedures / functions collection for a connection (M-routines).
+--- Schema-supporting adapters populate `list`/`items` (schema names -> routines,
+--- mirroring `DadbodUI.SchemasNode`); flat adapters (mysql-with-db) populate
+--- `flat`. Empty for adapters with no routine support (e.g. sqlite).
+---@class DadbodUI.RoutinesNode
+---@field expanded boolean
+---@field list string[]  schema names that own routines (schema adapters)
+---@field items table<string, DadbodUI.RoutineSchemaItem>  per-schema routines (schema adapters)
+---@field flat DadbodUI.RoutineItem[]  routines, ungrouped (non-schema adapters)
+
 --- Per-adapter introspection metadata (dadbod-ui.schemas). Mirrors the original
 --- `s:schemas[scheme]` dict; M6 uses the schema/table listing fields, M10 uses
 --- the dbout foreign-key / cell / layout fields below.
@@ -100,6 +125,8 @@
 ---@field args? string[]              extra argv appended to the adapter command
 ---@field schemes_query? string       SQL listing schema names
 ---@field schemes_tables_query? string  SQL listing (schema, table) pairs
+---@field procedures_query? string     SQL listing (schema, routine_name, kind) rows; kind is 'procedure'|'function'. Absent => the adapter has no stored procedures (e.g. sqlite): a clean no-op.
+---@field routine_definition? fun(schema: string, name: string, kind: string): string  SQL that renders one routine's DDL/source (identifiers escaped)
 ---@field parse_results? fun(results: string[], min_len: integer): any[]
 ---@field default_scheme? string
 ---@field quote? integer
@@ -149,6 +176,8 @@
 ---@field table_helpers table<string, string>  helper name -> SQL template
 ---@field tables DadbodUI.TablesNode
 ---@field schemas DadbodUI.SchemasNode
+---@field routines DadbodUI.RoutinesNode  stored procedures / functions for this connection
+---@field routine_support boolean  does the adapter expose stored procedures/functions
 ---@field buffers DadbodUI.BuffersNode  open query buffers for this connection
 ---@field saved_queries DadbodUI.SavedQueriesNode  persisted saved queries
 
@@ -177,7 +206,7 @@
 ---@field label string
 ---@field icon string
 ---@field level integer
----@field type string  'group'|'db'|'query'|'schemas'|'tables'|'schema'|'table'|'table_helper'|'buffer'|'saved_query'|'buffers'|'saved_queries'|'dbout'|'dbout_list'|'help'|'add_connection'|...
+---@field type string  'group'|'db'|'query'|'schemas'|'tables'|'schema'|'table'|'table_helper'|'routines'|'routine_schema'|'routine'|'buffer'|'saved_query'|'buffers'|'saved_queries'|'dbout'|'dbout_list'|'help'|'add_connection'|...
 ---@field action string  'toggle'|'open'|'call_method'|'noaction'
 ---@field key_name? string
 ---@field group? string
@@ -263,6 +292,7 @@
 ---@field saved_query string
 ---@field new_query string
 ---@field tables string
+---@field procedures string  leaf glyph for a stored procedure / function node
 ---@field buffers string
 ---@field group string  standalone group/folder glyph (shown in the details line)
 ---@field add_connection string
