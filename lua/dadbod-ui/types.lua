@@ -239,6 +239,7 @@
 ---@field page_size integer  rows per page
 ---@field scheme string  raw adapter scheme
 ---@field url string  resolved connection url (for re-execution through bridge)
+---@field last? boolean  true when this page returned < page_size rows (no next page); unset when the row count is unknown
 
 --- Inputs you can inject into connections.discover (tests/overrides).
 ---@class DadbodUI.DiscoverInputs

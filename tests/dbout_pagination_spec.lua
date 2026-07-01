@@ -99,3 +99,45 @@ describe('dbout: _winbar_text', function()
     assert.equals('%#DadbodUIWinbar# 50%% done %#DadbodUIWinbarFill#', dbout._winbar_text(nil, '50% done', nil))
   end)
 end)
+
+describe('dbout: _step_page last-page guard', function()
+  local bridge = require('dadbod-ui.bridge')
+  local notify = require('dadbod-ui.notifications')
+  local runs, infos, orig_exec, orig_info
+
+  before_each(function()
+    runs, infos = {}, {}
+    orig_exec, orig_info = bridge.execute_lines, notify.info
+    bridge.execute_lines = function(lines)
+      table.insert(runs, table.concat(lines, '\n'))
+    end
+    notify.info = function(msg)
+      table.insert(infos, msg)
+    end
+  end)
+
+  after_each(function()
+    bridge.execute_lines, notify.info = orig_exec, orig_info
+    vim.b.dbui_page = nil
+  end)
+
+  it('refuses to advance past a page flagged as the last one', function()
+    vim.b.dbui_page = state({ page = 1, last = true })
+    dbout.next_page()
+    assert.same({}, runs)
+    assert.equals('Already on the last page of results.', infos[1])
+  end)
+
+  it('still advances when the current page is not the last', function()
+    vim.b.dbui_page = state({ page = 1, last = false })
+    dbout.next_page()
+    assert.equals('SELECT * FROM t LIMIT 200 OFFSET 200', runs[1])
+  end)
+
+  it('allows stepping back from the last page', function()
+    vim.b.dbui_page = state({ page = 2, last = true })
+    dbout.prev_page()
+    assert.equals('SELECT * FROM t LIMIT 200 OFFSET 0', runs[1])
+    assert.same({}, infos)
+  end)
+end)
