@@ -66,10 +66,12 @@ function M.define()
     hl('DadbodUIWinbarPage', { fg = '#ffffff', bg = '#3d59a1' })
     hl('DadbodUIWinbar', { fg = '#1a1b26', bg = '#c4c8da' })
     hl('DadbodUIWinbarNav', { fg = '#ffffff', bg = '#33635c' })
+    hl('DadbodUIWinbarExport', { fg = '#ffffff', bg = '#8f5e15' }) -- in-progress amber
   else
     hl('DadbodUIWinbarPage', { fg = '#1a1b26', bg = '#7aa2f7' })
     hl('DadbodUIWinbar', { fg = '#c0caf5', bg = '#3b4261' })
     hl('DadbodUIWinbarNav', { fg = '#1a1b26', bg = '#73daca' })
+    hl('DadbodUIWinbarExport', { fg = '#1a1b26', bg = '#e0af68' }) -- in-progress amber
   end
   hl('DadbodUIWinbarFill', { link = 'WinBar' })
 end

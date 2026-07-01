@@ -25,3 +25,16 @@ end, { nargs = 0, desc = 'Close the dadbod-ui drawer' })
 command('DBUIAddConnection', function()
   require('dadbod-ui').add_connection()
 end, { nargs = 0, desc = 'Add a dadbod-ui connection' })
+
+command('DBUIExportResult', function(a)
+  -- `:DBUIExportResult current` exports only the on-screen page of a paginated
+  -- result; with no arg (or anything else) it exports the whole query.
+  local page_choice = a.args == 'current' and 'current' or 'full'
+  require('dadbod-ui.export').export_interactive(vim.api.nvim_get_current_buf(), nil, page_choice)
+end, {
+  nargs = '?',
+  complete = function()
+    return { 'full', 'current' }
+  end,
+  desc = 'Export the current query result to a file',
+})

@@ -56,4 +56,25 @@ describe('config', function()
     end
     assert.equals(fn, config.resolve({ buffer_name_generator = fn }).buffer_name_generator)
   end)
+
+  it('exposes the export defaults', function()
+    local c = config.resolve()
+    assert.equals(true, c.export.prefer_native)
+    assert.equals(false, c.export.coerce_numbers)
+    assert.equals(',', c.export.csv.delimiter)
+    assert.equals(true, c.export.json.wrap_table_name)
+  end)
+
+  it('deep-merges export overrides, leaving sibling keys intact', function()
+    local c = config.resolve({ export = { prefer_native = false, csv = { delimiter = ';' } } })
+    assert.equals(false, c.export.prefer_native)
+    assert.equals(';', c.export.csv.delimiter)
+    assert.equals(true, c.export.csv.header) -- untouched sibling preserved
+  end)
+
+  it('registers the results.export mapping and its order entry', function()
+    local c = config.resolve()
+    assert.equals('<Leader>X', c.mappings.results.export.key)
+    assert.is_true(vim.tbl_contains(config.mapping_order.results, 'export'))
+  end)
 end)
