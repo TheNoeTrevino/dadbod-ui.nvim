@@ -225,6 +225,21 @@ local function same_slot(conn, name, group)
   return conn.name:lower() == name:lower() and (conn.group or ''):lower() == group:lower()
 end
 
+-- Index of the first connection matching (name, resolved_url), or nil. Wraps the
+-- open-coded `same_conn` scan the transforms share.
+---@param list DadbodUI.FileConnection[]
+---@param name string
+---@param resolved_url string
+---@return integer|nil
+local function find_idx(list, name, resolved_url)
+  for i, conn in ipairs(list) do
+    if same_conn(conn, name, resolved_url) then
+      return i
+    end
+  end
+  return nil
+end
+
 --- Append a connection in `group` ('' / nil = ungrouped). Returns
 --- `(new_list, nil)`, or `(nil, err)` when a connection with that name already
 --- exists *in the same group* (case-insensitive) -- the same name in a different
@@ -351,6 +366,103 @@ function M.set_group(list, name, url, group)
     else
       out[match_idx].group = group
     end
+  end
+  return out, nil
+end
+
+--- Reorder the connection matching (name, url) one slot up or down among its
+--- GROUP SIBLINGS -- the connections sharing its group (`''`/ungrouped is its
+--- own sibling set). The drawer collates a group's members under one header
+--- regardless of their raw array positions, so "up"/"down" is defined in that
+--- visual sibling order, not raw array adjacency: it swaps the connection with
+--- the nearest *earlier* (`up`) or *later* (`down`) connection sharing its group,
+--- skipping over members of other groups in between. A no-op -- the list returned
+--- unchanged, no error -- at the group's first member (`up`) or last member
+--- (`down`), or when nothing matches. Group is never changed, so no collision is
+--- possible. Returns `(new_list, nil)`.
+---@param list DadbodUI.FileConnection[]
+---@param name string
+---@param url string
+---@param direction 'up'|'down'
+---@return DadbodUI.FileConnection[]|nil, string|nil
+function M.move_connection(list, name, url, direction)
+  local resolved = bridge.resolve(url):lower()
+  local match_idx = find_idx(list, name, resolved)
+  local out = vim.deepcopy(list)
+  if match_idx == nil then
+    return out, nil
+  end
+  local group = (list[match_idx].group or ''):lower()
+  local swap_idx = nil
+  if direction == 'up' then
+    for i = match_idx - 1, 1, -1 do
+      if (list[i].group or ''):lower() == group then
+        swap_idx = i
+        break
+      end
+    end
+  else
+    for i = match_idx + 1, #list do
+      if (list[i].group or ''):lower() == group then
+        swap_idx = i
+        break
+      end
+    end
+  end
+  if swap_idx ~= nil then
+    out[match_idx], out[swap_idx] = out[swap_idx], out[match_idx]
+  end
+  return out, nil
+end
+
+--- Move the connection matching (name, url) out of its slot and re-insert it,
+--- adopting `group` ('' = ungrouped) on the way -- the persist half of the
+--- cut/paste flow. When `after_name`/`after_url` identify a target connection the
+--- cut lands immediately after it; otherwise it is appended at the end of the
+--- list (used when pasting onto a group that has no file anchor, or into empty
+--- ungrouped space). Reuses `set_group`'s group semantics and the `same_slot`
+--- conflict rule: returns `(nil, err)` when a *different* connection of the same
+--- name already lives in the target group (which would merge two entries under one
+--- `key_name` on the next discover). Pasting onto itself, or when the cut is
+--- missing, returns the list unchanged. Returns `(new_list, nil)`.
+---@param list DadbodUI.FileConnection[]
+---@param name string
+---@param url string
+---@param group string
+---@param after_name? string
+---@param after_url? string
+---@return DadbodUI.FileConnection[]|nil, string|nil
+function M.paste_connection(list, name, url, group, after_name, after_url)
+  local resolved = bridge.resolve(url):lower()
+  local cut_idx = find_idx(list, name, resolved)
+  if cut_idx == nil then
+    return vim.deepcopy(list), nil
+  end
+  local after_resolved = after_url ~= nil and bridge.resolve(after_url):lower() or nil
+  -- Pasting a connection onto itself is a no-op (don't shuffle it to the end).
+  if after_name ~= nil and after_resolved ~= nil and same_conn(list[cut_idx], after_name, after_resolved) then
+    return vim.deepcopy(list), nil
+  end
+  for i, conn in ipairs(list) do
+    if i ~= cut_idx and same_slot(conn, name, group) then
+      return nil, 'A connection with that name already exists in that group. Please choose a different group.'
+    end
+  end
+  local out = vim.deepcopy(list)
+  local cut = table.remove(out, cut_idx)
+  if group == '' then
+    cut.group = nil
+  else
+    cut.group = group
+  end
+  local after_idx = nil
+  if after_name ~= nil and after_resolved ~= nil then
+    after_idx = find_idx(out, after_name, after_resolved)
+  end
+  if after_idx ~= nil then
+    table.insert(out, after_idx + 1, cut)
+  else
+    out[#out + 1] = cut
   end
   return out, nil
 end
