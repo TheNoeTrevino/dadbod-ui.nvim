@@ -343,6 +343,7 @@
 ---@field mappings table<string, table<string, DadbodUI.Mapping>>
 ---@field buffer_name_generator? DadbodUI.BufferNameGenerator
 ---@field table_name_sorter? DadbodUI.TableNameSorter
+---@field hooks? DadbodUI.Hooks
 
 --- Inline post-execute feedback (time + row count). See `query_time` in the
 --- config defaults.
@@ -372,6 +373,62 @@
 ---@class DadbodUI.QueryOrigin
 ---@field bufnr integer  the SQL query buffer
 ---@field lnum integer  1-based line the cursor was on at execute time
+
+--- The connect-hook event. `on_connect` receives it BEFORE the connection is
+--- established (and may return a rewritten `url` string -- e.g. `$password`
+--- swapped for a real secret -- which is what actually gets connected).
+--- `on_connect_post` receives it AFTER, with the outcome fields populated.
+---@class DadbodUI.ConnectEvent
+---@field url string  the target connection url (return a string from on_connect to rewrite it)
+---@field name string  the connection's display name
+---@field key_name string  the connection's state key
+---@field group string  the connection's group ('' when ungrouped)
+---@field success? boolean  (on_connect_post) whether the connect succeeded
+---@field conn? string  (on_connect_post) the live connection handle, on success
+---@field error? string  (on_connect_post) the error message, on failure
+
+--- The pre-execute-hook event (`on_execute_query`), fired before the SQL is
+--- dispatched to the engine.
+---@class DadbodUI.QueryEvent
+---@field sql string[]  lines of SQL about to execute
+---@field url string  the resolved connection url ('' for an unattached buffer)
+---@field name string  the connection's display name ('' when unattached)
+---@field key_name string  the connection's state key ('' when unattached)
+---@field bufnr integer  the query buffer the execution came from
+---@field is_visual boolean  true when running a visual selection
+
+--- The post-execute-hook event (`on_execute_query_post`), fired once the result
+--- has landed in the `.dbout` buffer. `rows()` reads the result output lazily (so
+--- a hook that only wants the status/timing pays nothing), letting a hook persist
+--- results elsewhere. `query` is the executed statement (the result's input file).
+---@class DadbodUI.QueryResultEvent
+---@field output_file string  the `.dbout` result file path
+---@field rows fun(): string[]  read the result rows (from the loaded buffer or the output file)
+---@field query string[]  lines of the query that produced this result ('' when unknown)
+---@field runtime? number  wall-clock seconds (dadbod's b:db.runtime), nil if unknown
+---@field exit_status? integer  the query exit status (0 = ok)
+
+--- The cancel-hook event (`on_cancel_query` / `on_cancel_query_post`), fired
+--- around a `:DBUICancelQuery`. Only fired when there is a cancellable async
+--- query (gated on `bridge.can_cancel()`).
+---@class DadbodUI.CancelEvent
+---@field bufnr integer  the query buffer whose running async query is being cancelled
+
+--- Any event passed to a hook -- the union `dadbod-ui.hooks` dispatches over.
+---@alias DadbodUI.HookEvent DadbodUI.ConnectEvent|DadbodUI.QueryEvent|DadbodUI.QueryResultEvent|DadbodUI.CancelEvent
+
+--- User-configurable lifecycle hooks (`config.hooks`). Every hook is optional; a
+--- missing one is a clean no-op. `on_connect` is a transform: returning a string
+--- rewrites the connection url before connecting (the password use case). The
+--- rest are observers -- their return value is ignored. A throwing hook is caught
+--- and notified, never aborting the underlying connect / execute / cancel.
+---@class DadbodUI.Hooks
+---@field on_connect? fun(event: DadbodUI.ConnectEvent): string|nil  before connect; return a string to rewrite the url
+---@field on_connect_post? fun(event: DadbodUI.ConnectEvent)  after connect (success/error on the event)
+---@field on_execute_query? fun(event: DadbodUI.QueryEvent)  before the SQL is dispatched
+---@field on_execute_query_post? fun(event: DadbodUI.QueryResultEvent)  after the result lands (read/persist rows)
+---@field on_cancel_query? fun(event: DadbodUI.CancelEvent)  before a running query is cancelled
+---@field on_cancel_query_post? fun(event: DadbodUI.CancelEvent)  after a running query is cancelled
 
 --- A single configurable keybinding. `key` is a string, a list of strings
 --- (aliases), or `'none'` to disable. `mode` (default `'n'`) is the mode(s) it

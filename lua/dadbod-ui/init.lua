@@ -75,6 +75,14 @@ function M.execute_selection()
   drawer():query():execute_query(true)
 end
 
+--- Cancel the running async query for the current query buffer. Backs
+--- `:DBUICancelQuery` and the `cancel` query mapping; fires the `on_cancel_query`
+--- / `on_cancel_query_post` hooks around the cancel.
+---@return nil
+function M.cancel_query()
+  drawer():query():cancel_query()
+end
+
 --- Connection info for `key_name`, mirroring the original `db_ui#get_conn_info`.
 --- Backs the `db_ui#get_conn_info` autoload shim that third-party integrations
 --- (e.g. vim-dadbod-completion) call. Returns the resolved url, the live

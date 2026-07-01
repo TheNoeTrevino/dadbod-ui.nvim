@@ -559,6 +559,31 @@ function M._on_post(output_file)
     end)
   end
 
+  -- Fire `on_execute_query_post`: the result has landed, so a hook can read/persist
+  -- it (the "save results elsewhere" use case). `rows()` reads lazily -- from the
+  -- loaded result buffer when available, else the output file -- so a hook that
+  -- only wants the status/timing pays nothing. `query` is the executed statement
+  -- (the result's input file). Isolated: a throwing hook never disturbs the result.
+  -- Guarded on the hook's presence: `hooks.run` no-ops when it is unset (the
+  -- default), but only after the `query` input-file read below -- so skip that I/O
+  -- entirely unless a hook is actually registered.
+  if type(config.hooks) == 'table' and config.hooks.on_execute_query_post then
+    local status = type(db) == 'table' and tonumber(db.exit_status) or 0
+    local input = bridge.dbout_input(output_file)
+    require('dadbod-ui.hooks').run(config, 'on_execute_query_post', {
+      output_file = output_file,
+      rows = function()
+        if buf >= 0 then
+          return vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+        end
+        return vim.fn.filereadable(output_file) == 1 and vim.fn.readfile(output_file) or {}
+      end,
+      query = (input ~= nil and vim.fn.filereadable(input) == 1) and vim.fn.readfile(input) or {},
+      runtime = runtime,
+      exit_status = status,
+    })
+  end
+
   M._hide(output_file)
 end
 

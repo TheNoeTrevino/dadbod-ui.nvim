@@ -329,6 +329,9 @@ function Query:setup_buffer(entry, opts, name)
       edit_bind_params = function()
         self:edit_bind_parameters()
       end,
+      cancel = function()
+        self:cancel_query()
+      end,
     }
     if is_tmp and is_sql then
       handlers.save_query = function()
@@ -563,6 +566,30 @@ function Query:execute_query(is_visual)
   local quiet = self.config.query_time.enabled
   local origin = { bufnr = vim.api.nvim_get_current_buf(), lnum = vim.fn.line('.') }
 
+  -- Fire `on_execute_query` before anything is dispatched to the engine. The
+  -- event carries the SQL lines, the resolved connection (when the buffer is a
+  -- tracked dbui query buffer), the origin buffer and the visual flag. Isolated
+  -- (a throwing hook never blocks execution). Observers only -- the return is
+  -- ignored, so a hook can inspect/log the query but not rewrite it here.
+  local raw_key = vim.b.dbui_db_key_name
+  local pre_entry = self.instance.dbs[raw_key]
+  local raw_db = vim.b.db
+  ---@type string
+  local pre_url = ''
+  if pre_entry ~= nil then
+    pre_url = pre_entry.conn or ''
+  elseif type(raw_db) == 'string' then
+    pre_url = raw_db
+  end
+  require('dadbod-ui.hooks').run(self.config, 'on_execute_query', {
+    sql = lines,
+    url = pre_url,
+    name = pre_entry ~= nil and pre_entry.name or '',
+    key_name = type(raw_key) == 'string' and raw_key or '',
+    bufnr = origin.bufnr,
+    is_visual = is_visual == true,
+  })
+
   -- Shared tail: arm the ghost-text origin (consumed synchronously by dbout's
   -- DBExecutePre hook), dispatch `action` through dadbod, surface its error as a
   -- notification, and remember the query. Both the fast path and the bind-param
@@ -617,6 +644,26 @@ function Query:execute_query(is_visual)
       self:dispatch(final, entry, false, quiet)
     end)
   end)
+end
+
+--- Cancel the running async query for the current query buffer (`:DBUICancelQuery`
+--- / the `cancel` query mapping), through `bridge.cancel`. Gated on
+--- `bridge.can_cancel()`: when dadbod exposes no async cancellation there is
+--- nothing to cancel, so we notify and -- deliberately -- fire NO hooks (the
+--- cancel lifecycle only runs when a cancel can actually happen). Otherwise
+--- `on_cancel_query` fires before the cancel and `on_cancel_query_post` after,
+--- each isolated so a throwing hook never breaks the cancel.
+---@return nil
+function Query:cancel_query()
+  local notify = require('dadbod-ui.notifications')
+  local hooks = require('dadbod-ui.hooks')
+  local bufnr = vim.api.nvim_get_current_buf()
+  if not bridge.can_cancel() then
+    return notify.info('No cancellable query is running.')
+  end
+  hooks.run(self.config, 'on_cancel_query', { bufnr = bufnr })
+  bridge.cancel(bufnr)
+  hooks.run(self.config, 'on_cancel_query_post', { bufnr = bufnr })
 end
 
 --- Set or revise a bind parameter (`<Leader>E`). Improves on the original, which

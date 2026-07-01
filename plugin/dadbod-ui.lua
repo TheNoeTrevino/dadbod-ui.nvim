@@ -38,6 +38,10 @@ command('DBUILastQueryInfo', function()
   require('dadbod-ui').print_last_query_info()
 end, { nargs = 0, desc = 'Echo the last dadbod-ui query and its runtime' })
 
+command('DBUICancelQuery', function()
+  require('dadbod-ui').cancel_query()
+end, { nargs = 0, desc = 'Cancel the running dadbod-ui query for this buffer' })
+
 command('DBUIExportResult', function(a)
   -- `:DBUIExportResult current` exports only the on-screen page of a paginated
   -- result; with no arg (or anything else) it exports the whole query.
