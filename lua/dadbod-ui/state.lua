@@ -113,6 +113,10 @@ local function make_entry(record, save_path, config, old_buffers)
     conn_tried = false,
     expanded = false, -- drawer expand/collapse state
     schema_support = schemas.supports_schemes(scheme_info, parsed),
+    -- Whether the adapter can list stored procedures/functions (a `procedures_query`
+    -- is defined). Adapters without one -- notably sqlite, which has no stored
+    -- routines -- introspect no routines and render no Procedures node.
+    routine_support = scheme_info.procedures_query ~= nil and scheme_info.procedures_query ~= '',
     quote = scheme_info.quote ~= nil and scheme_info.quote ~= 0,
     default_scheme = scheme_info.default_scheme or '',
     filetype = resolve_filetype(record.url, scheme_info),
@@ -120,6 +124,7 @@ local function make_entry(record, save_path, config, old_buffers)
     table_helpers = table_helpers.get(scheme, config),
     tables = { expanded = false, list = {}, items = {} },
     schemas = { expanded = false, list = {}, items = {} },
+    routines = { expanded = false, list = {}, items = {}, flat = {} },
     buffers = { expanded = false, list = buffers_for(old_buffers, record.name), tmp = {} },
     saved_queries = { expanded = false, list = {} },
   }

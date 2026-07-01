@@ -623,6 +623,8 @@ function Drawer:render_db_sections(entry, level)
       self:render_saved_queries_section(entry, level)
     elseif section == 'schemas' then
       self:render_schemas_section(entry, level)
+    elseif section == 'procedures' then
+      self:render_routines_section(entry, level)
     end
   end
 end
@@ -775,6 +777,102 @@ function Drawer:render_schemas_section(entry, level)
       toggle_state = entry.tables,
     })
     self:render_tables(entry.tables, entry, level + 1, '')
+  end
+end
+
+--- The total number of stored procedures/functions introspected for `entry`
+--- (summed across schema buckets for a schema adapter, or the flat list for a
+--- non-schema adapter). Drives the Procedures header count and the non-empty gate.
+---@param entry DadbodUI.ConnectionEntry
+---@return integer
+function Drawer:routine_count(entry)
+  if entry.schema_support then
+    return vim.iter(entry.routines.list):fold(0, function(acc, schema)
+      local item = entry.routines.items[schema]
+      return acc + (item and #item.list or 0)
+    end)
+  end
+  return #entry.routines.flat
+end
+
+--- Add one procedure/function leaf node. Its `content` (the adapter's pre-built
+--- DDL/source query) rides along so the `open` action reuses the table-helper
+--- open path verbatim -- opening it fills a query buffer with the definition SQL,
+--- which the user runs to view the source. A `[P]`/`[F]` suffix distinguishes a
+--- procedure from a function without depending on an extra icon.
+---@param entry DadbodUI.ConnectionEntry
+---@param routine DadbodUI.RoutineItem
+---@param level integer
+---@param schema string
+---@return nil
+function Drawer:add_routine(entry, routine, level, schema)
+  self:add({
+    label = string.format('%s [%s]', routine.name, routine.kind == 'procedure' and 'P' or 'F'),
+    icon = self.icons.procedures,
+    level = level,
+    type = 'routine',
+    action = 'open',
+    key_name = entry.key_name,
+    table = routine.name,
+    schema = schema,
+    content = routine.content,
+  })
+end
+
+--- Render the Procedures section: stored procedures + functions. Only rendered
+--- when the adapter supports routines AND at least one exists (no empty node --
+--- mirrors how Buffers only shows when non-empty). Schema-supporting adapters nest
+--- routines under a per-schema node (like Schemas -> tables); flat adapters list
+--- them directly. Deliberate divergence from upstream vim-dadbod-ui, which lists
+--- no procedures/functions at all -- the first DBeaver-style object introspection.
+---@param entry DadbodUI.ConnectionEntry
+---@param level integer
+---@return nil
+function Drawer:render_routines_section(entry, level)
+  if not entry.routine_support then
+    return
+  end
+  local total = self:routine_count(entry)
+  if total == 0 then
+    return
+  end
+  local routines = entry.routines
+  self:add({
+    label = string.format('Procedures (%d)', total),
+    icon = self:toggle_icon('procedures', routines.expanded),
+    level = level,
+    type = 'routines',
+    action = 'toggle',
+    key_name = entry.key_name,
+    expanded = routines.expanded,
+    toggle_state = routines,
+  })
+  if not routines.expanded then
+    return
+  end
+  if entry.schema_support then
+    for _, schema in ipairs(routines.list) do
+      local schema_item = routines.items[schema]
+      self:add({
+        label = string.format('%s (%d)', schema, #schema_item.list),
+        icon = self:toggle_icon('routine_schema', schema_item.expanded),
+        level = level + 1,
+        type = 'routine_schema',
+        action = 'toggle',
+        key_name = entry.key_name,
+        expanded = schema_item.expanded,
+        toggle_state = schema_item,
+      })
+      if schema_item.expanded then
+        for _, routine in ipairs(schema_item.list) do
+          self:add_routine(entry, routine, level + 2, schema)
+        end
+      end
+    end
+  else
+    for _, routine in ipairs(routines.flat) do
+      self:add_routine(entry, routine, level + 1, '')
+    end
   end
 end
 
@@ -1011,10 +1109,10 @@ end
 ---@return nil
 function Drawer:paste_line()
   local notify = require('dadbod-ui.notifications')
-  if self.cut == nil then
+  local cut = self.cut
+  if cut == nil then
     return
   end
-  local cut = self.cut
   local item = self:get_current_item()
   if item == nil then
     return

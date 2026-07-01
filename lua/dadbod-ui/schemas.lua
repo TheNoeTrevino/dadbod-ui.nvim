@@ -52,6 +52,32 @@ local function blank(value)
   return vim.trim(value) == ''
 end
 
+-- Escape a value for embedding inside a single-quoted SQL string literal
+-- (postgres / sqlserver / oracle): double every single quote. Used by the
+-- routine-definition queries so a routine whose name/schema contains a quote is
+-- looked up correctly instead of terminating the literal early.
+---@param s string
+---@return string
+local function sql_squote(s)
+  return (s:gsub("'", "''"))
+end
+
+-- Escape a value for embedding inside a backtick-quoted MySQL identifier: double
+-- every backtick. Used by `SHOW CREATE PROCEDURE/FUNCTION`.
+---@param s string
+---@return string
+local function my_backtick(s)
+  return (s:gsub('`', '``'))
+end
+
+-- Map a normalized routine kind ('procedure'|'function') to the SQL keyword used
+-- by the `SHOW CREATE`/`GET_DDL`-style definition builders (mysql, oracle).
+---@param kind string
+---@return string
+local function routine_verb(kind)
+  return kind == 'function' and 'FUNCTION' or 'PROCEDURE'
+end
+
 -- Port of `s:results_parser`. `delimiter` is a Vim regex (split is done with
 -- `vim.fn.split`, identical to the original). For `min_len == 1` the rows are
 -- returned untouched (sans blanks); otherwise each row is split into fields and
@@ -103,6 +129,42 @@ local postgres_tables_query = 'SELECT table_schema, table_name FROM information_
 local postgres_tables_and_views_query =
   'SELECT table_schema, table_name FROM information_schema.tables UNION ALL select schemaname, matviewname from pg_matviews;'
 
+-- Stored procedures + functions. DBeaver lists routines from `pg_catalog.pg_proc`
+-- keyed by `prokind` (`p` procedure, `f` function, `a` aggregate, `w` window) and
+-- reads their DDL with `pg_get_functiondef(oid)` (see PostgreSchema.java /
+-- PostgreProcedure.java). We list only plain procedures + functions (`prokind IN
+-- ('f','p')`); aggregate/window entries are excluded because `pg_get_functiondef`
+-- raises on them. `prokind` is postgres 11+; earlier servers used `proisagg` and
+-- had no procedures, which we don't target.
+local postgres_procedures_query = [[
+SELECT n.nspname AS routine_schema, p.proname AS routine_name,
+       CASE p.prokind WHEN 'p' THEN 'procedure' ELSE 'function' END AS routine_type
+FROM pg_catalog.pg_proc p
+JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+WHERE p.prokind IN ('f', 'p')
+  AND n.nspname NOT IN ('pg_catalog', 'information_schema')
+  AND n.nspname !~ '^pg_'
+ORDER BY n.nspname, p.proname]]
+
+-- The DDL for one routine: every overload of (schema, name) via
+-- `pg_get_functiondef`. Matching on name + namespace (rather than casting to
+-- `regproc`) sidesteps the overload-ambiguity error and prints each overload's
+-- source. Quotes in the identifiers are doubled so they stay inside the literal.
+---@param schema string
+---@param name string
+---@param _kind string
+---@return string
+local function postgres_routine_definition(schema, name, _kind)
+  return string.format(
+    [[SELECT pg_get_functiondef(p.oid)
+FROM pg_catalog.pg_proc p
+JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+WHERE n.nspname = '%s' AND p.proname = '%s';]],
+    sql_squote(schema),
+    sql_squote(name)
+  )
+end
+
 local postgres_foreign_key_query = [[
 SELECT ccu.table_name AS foreign_table_name, ccu.column_name AS foreign_column_name, ccu.table_schema as foreign_table_schema
 FROM
@@ -121,6 +183,8 @@ local function postgresql(config)
     args = { '-A', '-c' },
     schemes_query = postgres_list_schema_query,
     schemes_tables_query = use_views and postgres_tables_and_views_query or postgres_tables_query,
+    procedures_query = postgres_procedures_query,
+    routine_definition = postgres_routine_definition,
     foreign_key_query = postgres_foreign_key_query,
     select_foreign_key_query = 'select * from "%s"."%s" where "%s" = %s',
     cell_line_number = 2,
@@ -157,6 +221,20 @@ local function sqlserver()
     args = { '-h-1', '-W', '-s', '|', '-Q' },
     schemes_query = 'SELECT schema_name FROM INFORMATION_SCHEMA.SCHEMATA',
     schemes_tables_query = 'SELECT table_schema, table_name FROM INFORMATION_SCHEMA.TABLES',
+    -- DBeaver reads sqlserver routines from `sys.all_objects` (type IN P/FN/TF/…)
+    -- and their source via `OBJECT_DEFINITION(object_id)` / `sys.sql_modules`
+    -- (SQLServerSchema.java / SQLServerUtils.extractSource). We use the portable
+    -- INFORMATION_SCHEMA.ROUTINES for the listing (consistent with the other
+    -- sqlserver queries here) and `OBJECT_DEFINITION(OBJECT_ID(...))` for the DDL.
+    procedures_query = 'SELECT routine_schema, routine_name, LOWER(routine_type) FROM INFORMATION_SCHEMA.ROUTINES '
+      .. "WHERE routine_type IN ('PROCEDURE', 'FUNCTION') ORDER BY routine_schema, routine_name",
+    ---@param schema string
+    ---@param name string
+    ---@param _kind string
+    ---@return string
+    routine_definition = function(schema, name, _kind)
+      return string.format("SELECT OBJECT_DEFINITION(OBJECT_ID('%s.%s'))", sql_squote(schema), sql_squote(name))
+    end,
     foreign_key_query = sqlserver_foreign_key_query,
     select_foreign_key_query = 'select * from %s.%s where %s = %s',
     cell_line_number = 2,
@@ -179,6 +257,21 @@ local function mysql()
   return {
     schemes_query = 'SELECT schema_name FROM information_schema.schemata',
     schemes_tables_query = 'SELECT table_schema, table_name FROM information_schema.tables',
+    -- DBeaver lists routines from `information_schema.ROUTINES` filtered to
+    -- `ROUTINE_TYPE IN ('PROCEDURE','FUNCTION')` and reads their DDL with
+    -- `SHOW CREATE PROCEDURE/FUNCTION` (MySQLCatalog.java / MySQLProcedure.java).
+    -- System schemas are excluded so the tree isn't flooded with server internals.
+    procedures_query = 'SELECT routine_schema, routine_name, LOWER(routine_type) FROM information_schema.routines '
+      .. "WHERE routine_type IN ('PROCEDURE', 'FUNCTION') "
+      .. "AND routine_schema NOT IN ('sys', 'mysql', 'information_schema', 'performance_schema') "
+      .. 'ORDER BY routine_schema, routine_name',
+    ---@param schema string
+    ---@param name string
+    ---@param kind string
+    ---@return string
+    routine_definition = function(schema, name, kind)
+      return string.format('SHOW CREATE %s `%s`.`%s`', routine_verb(kind), my_backtick(schema), my_backtick(name))
+    end,
     foreign_key_query = mysql_foreign_key_query,
     select_foreign_key_query = 'select * from %s.%s where %s = %s',
     cell_line_number = 3,
@@ -250,6 +343,18 @@ SELECT /*csv*/ T.owner, T.table_name
 
  ORDER BY T.table_name]]
 
+  -- Standalone procedures + functions from the data dictionary (DBeaver reads
+  -- `ALL_OBJECTS` for the routine list and `DBMS_METADATA.GET_DDL` for the
+  -- source). Packaged routines are intentionally out of scope here.
+  local procedures_query = [[
+SELECT /*csv*/ O.owner, O.object_name, LOWER(O.object_type)
+ FROM all_objects O
+ JOIN all_users U ON O.owner = U.username
+ WHERE O.object_type IN ('PROCEDURE', 'FUNCTION')
+ ]] .. common_condition .. [[
+
+ ORDER BY O.owner, O.object_name]]
+
   local ora_bin = vim.g.dbext_default_ORA_bin or ''
   local csv = ora_bin == 'sql' or ora_bin == 'sqlcl'
 
@@ -270,6 +375,21 @@ SELECT /*csv*/ T.owner, T.table_name
     quote = 1,
     schemes_query = oracle_wrap(schemes_query),
     schemes_tables_query = oracle_wrap(schemes_tables_query),
+    procedures_query = oracle_wrap(procedures_query),
+    ---@param schema string
+    ---@param name string
+    ---@param kind string
+    ---@return string
+    routine_definition = function(schema, name, kind)
+      return oracle_wrap(
+        string.format(
+          "SELECT DBMS_METADATA.GET_DDL('%s', '%s', '%s') FROM DUAL",
+          routine_verb(kind),
+          sql_squote(name),
+          sql_squote(schema)
+        )
+      )
+    end,
     foreign_key_query = oracle_wrap(foreign_key_query),
     select_foreign_key_query = oracle_wrap('SELECT /*csv*/ * FROM "%s"."%s" WHERE "%s" = %s'),
     cell_line_number = 1,

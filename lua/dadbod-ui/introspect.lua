@@ -163,6 +163,13 @@ function Introspect:populate_schemas(entry)
     schemas.command_spec(entry.conn, scheme_info, scheme_info.schemes_query),
     schemas.command_spec(entry.conn, scheme_info, scheme_info.schemes_tables_query),
   }
+  -- Fold routine introspection into the SAME concurrent fan-out (a third spec)
+  -- when the adapter supports it, so procedures/functions load alongside schemas
+  -- and tables without a second round-trip. sqlite (no `procedures_query`) simply
+  -- never adds the spec -- a clean no-op.
+  if entry.routine_support then
+    specs[#specs + 1] = schemas.command_spec(entry.conn, scheme_info, scheme_info.procedures_query)
+  end
   -- The async `run_many` window is the only time a timer can tick, so this is
   -- where we ANIMATE: each frame repaints just the db node's line (no full
   -- render). Stopped on the render that lands the data below. Set loading here
@@ -177,6 +184,10 @@ function Introspect:populate_schemas(entry)
     local schema_list = scheme_info.parse_results(schemas.result_lines(results[1]), 1)
     local table_rows = scheme_info.parse_results(schemas.result_lines(results[2]), 2)
     self:apply_schemas(entry, schema_list, table_rows)
+    if entry.routine_support then
+      local routine_rows = scheme_info.parse_results(schemas.result_lines(results[3]), 3)
+      self:apply_routines(entry, scheme_info, routine_rows)
+    end
     self.render()
   end)
 end
@@ -219,9 +230,67 @@ function Introspect:apply_schemas(entry, schema_list, table_rows)
   end
 end
 
+--- Build a single `DadbodUI.RoutineItem` from a parsed `(schema, name, kind)`
+--- row, pre-computing its definition/source query via the adapter's
+--- `routine_definition` (so the drawer's open action reuses the table-helper open
+--- path verbatim). `kind` is normalized to 'procedure'/'function'; anything else
+--- (defensive) falls back to 'function'.
+---@param scheme_info DadbodUI.SchemaAdapter
+---@param schema string
+---@param name string
+---@param raw_kind string
+---@return DadbodUI.RoutineItem
+function Introspect:_make_routine(scheme_info, schema, name, raw_kind)
+  local kind = raw_kind == 'procedure' and 'procedure' or 'function'
+  local content = scheme_info.routine_definition and scheme_info.routine_definition(schema, name, kind) or ''
+  return { name = name, kind = kind, content = content }
+end
+
+--- Fold parsed `(schema, name, kind)` routine rows into `entry.routines`. Schema-
+--- supporting adapters group routines per schema (mirroring `apply_schemas`,
+--- honoring `hide_schemas` and preserving each schema node's expand state); flat
+--- adapters collect every routine into `entry.routines.flat`. Divergence from
+--- upstream vim-dadbod-ui, which lists no procedures/functions at all -- this is
+--- the first DBeaver-style object-introspection feature (see the commit message).
+---@param entry DadbodUI.ConnectionEntry
+---@param scheme_info DadbodUI.SchemaAdapter
+---@param routine_rows string[][]
+---@return nil
+function Introspect:apply_routines(entry, scheme_info, routine_rows)
+  if entry.schema_support then
+    -- Build a fresh items table in one pass: schemas that no longer have routines
+    -- simply never enter it (pruning), and each new bucket inherits the previous
+    -- node's expand state. `order` preserves first-seen schema order for the drawer.
+    local old_items = entry.routines.items
+    local items, order = {}, {}
+    for _, row in ipairs(routine_rows) do
+      local schema_name, name, kind = row[1], row[2], row[3]
+      if not self:_is_schema_ignored(schema_name) then
+        if items[schema_name] == nil then
+          local existing = old_items[schema_name]
+          items[schema_name] = { expanded = existing ~= nil and existing.expanded or false, list = {} }
+          order[#order + 1] = schema_name
+        end
+        table.insert(items[schema_name].list, self:_make_routine(scheme_info, schema_name, name, kind))
+      end
+    end
+    entry.routines.list = order
+    entry.routines.items = items
+  else
+    entry.routines.flat = vim
+      .iter(routine_rows)
+      :map(function(row)
+        return self:_make_routine(scheme_info, row[1], row[2], row[3])
+      end)
+      :totable()
+  end
+end
+
 --- Introspect tables for a non-schema adapter (e.g. sqlite) via dadbod's
 --- `tables` adapter call and render. Port of `populate_tables`, including the
---- sqlite whitespace fix and the mysql warning filter.
+--- sqlite whitespace fix and the mysql warning filter. When the adapter also
+--- exposes routines (mysql pointed at a single database), those are fetched
+--- concurrently via `run_many` and folded in on land.
 ---@param entry DadbodUI.ConnectionEntry
 ---@return nil
 function Introspect:populate_tables(entry)
@@ -236,6 +305,16 @@ function Introspect:populate_tables(entry)
   local raw = bridge.adapter_call(entry.conn, 'tables', { entry.conn }, {})
   entry.tables.list = schemas.normalize_table_list(entry.scheme, raw)
   self:populate_table_items(entry.tables)
+  local scheme_info = schemas.get(entry.scheme, self.config)
+  if entry.routine_support then
+    -- Routines aren't part of dadbod's `tables` call, so fetch them separately and
+    -- non-blockingly; the tree renders now and fills in the Procedures node on land.
+    bridge.run_many({ schemas.command_spec(entry.conn, scheme_info, scheme_info.procedures_query) }, function(results)
+      local routine_rows = scheme_info.parse_results(schemas.result_lines(results[1]), 3)
+      self:apply_routines(entry, scheme_info, routine_rows)
+      self.render()
+    end)
+  end
   entry.loading = false
   spinner.stop(entry.key_name)
   self.render()

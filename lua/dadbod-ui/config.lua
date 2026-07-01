@@ -45,7 +45,11 @@ M.defaults = {
   use_postgres_views = true,
   hide_schemas = {},
   bind_param_pattern = ':\\w\\+',
-  drawer_sections = { 'new_query', 'buffers', 'saved_queries', 'schemas' },
+  -- Drawer sections under an expanded connection, in render order. `procedures`
+  -- lists the connection's stored procedures/functions (schema-supporting
+  -- adapters nest them per schema); it renders only when the adapter supports
+  -- routines and at least one exists, so it is invisible for e.g. sqlite.
+  drawer_sections = { 'new_query', 'buffers', 'saved_queries', 'schemas', 'procedures' },
   expand_groups = true,
   dbout_list_sort = 'asc',
   force_echo_notifications = false,
