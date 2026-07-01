@@ -783,7 +783,8 @@ function Drawer:render_tables(tables, entry, level, schema)
       schema = schema,
     })
     if table_item.expanded then
-      local ordered = require('dadbod-ui.table_helpers').ordered_names(entry.table_helpers)
+      local ordered =
+        require('dadbod-ui.table_helpers').ordered_names(entry.table_helpers, self.config.table_helpers_order)
       for _, helper_name in ipairs(ordered) do
         self:add({
           label = helper_name,
