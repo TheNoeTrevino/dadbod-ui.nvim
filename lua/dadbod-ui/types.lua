@@ -284,6 +284,7 @@
 ---@field notification_width integer
 ---@field winwidth integer
 ---@field win_position 'left'|'right'
+---@field result_layout 'horizontal'|'vertical'  split direction for the `.dbout` result window
 ---@field show_help boolean
 ---@field show_database_icon boolean
 ---@field use_nerd_fonts boolean

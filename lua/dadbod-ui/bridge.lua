@@ -277,38 +277,51 @@ end
 
 -- Asynchronous execution -----------------------------------------------------
 
--- `'silent '` when `quiet`, else `''`. Prefixing a `:DB` invocation with
--- `:silent` suppresses dadbod's synchronous `DB: Running query...` echo while
--- leaving errors intact (we use `silent`, not `silent!`, so a failed dispatch
--- still raises and reaches the caller's pcall). dadbod's *async* `finished in`
--- echo fires later from its job callback and is handled separately (dbout).
+-- Command modifiers for a `:DB`/`%DB` invocation, in the order Vim expects them
+-- (modifiers, then the command). `silent` suppresses dadbod's synchronous
+-- `DB: Running query...` echo while leaving errors intact (we use `silent`, not
+-- `silent!`, so a failed dispatch still raises and reaches the caller's pcall).
+-- dadbod's *async* `finished in` echo fires later from its job callback and is
+-- handled separately (dbout). `vertical` is what makes dadbod's own
+-- `silent exe mods .. 'split'/'pedit'` (db.vim) open the `.dbout` result window
+-- as a vertical split instead of the default horizontal one -- see
+-- `dadbod-ui.config`'s `result_layout`.
 ---@param quiet? boolean
+---@param vertical? boolean
 ---@return string
-local function silent_prefix(quiet)
-  return quiet and 'silent ' or ''
+local function mods_prefix(quiet, vertical)
+  local mods = quiet and 'silent ' or ''
+  if vertical then
+    mods = mods .. 'vertical '
+  end
+  return mods
 end
 
 --- Run `sql` against `url` through dadbod's `:DB`. Non-blocking: dadbod manages
 --- the job, writes a `.dbout` result file, and fires `*DBExecutePre` /
 --- `*DBExecutePost`. Drive the in-buffer loading indicator from `on_pre` /
---- `on_post`. Pass `quiet` to suppress dadbod's `Running query...` echo.
+--- `on_post`. Pass `quiet` to suppress dadbod's `Running query...` echo; pass
+--- `vertical` to open the result window as a vertical split.
 ---@param url string  resolved connection url
 ---@param sql string  the query text (single statement)
 ---@param quiet? boolean
-function M.execute(url, sql, quiet)
+---@param vertical? boolean
+function M.execute(url, sql, quiet, vertical)
   require_dadbod()
-  vim.cmd(string.format('%sDB %s %s', silent_prefix(quiet), fn.fnameescape(url), sql))
+  vim.cmd(string.format('%sDB %s %s', mods_prefix(quiet, vertical), fn.fnameescape(url), sql))
 end
 
 --- Execute the whole current buffer against its `b:db` (dadbod's `%DB`). The
 --- buffer must carry a valid `b:db`; non-blocking, same event contract as
 --- `execute`. Used by the on-save / execute-query path. Pass `quiet` to suppress
---- dadbod's `Running query...` echo.
+--- dadbod's `Running query...` echo; pass `vertical` to open the result window
+--- as a vertical split.
 ---@param quiet? boolean
+---@param vertical? boolean
 ---@return nil
-function M.execute_buffer(quiet)
+function M.execute_buffer(quiet, vertical)
   require_dadbod()
-  vim.cmd(silent_prefix(quiet) .. '%DB')
+  vim.cmd(mods_prefix(quiet, vertical) .. '%DB')
 end
 
 --- Execute SQL read from `file` against `url` (dadbod's `DB <url> < file`). Used
@@ -321,10 +334,11 @@ end
 ---@param file string
 ---@param url string  resolved connection url
 ---@param quiet? boolean
+---@param vertical? boolean
 ---@return nil
-function M.execute_file(file, url, quiet)
+function M.execute_file(file, url, quiet, vertical)
   require_dadbod()
-  vim.cmd(string.format('%sDB %s < %s', silent_prefix(quiet), fn.fnameescape(url), fn.fnameescape(file)))
+  vim.cmd(string.format('%sDB %s < %s', mods_prefix(quiet, vertical), fn.fnameescape(url), fn.fnameescape(file)))
 end
 
 --- Write `lines` to a temp file (named with the adapter's input extension) and
@@ -336,12 +350,13 @@ end
 ---@param lines string[]
 ---@param url string  resolved connection url
 ---@param quiet? boolean
+---@param vertical? boolean
 ---@return nil
-function M.execute_lines(lines, url, quiet)
+function M.execute_lines(lines, url, quiet, vertical)
   local ext = M.input_extension(url) or 'sql'
   local file = fn.tempname() .. '.' .. ext
   fn.writefile(lines, file)
-  M.execute_file(file, url, quiet)
+  M.execute_file(file, url, quiet, vertical)
 end
 
 -- dadbod fires `doautocmd User {output}/DBExecute{Pre,Post}`; the original UI
