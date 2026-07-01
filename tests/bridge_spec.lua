@@ -179,3 +179,78 @@ describe('bridge: async execution', function()
     assert.is_truthy(table.concat(rows, '\n'):match('hello_async'))
   end)
 end)
+
+describe('bridge: result split modifier', function()
+  -- The `vertical` modifier steers dadbod's own `silent exe mods .. 'split'`
+  -- (db.vim) into opening the `.dbout` result window as a vertical split (see
+  -- dadbod-ui.config's `result_layout`). Stub `vim.cmd` to assert on the exact
+  -- command string each execute path builds, rather than needing a live DB / a
+  -- real window to inspect.
+  local original_cmd, captured
+
+  before_each(function()
+    original_cmd = vim.cmd
+    captured = nil
+    ---@diagnostic disable-next-line: duplicate-set-field
+    vim.cmd = function(command)
+      captured = command
+    end
+  end)
+
+  after_each(function()
+    vim.cmd = original_cmd
+  end)
+
+  it('execute: defaults to no vertical modifier', function()
+    bridge.execute('sqlite::memory:', 'select 1')
+    assert.is_nil(captured:match('vertical'))
+    assert.is_truthy(captured:match('^DB '))
+  end)
+
+  it('execute: applies the vertical modifier when asked', function()
+    bridge.execute('sqlite::memory:', 'select 1', nil, true)
+    assert.is_truthy(captured:match('^vertical DB '))
+  end)
+
+  it('execute: composes silent + vertical in modifier order', function()
+    bridge.execute('sqlite::memory:', 'select 1', true, true)
+    assert.equals('silent vertical DB sqlite::memory: select 1', captured)
+  end)
+
+  it('execute_buffer: defaults to no vertical modifier', function()
+    bridge.execute_buffer()
+    assert.equals('%DB', captured)
+  end)
+
+  it('execute_buffer: applies the vertical modifier when asked', function()
+    bridge.execute_buffer(nil, true)
+    assert.equals('vertical %DB', captured)
+  end)
+
+  it('execute_buffer: composes silent + vertical', function()
+    bridge.execute_buffer(true, true)
+    assert.equals('silent vertical %DB', captured)
+  end)
+
+  it('execute_file: defaults to no vertical modifier', function()
+    bridge.execute_file('/tmp/q.sql', 'sqlite::memory:')
+    assert.is_nil(captured:match('vertical'))
+    assert.is_truthy(captured:match('^DB '))
+  end)
+
+  it('execute_file: applies the vertical modifier when asked', function()
+    bridge.execute_file('/tmp/q.sql', 'sqlite::memory:', nil, true)
+    assert.is_truthy(captured:match('^vertical DB '))
+  end)
+
+  it('execute_lines: defaults to no vertical modifier', function()
+    bridge.execute_lines({ 'select 1' }, 'sqlite::memory:')
+    assert.is_nil(captured:match('vertical'))
+    assert.is_truthy(captured:match('^DB '))
+  end)
+
+  it('execute_lines: applies the vertical modifier when asked', function()
+    bridge.execute_lines({ 'select 1' }, 'sqlite::memory:', nil, true)
+    assert.is_truthy(captured:match('^vertical DB '))
+  end)
+end)
