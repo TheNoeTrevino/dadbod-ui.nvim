@@ -25,6 +25,11 @@ M.defaults = {
   notification_width = 40,
   winwidth = 40,
   win_position = 'left',
+  -- Split direction dadbod opens the `.dbout` result window in. dadbod itself
+  -- decides horizontal vs. vertical off the command modifiers on `:DB`/`%DB`
+  -- (see bridge.lua's execute functions), so this only steers which modifier we
+  -- prefix. 'horizontal' matches the original/legacy behavior.
+  result_layout = 'horizontal',
   show_help = true,
   show_database_icon = false,
   use_nerd_fonts = false,

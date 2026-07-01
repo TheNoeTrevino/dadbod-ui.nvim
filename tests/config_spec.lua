@@ -19,6 +19,7 @@ describe('config', function()
     assert.equals(40, c.winwidth)
     assert.equals('left', c.win_position)
     assert.equals(true, c.show_help)
+    assert.equals('horizontal', c.result_layout)
     assert.same({ 'new_query', 'buffers', 'saved_queries', 'schemas' }, c.drawer_sections)
   end)
 
@@ -26,6 +27,10 @@ describe('config', function()
     local c = config.resolve({ winwidth = 80, win_position = 'right' })
     assert.equals(80, c.winwidth)
     assert.equals('right', c.win_position)
+  end)
+
+  it('lets setup opts switch the result layout to vertical', function()
+    assert.equals('vertical', config.resolve({ result_layout = 'vertical' }).result_layout)
   end)
 
   it('reads legacy g:db_ui_* globals', function()

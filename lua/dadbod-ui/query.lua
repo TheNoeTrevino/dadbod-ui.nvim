@@ -446,7 +446,7 @@ end
 ---@param quiet? boolean  suppress dadbod's command-line echo (inline feedback path)
 ---@return nil
 function Query:run_from_file(lines, entry, quiet)
-  bridge.execute_lines(lines, entry.conn, quiet)
+  bridge.execute_lines(lines, entry.conn, quiet, self.config.result_layout == 'vertical')
 end
 
 --- Dispatch `lines` for `entry`, auto-paginating as page 1 when the adapter and
@@ -478,7 +478,7 @@ function Query:dispatch(lines, entry, whole_buffer, quiet)
     return self:run_from_file(vim.split(paginated, '\n'), entry, quiet)
   end
   if whole_buffer then
-    return bridge.execute_buffer(quiet)
+    return bridge.execute_buffer(quiet, self.config.result_layout == 'vertical')
   end
   self:run_from_file(lines, entry, quiet)
 end
@@ -544,7 +544,7 @@ function Query:execute_query(is_visual)
         return notify.error('Buffer not attached to any database')
       end
       return run(function()
-        bridge.execute_buffer(quiet)
+        bridge.execute_buffer(quiet, self.config.result_layout == 'vertical')
       end)
     end
     return run(function()
