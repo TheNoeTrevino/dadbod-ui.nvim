@@ -1,6 +1,7 @@
 ---@mod dadbod-ui.connections_controller  Interactive connections.json CRUD
 ---
---- Wires the drawer's A/d/r/D/G keys to the pure CRUD transforms in
+--- Wires the drawer's add/delete/rename/duplicate/group/move keys to the pure
+--- CRUD transforms in
 --- `dadbod-ui.connections`. Each flow prompts through an injectable `input`
 --- (vim.ui.input by default, callback-shaped), routes user-facing messages
 --- through the notifications layer, and on success writes connections.json,
@@ -234,6 +235,52 @@ function Controller:set_group(entry)
     end
     self:commit_connections(list)
   end)
+end
+
+--- Reorder a file connection one slot up or down among its group siblings. Only
+--- file-source connections are persistable; discovered ones are refused with a
+--- notification (mirroring the `set_group`/`rename` guards).
+---@param entry DadbodUI.ConnectionEntry
+---@param direction 'up'|'down'
+---@return nil
+function Controller:move_connection(entry, direction)
+  local notify = require('dadbod-ui.notifications')
+  if entry.source ~= 'file' then
+    return notify.error('Cannot move connections added via variables.')
+  end
+  local store = self:read_store()
+  if store == nil then
+    return
+  end
+  local list, err = connections.move_connection(store, entry.name, entry.url, direction)
+  if list == nil then
+    return notify.error(err or 'Could not move connection.')
+  end
+  self:commit_connections(list)
+end
+
+--- Paste a previously cut connection, re-inserting it relative to a target and
+--- adopting `group` (the cut/paste move). `cut` carries the cut connection's
+--- identity (name + url); `after_name`/`after_url` name the target to land after
+--- (nil => append at the end of the list). The cut connection is always a
+--- file-source one (the drawer refuses to cut a discovered connection), so no
+--- source guard is needed here.
+---@param cut { name: string, url: string }
+---@param group string
+---@param after_name? string
+---@param after_url? string
+---@return nil
+function Controller:paste_connection(cut, group, after_name, after_url)
+  local notify = require('dadbod-ui.notifications')
+  local store = self:read_store()
+  if store == nil then
+    return
+  end
+  local list, err = connections.paste_connection(store, cut.name, cut.url, group, after_name, after_url)
+  if list == nil then
+    return notify.error(err or 'Could not move connection.')
+  end
+  self:commit_connections(list)
 end
 
 --- Confirm, then remove a file-source connection.
