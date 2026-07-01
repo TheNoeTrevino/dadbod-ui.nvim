@@ -17,6 +17,27 @@ local formats = require('dadbod-ui.export_formats')
 
 local M = {}
 
+-- Plain (non-pattern) split on a literal separator, like
+-- `vim.split(s, sep, { plain = true })`. Reimplemented with only stdlib so this
+-- module (and its `export_formats` dependency) stays free of the `vim` API and can
+-- load + run inside a `vim.uv` worker thread (see `dadbod-ui.export`), which has no
+-- `vim` global.
+---@param s string
+---@param sep string
+---@return string[]
+local function split_plain(s, sep)
+  local out, i = {}, 1
+  while true do
+    local j = string.find(s, sep, i, true)
+    if j == nil then
+      out[#out + 1] = string.sub(s, i)
+      return out
+    end
+    out[#out + 1] = string.sub(s, i, j - 1)
+    i = j + #sep
+  end
+end
+
 -- CSV (RFC-4180) -------------------------------------------------------------
 
 --- Parse RFC-4180 CSV `text` into a list of row arrays (each a list of string
@@ -165,10 +186,10 @@ function M.from_tsv(text, opts)
   if text == '' then
     return { columns = {}, rows = {} }
   end
-  local lines = vim.split(text, '\n', { plain = true })
+  local lines = split_plain(text, '\n')
   local raw = {}
   for r, line in ipairs(lines) do
-    local fields = vim.split(line, '\t', { plain = true })
+    local fields = split_plain(line, '\t')
     local out = {}
     for i, f in ipairs(fields) do
       -- Map a whole-field NULL marker to the sentinel in DATA rows only (r > 1);
