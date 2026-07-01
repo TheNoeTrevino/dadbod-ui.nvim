@@ -123,3 +123,157 @@ describe('hooks: config', function()
 end)
 
 -- Connect path (on_connect / on_connect_post) -------------------------------
+describe('hooks: on_connect (url rewrite)', function()
+  local d
+  after_each(function()
+    if d then
+      pcall(function()
+        d:close()
+      end)
+      d = nil
+    end
+  end)
+
+  -- Assertions are relative to entry.url (dadbod normalizes the raw url on
+  -- discovery, e.g. postgres -> postgresql), so they test the hook threading,
+  -- not the engine's url spelling.
+
+  it('no hooks: connect is unchanged and uses the original url', function()
+    d = make_drawer({ dev = 'postgres://h/dev' })
+    local got
+    d.connector = function(url)
+      got = url
+      return url
+    end
+    local entry = entry_named(d, 'dev')
+    d:introspect():connect(entry)
+    assert.equals(entry.url, got)
+    assert.equals(entry.url, entry.conn)
+  end)
+
+  it('rewrites the connection url before connecting (password use case)', function()
+    d = make_drawer({ dev = 'sqlite:/tmp/qa.db' }, {
+      hooks = {
+        on_connect = function(e)
+          -- simulate swapping a placeholder for a secret fetched from a manager
+          return e.url .. '?password=secret'
+        end,
+      },
+    })
+    local got
+    d.connector = function(url)
+      got = url
+      return url
+    end
+    local entry = entry_named(d, 'dev')
+    local rewritten = entry.url .. '?password=secret'
+    d:introspect():connect(entry)
+    -- the connector saw the rewritten url, and the live handle downstream
+    -- execution/introspection use is the rewritten (authed) one.
+    assert.equals(rewritten, got)
+    assert.equals(rewritten, entry.conn)
+  end)
+
+  it('uses the original url when on_connect returns nil', function()
+    d = make_drawer({ dev = 'postgres://h/dev' }, {
+      hooks = {
+        on_connect = function()
+          return nil
+        end,
+      },
+    })
+    local got
+    d.connector = function(url)
+      got = url
+      return url
+    end
+    local entry = entry_named(d, 'dev')
+    d:introspect():connect(entry)
+    assert.equals(entry.url, got)
+  end)
+
+  it('uses the original url when on_connect returns a non-string', function()
+    d = make_drawer({ dev = 'postgres://h/dev' }, {
+      hooks = {
+        on_connect = function()
+          return { not_a = 'string' }
+        end,
+      },
+    })
+    local got
+    d.connector = function(url)
+      got = url
+      return url
+    end
+    local entry = entry_named(d, 'dev')
+    d:introspect():connect(entry)
+    assert.equals(entry.url, got)
+  end)
+
+  it('isolates a throwing on_connect; connect proceeds with the original url', function()
+    d = make_drawer({ dev = 'postgres://h/dev' }, {
+      hooks = {
+        on_connect = function()
+          error('secret fetch failed')
+        end,
+      },
+    })
+    local got
+    d.connector = function(url)
+      got = url
+      return url
+    end
+    local entry = entry_named(d, 'dev')
+    d:introspect():connect(entry)
+    assert.equals(entry.url, got)
+    assert.equals(entry.url, entry.conn)
+  end)
+end)
+
+describe('hooks: on_connect_post', function()
+  local d
+  after_each(function()
+    if d then
+      pcall(function()
+        d:close()
+      end)
+      d = nil
+    end
+  end)
+
+  it('fires after a successful connect with the outcome and handle', function()
+    local ev
+    d = make_drawer({ dev = 'postgres://h/dev' }, {
+      hooks = {
+        on_connect_post = function(e)
+          ev = e
+        end,
+      },
+    })
+    local entry = entry_named(d, 'dev')
+    d:introspect():connect(entry)
+    assert.is_true(ev.success)
+    assert.equals(entry.conn, ev.conn)
+    assert.is_nil(ev.error)
+  end)
+
+  it('fires with the error when the connect fails', function()
+    local ev
+    d = make_drawer({ dev = 'postgres://h/dev' }, {
+      hooks = {
+        on_connect_post = function(e)
+          ev = e
+        end,
+      },
+    })
+    d.connector = function()
+      error('connection refused')
+    end
+    d:introspect():connect(entry_named(d, 'dev'))
+    assert.is_false(ev.success)
+    assert.is_truthy(ev.error)
+    assert.is_nil(ev.conn)
+  end)
+end)
+
+-- Execute pre (on_execute_query) --------------------------------------------
