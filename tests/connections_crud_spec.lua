@@ -213,3 +213,158 @@ describe('connections: set_group', function()
     assert.is_truthy(err)
   end)
 end)
+
+describe('connections: move_connection', function()
+  local function names(list)
+    return vim.tbl_map(function(c)
+      return c.name
+    end, list)
+  end
+
+  it('swaps an ungrouped connection down with its next ungrouped sibling', function()
+    local base = {
+      { name = 'a', url = 'postgres://h/a' },
+      { name = 'b', url = 'postgres://h/b' },
+      { name = 'c', url = 'postgres://h/c' },
+    }
+    local list, err = connections.move_connection(base, 'a', 'postgres://h/a', 'down')
+    assert.is_nil(err)
+    assert.same({ 'b', 'a', 'c' }, names(list))
+    assert.same({ 'a', 'b', 'c' }, names(base)) -- input untouched
+  end)
+
+  it('swaps a connection up with its previous sibling', function()
+    local base = {
+      { name = 'a', url = 'postgres://h/a' },
+      { name = 'b', url = 'postgres://h/b' },
+    }
+    local list = connections.move_connection(base, 'b', 'postgres://h/b', 'up')
+    assert.same({ 'b', 'a' }, names(list))
+  end)
+
+  it('clamps: moving the first item up is a no-op', function()
+    local base = {
+      { name = 'a', url = 'postgres://h/a' },
+      { name = 'b', url = 'postgres://h/b' },
+    }
+    local list, err = connections.move_connection(base, 'a', 'postgres://h/a', 'up')
+    assert.is_nil(err)
+    assert.same({ 'a', 'b' }, names(list))
+  end)
+
+  it('clamps: moving the last item down is a no-op', function()
+    local base = {
+      { name = 'a', url = 'postgres://h/a' },
+      { name = 'b', url = 'postgres://h/b' },
+    }
+    local list = connections.move_connection(base, 'b', 'postgres://h/b', 'down')
+    assert.same({ 'a', 'b' }, names(list))
+  end)
+
+  it('moves only among group siblings, skipping over other groups', function()
+    -- b (group G) sits between two ungrouped members; moving a down should jump
+    -- past b to swap with c, its next ungrouped sibling.
+    local base = {
+      { name = 'a', url = 'postgres://h/a' },
+      { name = 'b', url = 'postgres://h/b', group = 'G' },
+      { name = 'c', url = 'postgres://h/c' },
+    }
+    local list = connections.move_connection(base, 'a', 'postgres://h/a', 'down')
+    assert.same({ 'c', 'b', 'a' }, names(list))
+    assert.equals('G', list[2].group) -- b untouched
+  end)
+
+  it('is a no-op for a connection with no siblings in its group', function()
+    local base = {
+      { name = 'a', url = 'postgres://h/a', group = 'G' },
+      { name = 'b', url = 'postgres://h/b' },
+    }
+    local list = connections.move_connection(base, 'a', 'postgres://h/a', 'down')
+    assert.same({ 'a', 'b' }, names(list))
+  end)
+
+  it('leaves the list unchanged when nothing matches', function()
+    local base = { { name = 'a', url = 'postgres://h/a' } }
+    local list, err = connections.move_connection(base, 'zzz', 'postgres://h/zzz', 'down')
+    assert.is_nil(err)
+    assert.same({ 'a' }, names(list))
+  end)
+end)
+
+describe('connections: paste_connection', function()
+  local function names(list)
+    return vim.tbl_map(function(c)
+      return c.name
+    end, list)
+  end
+
+  it('re-inserts the cut connection immediately after the target', function()
+    local base = {
+      { name = 'a', url = 'postgres://h/a' },
+      { name = 'b', url = 'postgres://h/b' },
+      { name = 'c', url = 'postgres://h/c' },
+    }
+    local list, err = connections.paste_connection(base, 'a', 'postgres://h/a', '', 'b', 'postgres://h/b')
+    assert.is_nil(err)
+    assert.same({ 'b', 'a', 'c' }, names(list))
+    assert.same({ 'a', 'b', 'c' }, names(base)) -- input untouched
+  end)
+
+  it('adopts the target group when pasting between groups', function()
+    local base = {
+      { name = 'a', url = 'postgres://h/a' },
+      { name = 'b', url = 'postgres://h/b', group = 'G' },
+    }
+    local list = connections.paste_connection(base, 'a', 'postgres://h/a', 'G', 'b', 'postgres://h/b')
+    local a = vim.tbl_filter(function(c)
+      return c.name == 'a'
+    end, list)[1]
+    assert.equals('G', a.group)
+  end)
+
+  it('appends at the end and adopts the group when no target anchor is given', function()
+    local base = {
+      { name = 'a', url = 'postgres://h/a' },
+      { name = 'b', url = 'postgres://h/b' },
+    }
+    local list = connections.paste_connection(base, 'a', 'postgres://h/a', 'G')
+    assert.same({ 'b', 'a' }, names(list))
+    assert.equals('G', list[2].group)
+  end)
+
+  it('drops the group key when pasting into ungrouped space', function()
+    local base = {
+      { name = 'a', url = 'postgres://h/a', group = 'G' },
+      { name = 'b', url = 'postgres://h/b' },
+    }
+    local list = connections.paste_connection(base, 'a', 'postgres://h/a', '', 'b', 'postgres://h/b')
+    assert.is_nil(list[2].group)
+    assert.same({ 'b', 'a' }, names(list))
+  end)
+
+  it('pasting onto itself is a no-op', function()
+    local base = {
+      { name = 'a', url = 'postgres://h/a' },
+      { name = 'b', url = 'postgres://h/b' },
+    }
+    local list = connections.paste_connection(base, 'a', 'postgres://h/a', '', 'a', 'postgres://h/a')
+    assert.same({ 'a', 'b' }, names(list))
+  end)
+
+  it('rejects a paste that collides with a same-name connection in the target group', function()
+    local base = {
+      { name = 'dev', url = 'postgres://h/a', group = 'G' },
+      { name = 'dev', url = 'postgres://h/b' },
+    }
+    local list, err = connections.paste_connection(base, 'dev', 'postgres://h/b', 'G', 'dev', 'postgres://h/a')
+    assert.is_nil(list)
+    assert.is_truthy(err)
+    assert.equals(2, #base) -- input untouched
+  end)
+
+  it('leaves the list unchanged when the cut is missing', function()
+    local base = { { name = 'a', url = 'postgres://h/a' } }
+    local list = connections.paste_connection(base, 'zzz', 'postgres://h/zzz', '', 'a', 'postgres://h/a')
+    assert.same({ 'a' }, names(list))
+  end)
+end)
