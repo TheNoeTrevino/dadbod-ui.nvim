@@ -97,6 +97,17 @@ function M.get_conn_info(key_name)
   }
 end
 
+--- Connection/table info for the current query buffer, or the last query's
+--- runtime for a `.dbout` result buffer -- a drop-in for the original
+--- `db_ui#statusline()`, safe to embed in a `statusline`/`winbar` expression.
+--- Reads the `b:dbui_*` contract; never opens the drawer window. Delegates to
+--- `Drawer:statusline` (which holds the query controller for the dbout runtime).
+---@param opts? DadbodUI.StatuslineOpts
+---@return string
+function M.statusline(opts)
+  return drawer():statusline(opts)
+end
+
 --- Reset session state (drops the cached instance and drawer). For tests/cleanup.
 function M.reset()
   state.reset()

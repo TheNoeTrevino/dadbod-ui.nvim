@@ -44,6 +44,7 @@ end
 ---@field select DadbodUI.UiSelect  picker backend for the edit flow (injectable)
 ---@field introspect DadbodUI.Introspect  connect / load-saved-queries backend
 ---@field last_query string[]  lines of the most recently executed query
+---@field last_query_time string  runtime of the last result in seconds ('' until one lands)
 local Query = {}
 Query.__index = Query
 
@@ -69,6 +70,7 @@ function M.new(drawer)
       end,
     }),
     last_query = {},
+    last_query_time = '',
   }, Query)
 end
 
@@ -693,11 +695,13 @@ function Query:save_query()
   end)
 end
 
---- The last executed query and its (M11) timing. Port of
---- `s:query.get_last_query_info`.
----@return { last_query: string[] }
+--- The last executed query and its runtime. `last_query` is captured
+--- synchronously on dispatch; `last_query_time` (seconds) is recorded by
+--- `dadbod-ui.dbout` once the async result lands (dadbod's `b:db.runtime`), so it
+--- is `''` until the first result comes back. Port of `s:query.get_last_query_info`.
+---@return DadbodUI.LastQueryInfo
 function Query:get_last_query_info()
-  return { last_query = self.last_query }
+  return { last_query = self.last_query, last_query_time = self.last_query_time }
 end
 
 M.Query = Query

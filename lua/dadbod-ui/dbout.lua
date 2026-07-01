@@ -496,13 +496,24 @@ function M._on_post(output_file)
     vim.b[buf].dbui_page = page
   end
 
+  -- dadbod fills `b:db.runtime`/`exit_status` (seconds / status, as strings) on the
+  -- reloaded result buffer before this hook runs; read them once here for both the
+  -- runtime record below and the summary further down.
+  local db = buf >= 0 and vim.fn.getbufvar(buf, 'db') or nil
+  local runtime = type(db) == 'table' and tonumber(db.runtime) or nil
+
+  -- Record the runtime on the drawer's query controller so `get_last_query_info`
+  -- (hence `:DBUILastQueryInfo` and the dbout branch of `statusline`) can report
+  -- it, independent of the `query_time` UI config.
+  if attached ~= nil and runtime ~= nil then
+    attached:query().last_query_time = string.format('%.3f', runtime)
+  end
+
   -- The summary text needs query_time enabled; the winbar shows whenever there is
   -- something to put in it -- the summary and/or the pagination segments.
   local want_summary = cfg.enabled
   local want_winbar = wants_winbar(cfg, page)
   if buf >= 0 and (want_summary or page ~= nil) then
-    local db = vim.fn.getbufvar(buf, 'db')
-    local runtime = type(db) == 'table' and tonumber(db.runtime) or nil
     local status = type(db) == 'table' and tonumber(db.exit_status) or 0
     -- Count rows when the summary wants them, or a paged result needs the range.
     local rows

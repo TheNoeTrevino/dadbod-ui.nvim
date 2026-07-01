@@ -10,3 +10,10 @@
 function! db_ui#get_conn_info(db_key_name) abort
   return luaeval('require("dadbod-ui").get_conn_info(_A)', a:db_key_name)
 endfunction
+
+" Connection/table info for the current buffer, for embedding in a 'statusline'
+" or 'winbar'. Accepts the same optional opts dict as the original
+" (`{ 'prefix', 'separator', 'show' }`); returns '' for non-dbui buffers.
+function! db_ui#statusline(...) abort
+  return luaeval('require("dadbod-ui").statusline(_A)', get(a:, 1, {}))
+endfunction
