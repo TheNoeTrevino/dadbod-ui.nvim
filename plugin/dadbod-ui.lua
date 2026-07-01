@@ -26,6 +26,10 @@ command('DBUIAddConnection', function()
   require('dadbod-ui').add_connection()
 end, { nargs = 0, desc = 'Add a dadbod-ui connection' })
 
+command('DBUIFindBuffer', function()
+  require('dadbod-ui').find_buffer()
+end, { nargs = 0, desc = 'Find/assign the dadbod-ui query buffer for this db context' })
+
 command('DBUIExportResult', function(a)
   -- `:DBUIExportResult current` exports only the on-screen page of a paginated
   -- result; with no arg (or anything else) it exports the whole query.

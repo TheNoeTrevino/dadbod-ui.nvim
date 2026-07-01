@@ -704,5 +704,33 @@ function Query:get_last_query_info()
   return { last_query = self.last_query, last_query_time = self.last_query_time }
 end
 
+--- Best-effort connection name for a buffer that carries no `b:dbui_db_key_name`
+--- yet, inferred from its on-disk location so `find_buffer` can adopt a plain
+--- `.sql` file opened under the tmp-query or save directory. A tmp-location file
+--- matches the `<name>-…` buffer prefix (stripping a leading `db_ui.` root); a
+--- save-location file lives in a per-connection subdir named for the db. Returns
+--- `''` when nothing matches. Port of `s:query.get_saved_query_db_name`.
+---@return string
+function Query:get_saved_query_db_name()
+  local dir = vim.fn.expand('%:p:h')
+  local tmp = self.instance.tmp_location
+  if tmp ~= '' and tmp == dir then
+    local filename = vim.fn.expand('%:t')
+    if vim.fn.fnamemodify(filename, ':r') == 'db_ui' then
+      filename = vim.fn.fnamemodify(filename, ':e')
+    end
+    local match = vim.iter(self.instance.dbs_list):find(function(record)
+      return filename:match('^' .. vim.pesc(record.name) .. '%-') ~= nil
+    end)
+    if match ~= nil then
+      return match.name
+    end
+  end
+  if vim.fn.fnamemodify(dir, ':h') == self.instance.save_path then
+    return vim.fn.fnamemodify(dir, ':t')
+  end
+  return ''
+end
+
 M.Query = Query
 return M
