@@ -189,6 +189,11 @@ function Drawer:open(mods)
   })
   self:render()
   bo.filetype = 'dbui'
+  -- Signal that the drawer opened so users can hook it (`autocmd User DBUIOpened`).
+  -- We fire only on a real open, not when `open()` focuses an already-open drawer
+  -- (the early return above) -- a divergence from the original, which re-fired the
+  -- event on every focus; a one-shot open event is the useful hook.
+  vim.api.nvim_exec_autocmds('User', { pattern = 'DBUIOpened' })
   return self
 end
 
