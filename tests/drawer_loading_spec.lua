@@ -17,6 +17,16 @@ local function make_drawer(g_dbs, overrides)
   d.connector = function()
     return ''
   end
+  -- Mirror the sync fake for the non-blocking connect path `expand_db` uses, so
+  -- specs never dispatch a real `vim.system` probe at a fake url. Individual
+  -- specs override this to simulate success/failure/latency.
+  d.async_connector = function(_, on_result)
+    -- Defer like the real (vim.system-backed) backend so the loading spinner is
+    -- observable between expand and resolution.
+    vim.schedule(function()
+      on_result(true, '')
+    end)
+  end
   return d
 end
 
@@ -152,8 +162,10 @@ describe('drawer loading: lifecycle marker', function()
 
   it('a connect error clears the marker, shows the error icon, and still notifies', function()
     d = make_drawer({ dev = 'postgres://h/dev' })
-    d.connector = function()
-      error('boom')
+    d.async_connector = function(_, on_result)
+      vim.schedule(function()
+        on_result(false, 'boom')
+      end)
     end
     d:open()
     local entry = entry_named(d, 'dev')
@@ -171,8 +183,10 @@ describe('drawer loading: lifecycle marker', function()
 
   it('does not emit a "Connecting..." notification on expand', function()
     d = make_drawer({ dev = 'postgres://h/dev' })
-    d.connector = function()
-      return 'postgres://h/dev'
+    d.async_connector = function(_, on_result)
+      vim.schedule(function()
+        on_result(true, 'postgres://h/dev')
+      end)
     end
     d:open()
     local entry = entry_named(d, 'dev')
@@ -213,7 +227,7 @@ describe('drawer loading: sqlite end-to-end (guarded)', function()
       return pending('sqlite3 not installed')
     end
     d = make_drawer({ qa = 'sqlite:' .. db_path })
-    d.connector = require('dadbod-ui.bridge').connect
+    d.async_connector = require('dadbod-ui.bridge').connect_async
     d:open()
     local entry = entry_named(d, 'qa')
     entry.expanded = true
