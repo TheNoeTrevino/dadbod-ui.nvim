@@ -36,6 +36,17 @@ local function subst(s, key, val)
   end))
 end
 
+--- The right-aligned connection winbar for a query buffer: `group/name` (or just
+--- `name` when the connection is ungrouped) in a padded, highlighted block pushed
+--- to the right edge with `%=`. `%` in the group/name is doubled so a name can't
+--- inject statusline items. Pure (no window), for unit tests.
+---@param entry DadbodUI.ConnectionEntry
+---@return string
+function M.connection_winbar(entry)
+  local text = entry.group ~= '' and (entry.group .. '/' .. entry.name) or entry.name
+  return string.format('%%=%%#DadbodUIWinbarConnection# %s ', (text:gsub('%%', '%%%%')))
+end
+
 ---@class DadbodUI.Query
 ---@field drawer DadbodUI.Drawer  back-ref, used only for drawer:render()
 ---@field instance DadbodUI.Instance
@@ -350,6 +361,38 @@ function Query:setup_buffer(entry, opts, name)
       self:remove_buffer(args.buf)
     end,
   })
+
+  -- Show which connection this buffer targets in a right-aligned winbar. Applied
+  -- to every window already showing the buffer, and re-applied on BufWinEnter so
+  -- it follows the buffer into a new split (mirrors dbout's win_findbuf re-apply).
+  -- The winbar string is self-contained (leads with `%=`), so re-entering the
+  -- buffer overwrites rather than stacks. The BufWinLeave teardown clears the
+  -- window's winbar when this buffer leaves it, so the connection can't linger
+  -- over whatever buffer is shown there next (mirrors dbout's arm_winbar_teardown).
+  -- Switching between two query buffers in one window stays correct: the leaving
+  -- buffer clears the winbar, then the entering buffer's own BufWinEnter re-applies
+  -- its connection. Result/drawer buffers are separate and untouched -- these
+  -- autocmds are buffer-local to the query buffer.
+  if self.config.show_buffer_connection then
+    local winbar = M.connection_winbar(entry)
+    local function apply()
+      for _, win in ipairs(vim.fn.win_findbuf(bufnr)) do
+        pcall(vim.api.nvim_set_option_value, 'winbar', winbar, { win = win })
+      end
+    end
+    apply()
+    vim.api.nvim_create_autocmd('BufWinEnter', { group = group, buffer = bufnr, callback = apply })
+    vim.api.nvim_create_autocmd('BufWinLeave', {
+      group = group,
+      buffer = bufnr,
+      callback = function()
+        local win = vim.fn.bufwinid(bufnr)
+        if win ~= -1 then
+          pcall(vim.api.nvim_set_option_value, 'winbar', '', { win = win })
+        end
+      end,
+    })
+  end
 end
 
 --- The buffer (or, in visual mode, the selection) as a line list. Reads the

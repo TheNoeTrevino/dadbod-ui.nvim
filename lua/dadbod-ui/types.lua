@@ -338,6 +338,7 @@
 ---@field disable_mappings_javascript boolean
 ---@field icons table
 ---@field query_time DadbodUI.QueryTimeConfig
+---@field show_buffer_connection boolean  right-aligned `group/name` winbar on query buffers
 ---@field export DadbodUI.ExportConfig
 ---@field mappings table<string, table<string, DadbodUI.Mapping>>
 ---@field buffer_name_generator? DadbodUI.BufferNameGenerator

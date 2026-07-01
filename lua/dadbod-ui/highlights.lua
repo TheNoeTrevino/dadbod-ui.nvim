@@ -74,6 +74,9 @@ function M.define()
     hl('DadbodUIWinbarExport', { fg = '#1a1b26', bg = '#e0af68' }) -- in-progress amber
   end
   hl('DadbodUIWinbarFill', { link = 'WinBar' })
+  -- Query-buffer connection winbar (`group/name`, right-aligned): a muted tab like
+  -- the result summary, but its own group so users can recolour it independently.
+  hl('DadbodUIWinbarConnection', { link = 'DadbodUIWinbar' })
 end
 
 --- The highlight ranges for one painted line. Pure: derives every byte column
