@@ -195,6 +195,35 @@
 ---@field cmd string[]
 ---@field stdin? string
 
+--- The canonical export intermediate (dadbod-ui.export_extract): a faithful,
+--- string-typed view of a result set parsed from a CLI's delimited output. SQL
+--- NULL is the `export_formats.NULL` sentinel, never a Lua nil (arrays cannot hold
+--- nil holes, and a real NULL must be distinguishable from an empty string).
+---@class DadbodUI.ExportData
+---@field columns string[]   column names, in order
+---@field rows table[]       each row is an array of (string | export_formats.NULL)
+---@field source? string     table/query name, for JSON-wrap + SQL INSERT target
+
+--- Parameters for dadbod-ui.export.export (one result export).
+---@class DadbodUI.ExportOpts
+---@field url string         resolved connection url
+---@field scheme string      raw adapter scheme
+---@field format string      'csv'|'tsv'|'json'|'markdown'|'html'|'xml'|'sql'
+---@field query string       the SQL to re-run for export
+---@field path string        output file
+---@field source? string     table/query name (JSON-wrap + SQL target)
+---@field prefer_native? boolean  native passthrough when available (DECISION-001)
+---@field format_opts? table  per-format options (see dadbod-ui.export_formats)
+
+--- The `export` config block (see config defaults + specs/native-export.md §11).
+---@class DadbodUI.ExportConfig
+---@field prefer_native boolean
+---@field default_path string  '' => cwd, else a directory
+---@field coerce_numbers boolean
+---@field csv table
+---@field tsv table
+---@field json table
+
 --- Payload passed to on_pre/on_post subscribers.
 ---@class DadbodUI.ExecuteEvent
 ---@field output_file string
@@ -275,6 +304,7 @@
 ---@field disable_mappings_javascript boolean
 ---@field icons table
 ---@field query_time DadbodUI.QueryTimeConfig
+---@field export DadbodUI.ExportConfig
 ---@field mappings table<string, table<string, DadbodUI.Mapping>>
 ---@field buffer_name_generator? DadbodUI.BufferNameGenerator
 ---@field table_name_sorter? DadbodUI.TableNameSorter

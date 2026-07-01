@@ -51,6 +51,21 @@ M.defaults = {
     query_buffer = true,
     show_row_count = true,
   },
+  -- Native CLI result export (see specs/native-export.md). `prefer_native` writes
+  -- the CLI's own output when it can emit the target format directly (DECISION-001);
+  -- turn it off to force the consistent Lua formatters for every adapter.
+  -- `default_path` ('' => cwd) is the directory the export-path prompt defaults to;
+  -- `coerce_numbers` opts the JSON/SQL formatters into emitting numeric/boolean
+  -- literals (off by default since the CSV extract is untyped). The per-format
+  -- sub-tables tune each formatter (see the format docs in dadbod-ui.export_formats).
+  export = {
+    prefer_native = true,
+    default_path = '',
+    coerce_numbers = false,
+    csv = { delimiter = ',', header = true, quote = '"', null_string = '', line_feed_escape = '' },
+    tsv = { line_feed_escape = '\\n' },
+    json = { wrap_table_name = true, indent = '\t' },
+  },
   is_oracle_legacy = false,
   debug = false,
   disable_mappings = false,
@@ -104,6 +119,7 @@ M.defaults = {
       toggle_layout = { key = '<Leader>R', desc = 'Toggle result layout (row / expanded)' },
       next_page = { key = ']', desc = 'Next page of results' },
       prev_page = { key = '[', desc = 'Previous page of results' },
+      export = { key = '<Leader>X', desc = 'Export result to a file' },
     },
   },
 }
@@ -139,7 +155,7 @@ M.mapping_order = {
     'goto_child',
   },
   query = { 'execute', 'edit_bind_params', 'save_query' },
-  results = { 'jump_foreign', 'cell_value', 'yank_header', 'toggle_layout', 'next_page', 'prev_page' },
+  results = { 'jump_foreign', 'cell_value', 'yank_header', 'toggle_layout', 'next_page', 'prev_page', 'export' },
 }
 
 -- The two function-valued options used the capitalized `g:Db_ui_*` globals.
