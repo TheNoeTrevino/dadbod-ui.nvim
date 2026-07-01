@@ -57,8 +57,21 @@ function Introspect:connect(entry)
   -- the db node communicates progress. Success is silent too -- the connection_ok
   -- icon signals it and the elapsed time lands in the details view (`H`) rather
   -- than a popup. Only a failure interrupts with a notification.
+  -- Fire `on_connect` BEFORE connecting. It may return a rewritten url (e.g. a
+  -- `$password` placeholder swapped for a real secret); when it does, we connect
+  -- with THAT, so `entry.conn` -- and hence every downstream execution /
+  -- introspection reading `b:db`/`entry.conn` -- uses the authed connection. A
+  -- nil / non-string return (or a throwing hook) leaves the original url.
+  local hooks = require('dadbod-ui.hooks')
+  local url = hooks.transform(self.config, 'on_connect', {
+    url = entry.url,
+    name = entry.name,
+    key_name = entry.key_name,
+    group = entry.group,
+  }) or entry.url
+
   local started = vim.uv.hrtime()
-  local ok, conn = pcall(self.connector, entry.url)
+  local ok, conn = pcall(self.connector, url)
   if ok then
     entry.conn = conn
     entry.conn_error = ''
@@ -69,6 +82,23 @@ function Introspect:connect(entry)
     require('dadbod-ui.notifications').error(string.format('Error connecting to db %s: %s', entry.name, tostring(conn)))
   end
   entry.conn_tried = true
+
+  -- Fire `on_connect_post` after, with the outcome. Isolated like the rest: a
+  -- throwing post-hook must not undo a successful connect. (`conn`/`error` are
+  -- assigned explicitly rather than via `and/or` so a nil branch isn't swallowed.)
+  local post = {
+    url = url,
+    name = entry.name,
+    key_name = entry.key_name,
+    group = entry.group,
+    success = ok,
+  }
+  if ok then
+    post.conn = conn
+  else
+    post.error = tostring(conn)
+  end
+  hooks.run(self.config, 'on_connect_post', post)
   return entry
 end
 
