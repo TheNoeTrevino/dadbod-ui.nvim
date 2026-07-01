@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<data>
+  <row>
+    <col name="id">1</col>
+    <col name="name">Ann</col>
+    <col name="note"></col>
+    <col name="amount">10.50</col>
+  </row>
+  <row>
+    <col name="id">2</col>
+    <col name="name">O&apos;Brien</col>
+    <col name="note">has, comma</col>
+    <col name="amount">20.00</col>
+  </row>
+  <row>
+    <col name="id">3</col>
+    <col name="name">Zoe</col>
+    <col name="note">line1
+line2</col>
+    <col name="amount">3.25</col>
+  </row>
+  <row>
+    <col name="id">4</col>
+    <col name="name">Ünïcödé</col>
+    <col name="note">tab	here &amp; &lt;b&gt;</col>
+    <col name="amount"></col>
+  </row>
+</data>

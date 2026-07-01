@@ -1,0 +1,51 @@
+# Real database servers for the export integration suite (host runner model:
+# these containers are the servers; nvim + the client CLIs run on the host and
+# connect over the mapped 127.0.0.1 ports). Image tags are PINNED so the golden
+# files stay stable -- bump a tag and re-record goldens deliberately.
+#
+# Ports are deliberately non-default (5xxxx) so the suite never collides with a
+# database a developer already runs locally.
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: dbui
+      POSTGRES_PASSWORD: dbui
+      POSTGRES_DB: dbui
+    ports:
+      - "127.0.0.1:55433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dbui -d dbui"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_USER: dbui
+      MYSQL_PASSWORD: dbui
+      MYSQL_DATABASE: dbui
+    ports:
+      - "127.0.0.1:53306:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-proot"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  mariadb:
+    image: mariadb:11
+    environment:
+      MARIADB_ROOT_PASSWORD: root
+      MARIADB_USER: dbui
+      MARIADB_PASSWORD: dbui
+      MARIADB_DATABASE: dbui
+    ports:
+      - "127.0.0.1:53307:3306"
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 2s
+      timeout: 3s
+      retries: 30

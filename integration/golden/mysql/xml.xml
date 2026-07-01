@@ -1,0 +1,33 @@
+<?xml version="1.0"?>
+
+<resultset statement="SELECT id, name, note, amount FROM people ORDER BY id
+" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <row>
+	<field name="id">1</field>
+	<field name="name">Ann</field>
+	<field name="note" xsi:nil="true" />
+	<field name="amount">10.50</field>
+  </row>
+
+  <row>
+	<field name="id">2</field>
+	<field name="name">O'Brien</field>
+	<field name="note">has, comma</field>
+	<field name="amount">20.00</field>
+  </row>
+
+  <row>
+	<field name="id">3</field>
+	<field name="name">Zoe</field>
+	<field name="note">line1
+line2</field>
+	<field name="amount">3.25</field>
+  </row>
+
+  <row>
+	<field name="id">4</field>
+	<field name="name">Ünïcödé</field>
+	<field name="note">tab	here &amp; &lt;b&gt;</field>
+	<field name="amount" xsi:nil="true" />
+  </row>
+</resultset>

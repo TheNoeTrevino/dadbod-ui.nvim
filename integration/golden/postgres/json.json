@@ -1,0 +1,27 @@
+{
+"people": [
+	{
+		"id" : "1",
+		"name" : "Ann",
+		"note" : "",
+		"amount" : "10.50"
+	},
+	{
+		"id" : "2",
+		"name" : "O'Brien",
+		"note" : "has, comma",
+		"amount" : "20.00"
+	},
+	{
+		"id" : "3",
+		"name" : "Zoe",
+		"note" : "line1\nline2",
+		"amount" : "3.25"
+	},
+	{
+		"id" : "4",
+		"name" : "Ünïcödé",
+		"note" : "tab\there & <b>",
+		"amount" : ""
+	}
+]}
