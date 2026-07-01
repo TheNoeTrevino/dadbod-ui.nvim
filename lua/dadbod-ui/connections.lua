@@ -225,21 +225,6 @@ local function same_slot(conn, name, group)
   return conn.name:lower() == name:lower() and (conn.group or ''):lower() == group:lower()
 end
 
--- Index of the first connection matching (name, resolved_url), or nil. Wraps the
--- open-coded `same_conn` scan the transforms share.
----@param list DadbodUI.FileConnection[]
----@param name string
----@param resolved_url string
----@return integer|nil
-local function find_idx(list, name, resolved_url)
-  for i, conn in ipairs(list) do
-    if same_conn(conn, name, resolved_url) then
-      return i
-    end
-  end
-  return nil
-end
-
 --- Append a connection in `group` ('' / nil = ungrouped). Returns
 --- `(new_list, nil)`, or `(nil, err)` when a connection with that name already
 --- exists *in the same group* (case-insensitive) -- the same name in a different
@@ -377,9 +362,43 @@ end
 --- visual sibling order, not raw array adjacency: it swaps the connection with
 --- the nearest *earlier* (`up`) or *later* (`down`) connection sharing its group,
 --- skipping over members of other groups in between. A no-op -- the list returned
---- unchanged, no error -- at the group's first member (`up`) or last member
---- (`down`), or when nothing matches. Group is never changed, so no collision is
---- possible. Returns `(new_list, nil)`.
+--- The VISUAL (block) order of `list`, mirroring how the drawer renders it:
+--- ungrouped connections appear in place, and each group's members are gathered
+--- contiguously at the group's first-seen position. This is the order `<C-Up>` /
+--- `<C-Down>` walk. Returns references into `list` (not copies).
+---@param list DadbodUI.FileConnection[]
+---@return DadbodUI.FileConnection[]
+local function visual_order(list)
+  local vis, seen = {}, {}
+  for _, conn in ipairs(list) do
+    local group = (conn.group or '')
+    local gl = group:lower()
+    if group == '' then
+      vis[#vis + 1] = conn
+    elseif not seen[gl] then
+      seen[gl] = true
+      for _, member in ipairs(list) do
+        if (member.group or '') ~= '' and (member.group or ''):lower() == gl then
+          vis[#vis + 1] = member
+        end
+      end
+    end
+  end
+  return vis
+end
+
+--- Move the connection matching (name, url) one slot up/down in the drawer's
+--- VISUAL order (see `visual_order`), crossing group boundaries. Within a group
+--- (or ungrouped run) it is a plain reorder swap. At a block edge the connection
+--- adopts the neighbouring block's group -- moving into the next group, out of a
+--- group into ungrouped space, or into an ungrouped connection's group -- which is
+--- what lets `<C-Up>`/`<C-Down>` drive the entire move (replacing the old
+--- cut/paste flow). Clamped at the very top (`up`) / bottom (`down`) and a no-op
+--- when nothing matches. Crossing into a group that already holds a *different*
+--- connection of the same name is refused with `(nil, err)` (the `same_slot`
+--- rule, which would otherwise collide two entries under one `key_name`).
+--- Returns the list in normalized (block-contiguous) visual order, so groups stay
+--- gathered. `(new_list, nil)` on success.
 ---@param list DadbodUI.FileConnection[]
 ---@param name string
 ---@param url string
@@ -387,82 +406,48 @@ end
 ---@return DadbodUI.FileConnection[]|nil, string|nil
 function M.move_connection(list, name, url, direction)
   local resolved = bridge.resolve(url):lower()
-  local match_idx = find_idx(list, name, resolved)
-  local out = vim.deepcopy(list)
-  if match_idx == nil then
+  -- Deepcopy up front and drive everything off the copy's visual order, so the
+  -- returned list is a fresh, block-contiguous ordering and the input is untouched.
+  local out = visual_order(vim.deepcopy(list))
+  local i = nil
+  for idx, conn in ipairs(out) do
+    if same_conn(conn, name, resolved) then
+      i = idx
+      break
+    end
+  end
+  if i == nil then
     return out, nil
   end
-  local group = (list[match_idx].group or ''):lower()
-  local swap_idx = nil
-  if direction == 'up' then
-    for i = match_idx - 1, 1, -1 do
-      if (list[i].group or ''):lower() == group then
-        swap_idx = i
-        break
-      end
-    end
-  else
-    for i = match_idx + 1, #list do
-      if (list[i].group or ''):lower() == group then
-        swap_idx = i
-        break
-      end
-    end
+  local j = direction == 'up' and i - 1 or i + 1
+  if j < 1 or j > #out then
+    return out, nil -- clamped at the very top / bottom
   end
-  if swap_idx ~= nil then
-    out[match_idx], out[swap_idx] = out[swap_idx], out[match_idx]
-  end
-  return out, nil
-end
 
---- Move the connection matching (name, url) out of its slot and re-insert it,
---- adopting `group` ('' = ungrouped) on the way -- the persist half of the
---- cut/paste flow. When `after_name`/`after_url` identify a target connection the
---- cut lands immediately after it; otherwise it is appended at the end of the
---- list (used when pasting onto a group that has no file anchor, or into empty
---- ungrouped space). Reuses `set_group`'s group semantics and the `same_slot`
---- conflict rule: returns `(nil, err)` when a *different* connection of the same
---- name already lives in the target group (which would merge two entries under one
---- `key_name` on the next discover). Pasting onto itself, or when the cut is
---- missing, returns the list unchanged. Returns `(new_list, nil)`.
----@param list DadbodUI.FileConnection[]
----@param name string
----@param url string
----@param group string
----@param after_name? string
----@param after_url? string
----@return DadbodUI.FileConnection[]|nil, string|nil
-function M.paste_connection(list, name, url, group, after_name, after_url)
-  local resolved = bridge.resolve(url):lower()
-  local cut_idx = find_idx(list, name, resolved)
-  if cut_idx == nil then
-    return vim.deepcopy(list), nil
+  local moving = out[i]
+  local neighbor = out[j]
+  if (moving.group or ''):lower() == (neighbor.group or ''):lower() then
+    -- Same block: a plain reorder among siblings.
+    out[i], out[j] = out[j], out[i]
+    return out, nil
   end
-  local after_resolved = after_url ~= nil and bridge.resolve(after_url):lower() or nil
-  -- Pasting a connection onto itself is a no-op (don't shuffle it to the end).
-  if after_name ~= nil and after_resolved ~= nil and same_conn(list[cut_idx], after_name, after_resolved) then
-    return vim.deepcopy(list), nil
-  end
-  for i, conn in ipairs(list) do
-    if i ~= cut_idx and same_slot(conn, name, group) then
+
+  -- Block boundary: `moving` crosses into the neighbour's block, adopting its
+  -- group. In visual order `moving` already sits immediately adjacent to the
+  -- neighbour on the correct side (after it when moving up, before it when moving
+  -- down), so only the group changes -- no reorder. Refuse a name collision in
+  -- the target group first (mirrors add/set_group).
+  local target_group = neighbor.group or ''
+  for k, conn in ipairs(out) do
+    if k ~= i and same_slot(conn, name, target_group) then
       return nil, 'A connection with that name already exists in that group. Please choose a different group.'
     end
   end
-  local out = vim.deepcopy(list)
-  local cut = table.remove(out, cut_idx)
-  if group == '' then
-    cut.group = nil
+  -- (An explicit if/else, not `cond and nil or x`: that idiom can't yield nil.)
+  if target_group == '' then
+    moving.group = nil
   else
-    cut.group = group
-  end
-  local after_idx = nil
-  if after_name ~= nil and after_resolved ~= nil then
-    after_idx = find_idx(out, after_name, after_resolved)
-  end
-  if after_idx ~= nil then
-    table.insert(out, after_idx + 1, cut)
-  else
-    out[#out + 1] = cut
+    moving.group = target_group
   end
   return out, nil
 end
