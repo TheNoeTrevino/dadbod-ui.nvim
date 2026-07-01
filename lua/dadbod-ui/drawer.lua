@@ -46,7 +46,8 @@ local M = {}
 ---@field show_details boolean
 ---@field input DadbodUI.UiInput  prompt backend (injectable for specs)
 ---@field confirm DadbodUI.Confirm  yes/no backend (injectable for specs)
----@field connector fun(url: string): string  connect backend (injectable for specs)
+---@field connector fun(url: string): string  synchronous connect backend (injectable for specs)
+---@field async_connector fun(url: string, on_result: fun(ok: boolean, conn: string)): nil  non-blocking connect backend (injectable for specs)
 ---@field show_dbout_list boolean  whether the Query results section is expanded
 ---@field cut? { name: string, url: string, key_name: string, group: string }  a pending cut connection awaiting paste (drives the bottom indicator)
 ---@field _query? DadbodUI.Query  lazily-built query controller
@@ -75,6 +76,7 @@ function M.new(instance)
       return require('dadbod-ui.notifications').confirm(msg)
     end,
     connector = bridge.connect,
+    async_connector = bridge.connect_async,
     show_dbout_list = false,
     cut = nil,
     _query = nil,
@@ -105,6 +107,7 @@ function Drawer:introspect()
     self._introspect = require('dadbod-ui.introspect').new({
       config = self.config,
       connector = self.connector,
+      async_connector = self.async_connector,
       render = function()
         self:render()
       end,
