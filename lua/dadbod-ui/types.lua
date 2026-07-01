@@ -145,6 +145,7 @@
 ---@field quote boolean  whether the adapter quotes identifiers (used by M8)
 ---@field default_scheme string  the adapter's default schema name
 ---@field filetype string  query-buffer filetype for this adapter
+---@field extension string  adapter's query-input file extension (names generated buffers so external tooling attaches)
 ---@field table_helpers table<string, string>  helper name -> SQL template
 ---@field tables DadbodUI.TablesNode
 ---@field schemas DadbodUI.SchemasNode

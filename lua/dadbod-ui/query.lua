@@ -109,10 +109,15 @@ function Query:open(item, edit_action)
   })
 end
 
---- Build the on-disk name for a new query buffer: `<slug(name-suffix)>-<time>`,
---- where the suffix is `query` or `<table>-<label>`. Honors a configured
---- `buffer_name_generator`, prefers the tmp-query location, and otherwise drops
---- it next to `tempname()` (tracking it as a tmp buffer). Port of
+--- Build the on-disk name for a new query buffer:
+--- `<slug(name-suffix)>-<time>.<ext>`, where the suffix is `query` or
+--- `<table>-<label>` and `<ext>` is the adapter's query-input extension
+--- (`entry.extension`, e.g. `sql`). The real extension makes the buffer look like
+--- a genuine query file to external formatters/linters/LSP, which key off the
+--- filename rather than Neovim's `filetype`. Honors a configured
+--- `buffer_name_generator` (whose output is used verbatim -- no extension is
+--- forced onto a user-supplied name), prefers the tmp-query location, and
+--- otherwise drops it next to `tempname()` (tracking it as a tmp buffer). Port of
 --- `s:query.generate_buffer_name`.
 ---@param entry DadbodUI.ConnectionEntry
 ---@param opts { label: string, table?: string, schema?: string, filetype: string }
@@ -124,7 +129,7 @@ function Query:generate_buffer_name(entry, opts)
     suffix = string.format('%s-%s', opts.table, opts.label)
   end
   local buffer_name = utils.slug(string.format('%s-%s', entry.name, suffix))
-  buffer_name = string.format('%s-%s', buffer_name, time)
+  buffer_name = string.format('%s-%s.%s', buffer_name, time, entry.extension)
   if self.config.buffer_name_generator then
     buffer_name = string.format('%s-%s', entry.name, self.config.buffer_name_generator(opts))
   end
