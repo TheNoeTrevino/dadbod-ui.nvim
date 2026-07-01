@@ -691,7 +691,7 @@ function M._step_page(delta)
   -- No "Loading page N" notification: the result winbar carries the page state
   -- and shows a "running" segment for the load (painted from `_on_pre`), so the
   -- feedback stays inline and the command line stays quiet.
-  bridge.execute_lines(vim.split(sql, '\n'), state.url)
+  bridge.execute_lines(vim.split(sql, '\n'), state.url, nil, current_config().result_layout == 'vertical')
 end
 
 --- `]` -- load the next page of results.
@@ -962,7 +962,8 @@ function M.jump_to_foreign_table()
   local query = M.foreign_select(template, row[3], row[1], row[2], field_value)
   -- Run quietly when the inline summary is on, so dadbod's `Running query...`
   -- echo doesn't reappear for the jump (the summary still renders via on_post).
-  bridge.execute(url, query, current_config().query_time.enabled)
+  local config = current_config()
+  bridge.execute(url, query, config.query_time.enabled, config.result_layout == 'vertical')
 end
 
 --- Visually select the cell value under the cursor (the `vic` text object / the
