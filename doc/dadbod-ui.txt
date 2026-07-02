@@ -39,7 +39,7 @@ Fields ~
 {cancel_query} `(fun())`
 {get_conn_info} `(fun(key_name: string): table)`
 {find_buffer} `(fun())`
-{switch_buffer} `(fun())`
+{switch_buffer} `(fun(name?: string): boolean|nil,)` string|nil
 {rename_buffer} `(fun())`
 {print_last_query_info} `(fun())`
 {statusline} `(fun(opts?: DadbodUI.StatuslineOpts): string)`
@@ -143,14 +143,19 @@ Return ~
 
 ------------------------------------------------------------------------------
                                                              *M.switch_buffer()*
-                              `M.switch_buffer`()
+                           `M.switch_buffer`({name})
 Switch the current query buffer's connection to another one. Backs
 `:DBUISwitchBuffer`: prompts for a different db, reassigns the buffer
 (rewriting `b:db`/`b:dbui_db_key_name`, the winbar and the execute-on-save
 autocmds) without touching the buffer text. A bare buffer falls back to the
-`find_buffer` assign path.
+`find_buffer` assign path. Pass `name` to switch straight to that connection
+with no prompt (returns `ok, err`); see `dadbod-ui.api.switch_buffer`.
+Parameters ~
+{name} `(optional)` `(string)`
 Return ~
-`(nil)`
+`(boolean|nil)` ok
+Return ~
+`(string|nil)` err
 
 ------------------------------------------------------------------------------
                                                              *M.rename_buffer()*
