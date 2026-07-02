@@ -562,6 +562,95 @@ function Drawer:reveal_buffer(entry)
   vim.cmd('wincmd p')
 end
 
+--- Switch the current query buffer from its connection to another one
+--- (`:DBUISwitchBuffer`) -- the "oops, wrong connection" verb. Unlike
+--- `find_buffer`, which only ASSIGNS a bare buffer and no-ops on an
+--- already-attached one, this reassigns a buffer that already carries the
+--- contract: it prompts for a different db, re-registers the buffer under it, and
+--- rewrites the whole contract (`b:db`, `b:dbui_db_key_name`, the winbar, the
+--- execute-on-save autocmds) through the same `setup_buffer` the open path uses.
+--- The buffer's text is untouched; the table/schema/bind-param context rides
+--- across so a templated query still resolves. A bare buffer is handed to
+--- `find_buffer` instead (assign, not switch). Picks always prompt -- switching is
+--- an explicit choice -- so a lone connection has nothing to switch to.
+---@return nil
+function Drawer:switch_buffer()
+  local notify = require('dadbod-ui.notifications')
+  local bufnr = vim.api.nvim_get_current_buf()
+  local key = vim.b[bufnr].dbui_db_key_name
+  local current = (type(key) == 'string' and key ~= '') and self.instance.dbs[key] or nil
+  if current == nil then
+    -- Nothing to switch FROM: fall back to the assign path.
+    return self:find_buffer()
+  end
+
+  -- Candidates are every OTHER connection; with none there is nothing to switch to.
+  local others = vim.tbl_filter(function(r)
+    return r.key_name ~= current.key_name
+  end, self.instance.dbs_list)
+  if #others == 0 then
+    return notify.info('No other connection to switch this buffer to.')
+  end
+
+  self:query().select(others, {
+    prompt = string.format('Switch buffer from %s to db:', current.name),
+    ---@param r DadbodUI.ConnectionRecord
+    ---@return string
+    format_item = function(r)
+      return r.name
+    end,
+  }, function(choice)
+    if choice == nil then
+      return -- cancelled: leave the buffer on its current connection
+    end
+    local target = self.instance.dbs[choice.key_name]
+    if target == nil or target.key_name == current.key_name then
+      return
+    end
+    -- The async picker may resolve after focus moved (e.g. into the drawer);
+    -- re-enter the buffer's window so setup_buffer acts on the right buffer.
+    local win = vim.fn.bufwinid(bufnr)
+    if win == -1 then
+      return notify.error('The query buffer is no longer visible; switch aborted.')
+    end
+    vim.api.nvim_set_current_win(win)
+
+    -- Carry the buffer's context across (mirrors the rename passthrough): the
+    -- text is unchanged, so any {table}/{schema} it was templated with -- and any
+    -- answered bind params -- stay valid to re-send against the new connection.
+    local carry = {
+      existing_buffer = true,
+      table = vim.b[bufnr].dbui_table_name,
+      schema = vim.b[bufnr].dbui_schema_name,
+      bind_params = vim.b[bufnr].dbui_bind_params,
+    }
+    local bufname = vim.api.nvim_buf_get_name(0)
+
+    -- Drop the buffer from the OLD connection's tracking (setup_buffer re-adds it
+    -- to the new one). Filter by resolved path, as remove_buffer does.
+    local target_path = vim.fn.fnamemodify(bufname, ':p')
+    local function keep(path)
+      return vim.fn.fnamemodify(path, ':p') ~= target_path
+    end
+    current.buffers.list = vim.tbl_filter(keep, current.buffers.list)
+    current.buffers.tmp = vim.tbl_filter(keep, current.buffers.tmp)
+
+    -- Connect so b:db is a live handle, then rewrite the contract, re-register,
+    -- rewire autocmds and re-apply the winbar -- all through the open path's
+    -- setup_buffer (the augroup is per-bufnr and cleared, so nothing leaks).
+    self:introspect():connect(target)
+    self:query():setup_buffer(target, carry, bufname)
+
+    -- Feed vim-dadbod-completion the new connection, as reveal_buffer does.
+    if vim.fn.exists('*vim_dadbod_completion#fetch') == 1 then
+      pcall(vim.fn['vim_dadbod_completion#fetch'], bufnr)
+    end
+
+    self:render()
+    notify.info('Switched buffer to db ' .. target.name)
+  end)
+end
+
 --- Refresh the tree (`R`): re-discover connections from disk and re-render.
 --- A finer-grained per-database refresh arrives with schema introspection.
 ---@return nil
