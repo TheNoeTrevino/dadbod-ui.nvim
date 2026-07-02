@@ -562,6 +562,84 @@ describe('export.export_interactive', function()
   end)
 end)
 
+-- The query-buffer entry point (`Query:export_query`): it must read the CURRENT
+-- query buffer's connection + text (+ substitute bind params) and hand that to the
+-- shared `export_prompt` core -- the dual of running-then-exporting from `.dbout`.
+-- Stubbing `export_prompt` captures exactly what the buffer resolves, with no UI.
+describe('export.export_query (query buffer)', function()
+  local drawer_mod = require('dadbod-ui.drawer')
+  local state = require('dadbod-ui.state')
+  local config = require('dadbod-ui.config')
+  local notifications = require('dadbod-ui.notifications')
+
+  local function make_drawer(g_dbs)
+    local cfg = config.resolve({ save_location = '/tmp/dbui_export_q', show_help = false })
+    local instance = state.new(cfg):populate({ env = {}, g_dbs = g_dbs, file_entries = {} })
+    local d = drawer_mod.new(instance)
+    d.connector = function(url)
+      return url
+    end
+    return d
+  end
+
+  local function entry_named(d, name)
+    for _, record in ipairs(d.instance.dbs_list) do
+      if record.name == name then
+        return d.instance.dbs[record.key_name]
+      end
+    end
+  end
+
+  local d, query_bufs, saved_prompt, captured
+  before_each(function()
+    require('helper').clean_ui()
+    query_bufs = {}
+    captured = nil
+    saved_prompt = export.export_prompt
+    export.export_prompt = function(info)
+      captured = info
+    end
+  end)
+  after_each(function()
+    export.export_prompt = saved_prompt
+    for _, b in ipairs(query_bufs) do
+      pcall(vim.api.nvim_buf_delete, b, { force = true })
+    end
+    if d then
+      d:close()
+      d = nil
+    end
+  end)
+
+  local function open_query_buffer(name, sql)
+    d:open()
+    local entry = entry_named(d, name)
+    d:query():open({ type = 'query', key_name = entry.key_name }, 'edit')
+    query_bufs[#query_bufs + 1] = vim.api.nvim_get_current_buf()
+    vim.api.nvim_buf_set_lines(0, 0, -1, false, vim.split(sql, '\n'))
+    return entry
+  end
+
+  it('hands the buffer SQL, scheme and connection to export_prompt', function()
+    d = make_drawer({ qa = 'sqlite:/tmp/qa.db' })
+    local entry = open_query_buffer('qa', 'select * from contacts')
+    d:query():export_query(false)
+    assert.equals('select * from contacts', captured.query)
+    assert.equals('sqlite', captured.scheme)
+    assert.equals(entry.conn, captured.url)
+  end)
+
+  it('errors on a buffer not attached to any database, exporting nothing', function()
+    d = make_drawer({ qa = 'sqlite:/tmp/qa.db' })
+    d:open()
+    vim.cmd('enew') -- a plain buffer, no b:dbui_db_key_name
+    query_bufs[#query_bufs + 1] = vim.api.nvim_get_current_buf()
+    d:query():export_query(false)
+    assert.is_nil(captured)
+    assert.is_truthy(notifications.get_last_msg():match('Buffer not attached to any database'))
+  end)
+end)
+
 describe('export.query_for (pagination, DECISION-003)', function()
   local paged = {
     query = 'SELECT * FROM t LIMIT 200 OFFSET 400', -- the on-screen page SQL
