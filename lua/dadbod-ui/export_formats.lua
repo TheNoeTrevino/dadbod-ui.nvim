@@ -22,6 +22,7 @@
 ---@field html fun(data: DadbodUI.ExportData): string
 ---@field xml fun(data: DadbodUI.ExportData): string
 ---@field sql fun(data: DadbodUI.ExportData, opts?: table): string
+---@field nonempty fun(s: any): string?
 
 ---@type DadbodUI.ExportFormatsModule
 ---@diagnostic disable-next-line: missing-fields
@@ -66,6 +67,31 @@ local function map(fn, list)
 end
 
 ---@private
+-- Escape `%` in a string so it is safe to pass as a `gsub` REPLACEMENT (as
+-- opposed to `pesc`, which escapes a string for use as the PATTERN). Every
+-- user-configured replacement (`line_feed_escape`, `escape_delimiter`) must go
+-- through this before reaching `gsub`, else a value containing `%` raises
+-- "invalid use of '%' in replacement string" (or, worse, silently consumes a
+-- capture reference like `%1`).
+---@param s string
+---@return string
+local function repl_esc(s)
+  return (s:gsub('%%', '%%%%'))
+end
+
+-- Empty-string-safe truthiness: '' is truthy in Lua, which would otherwise
+-- defeat an `a or b` fallback chain (e.g. `opts.table or data.source or
+-- 'exported_table'`) when the empty string is passed explicitly. Exposed on `M`
+-- so the (vim-free) transform paths in `export.lua` share this one definition
+-- rather than re-inlining the check.
+---@param s any
+---@return string?
+function M.nonempty(s)
+  return (type(s) == 'string' and s ~= '') and s or nil
+end
+local nonempty = M.nonempty
+
+---@private
 --- Whether `s` may be emitted as a bare JSON/SQL numeric or boolean literal under
 --- `coerce_numbers`. Strict on purpose: a plain boolean, or a number with no
 --- leading zeros, no leading/trailing dot, and no exponent -- so `007`, `1.`,
@@ -101,22 +127,31 @@ end
 ---@private
 --- Render one already-stringified field. With quoting enabled (a non-empty
 --- `quote`), RFC-4180 rules apply: quote when needed, escaping the quote char by
---- doubling. With quoting disabled (TSV), embedded newlines collapse to
+--- doubling. With quoting disabled (TSV), a literal backslash is escaped FIRST
+--- (matching mysql `--batch` framing), THEN embedded newlines collapse to
 --- `line_feed_escape` and an embedded delimiter collapses to `escape_delimiter`
---- so the columns stay aligned without quotes.
+--- so the columns stay aligned without quotes -- escaping backslash first keeps
+--- a real `\t`/`\n` two-char sequence in the data from colliding with an escaped
+--- real tab/newline.
 ---@param value string
 ---@param opts table  resolved csv opts
 ---@return string
 local function csv_field(value, opts)
-  if opts.line_feed_escape ~= nil and opts.line_feed_escape ~= '' then
-    value = value:gsub('\r\n', '\n'):gsub('[\r\n]', opts.line_feed_escape)
-  end
   local quoting = opts.quote ~= nil and opts.quote ~= ''
   if not quoting then
+    if (opts.line_feed_escape ~= nil and opts.line_feed_escape ~= '') or opts.escape_delimiter ~= nil then
+      value = value:gsub('\\', '\\\\')
+    end
+    if opts.line_feed_escape ~= nil and opts.line_feed_escape ~= '' then
+      value = value:gsub('\r\n', '\n'):gsub('[\r\n]', repl_esc(opts.line_feed_escape))
+    end
     if opts.escape_delimiter ~= nil and value:find(opts.delimiter, 1, true) then
-      value = value:gsub(pesc(opts.delimiter), opts.escape_delimiter)
+      value = value:gsub(pesc(opts.delimiter), repl_esc(opts.escape_delimiter))
     end
     return value
+  end
+  if opts.line_feed_escape ~= nil and opts.line_feed_escape ~= '' then
+    value = value:gsub('\r\n', '\n'):gsub('[\r\n]', repl_esc(opts.line_feed_escape))
   end
   local q = opts.quote
   if needs_quote(value, opts.delimiter, q) then
@@ -395,10 +430,16 @@ end
 ---@return string
 function M.sql(data, opts)
   opts = opts or {}
-  local tbl = opts.table or data.source or 'exported_table'
+  local tbl = nonempty(opts.table) or nonempty(data.source) or 'exported_table'
   local q = opts.quote_identifiers and (opts.identifier_quote or '"') or ''
+  -- `q` is symmetric (opened AND closed with the same delimiter, e.g. `"`/`` ` ``),
+  -- so an identifier containing that char must have it doubled to stay balanced --
+  -- otherwise a column named `a"b` would emit `"a"b"`, a broken/truncated literal.
   local function ident(name)
-    return q .. name .. q
+    if q == '' then
+      return name
+    end
+    return q .. (name:gsub(pesc(q), repl_esc(q .. q))) .. q
   end
   local cols = {}
   for i, c in ipairs(data.columns) do

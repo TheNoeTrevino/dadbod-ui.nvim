@@ -303,6 +303,14 @@ describe('export._transform_async (off-thread transform)', function()
     assert.are.equal(6000, got_rows)
     assert.are.equal(want, got) -- worker output is byte-identical to inline
   end)
+
+  it("normalizes an empty-string source to nil, so 'exported_table' still wins", function()
+    -- regression: '' is truthy in Lua, so passing source='' through used to
+    -- defeat the `opts.table or data.source or 'exported_table'` fallback chain
+    -- and produce `INSERT INTO  (...)` (an empty, broken identifier).
+    local content = export._transform_sync('postgres', 'id\n1\n', 'sql', {}, '')
+    assert.are.equal("INSERT INTO exported_table (id) VALUES ('1');", content)
+  end)
 end)
 
 describe('export.export: large result via the worker (end to end)', function()
@@ -424,6 +432,14 @@ describe('export.resolve_buffer: source derivation', function()
   it('derives the table name from FROM (quoted / schema-qualified)', function()
     assert.are.equal('widgets', export.resolve_buffer(buf_with('SELECT * FROM "widgets" LIMIT 5')).source)
     assert.are.equal('orders', export.resolve_buffer(buf_with('select a,b from public.orders o')).source)
+  end)
+
+  it('does not mistake a "from"-suffixed identifier for the FROM keyword', function()
+    -- regression: %f[%w] treats '_' as a non-word char, so the old pattern
+    -- matched the trailing "from" inside "a_from" and derived source "FROM".
+    assert.are.equal('t', export.resolve_buffer(buf_with('SELECT a_from FROM t')).source)
+    assert.are.equal('bar', export.resolve_buffer(buf_with('select * from foo.bar')).source)
+    assert.are.equal('t2', export.resolve_buffer(buf_with('SELECT x FROM t2')).source)
   end)
 
   it("falls back to 'results' for a query with no plain FROM (never a temp basename)", function()
