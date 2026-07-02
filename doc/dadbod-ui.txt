@@ -38,6 +38,8 @@ Fields ~
 {execute_selection} `(fun())`
 {explain_query} `(fun(opts?: DadbodUI.ExplainOpts))`
 {explain_selection} `(fun(opts?: DadbodUI.ExplainOpts))`
+{export_query} `(fun())`
+{export_selection} `(fun())`
 {cancel_query} `(fun())`
 {get_conn_info} `(fun(key_name: string): table)`
 {find_buffer} `(fun())`
@@ -132,6 +134,21 @@ Return ~
 Explain the current visual selection. Backs `api.explain_selection`.
 Parameters ~
 {opts} `(optional)` `(DadbodUI.ExplainOpts)`
+Return ~
+`(nil)`
+
+------------------------------------------------------------------------------
+                                                              *M.export_query()*
+                               `M.export_query`()
+Export the current query buffer: run its SQL and write the results to a file,
+prompting for format + path. Backs `api.export_query`.
+Return ~
+`(nil)`
+
+------------------------------------------------------------------------------
+                                                          *M.export_selection()*
+                             `M.export_selection`()
+Export the current visual selection to a file. Backs `api.export_selection`.
 Return ~
 `(nil)`
 
