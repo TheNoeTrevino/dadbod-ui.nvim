@@ -36,6 +36,8 @@ Fields ~
 {connections_list} `(fun(): DadbodUI.ConnectionInfo[])`
 {execute_query} `(fun())`
 {execute_selection} `(fun())`
+{explain_query} `(fun(opts?: DadbodUI.ExplainOpts))`
+{explain_selection} `(fun(opts?: DadbodUI.ExplainOpts))`
 {cancel_query} `(fun())`
 {get_conn_info} `(fun(key_name: string): table)`
 {find_buffer} `(fun())`
@@ -110,6 +112,26 @@ Return ~
                                                          *M.execute_selection()*
                             `M.execute_selection`()
 Execute the current visual selection through dadbod.
+Return ~
+`(nil)`
+
+------------------------------------------------------------------------------
+                                                             *M.explain_query()*
+                           `M.explain_query`({opts})
+Explain the current query buffer: wrap its SQL in the adapter's EXPLAIN syntax
+and run the plan into the `.dbout` window. `opts.analyze` selects EXPLAIN
+ANALYZE (which runs the query). Backs `api.explain_query`.
+Parameters ~
+{opts} `(optional)` `(DadbodUI.ExplainOpts)`
+Return ~
+`(nil)`
+
+------------------------------------------------------------------------------
+                                                         *M.explain_selection()*
+                         `M.explain_selection`({opts})
+Explain the current visual selection. Backs `api.explain_selection`.
+Parameters ~
+{opts} `(optional)` `(DadbodUI.ExplainOpts)`
 Return ~
 `(nil)`
 
