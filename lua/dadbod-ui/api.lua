@@ -390,10 +390,18 @@ end
 ---@return boolean ok
 ---@return string|nil err
 function M.switch_buffer(name)
-  local ok, err = require('dadbod-ui').switch_buffer(name)
   if name == nil then
+    require('dadbod-ui').switch_buffer()
     return true
   end
+  -- Resolve through the api's own addressing (key_name / group/name / bare) and
+  -- hand the drawer an unambiguous key_name, so a name reused across groups
+  -- switches to exactly the one asked for.
+  local entry = resolve(name)
+  if entry == nil then
+    return false, 'no connection named ' .. tostring(name)
+  end
+  local ok, err = require('dadbod-ui').switch_buffer(entry.key_name)
   return ok == true, err
 end
 

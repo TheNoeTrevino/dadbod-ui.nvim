@@ -7,6 +7,7 @@
 ---@class DadbodUI.UtilsModule
 ---@field slug fun(str: string): string
 ---@field qualified_name fun(name: string, group?: string): string
+---@field display_name fun(name: string, group?: string): string
 ---@field loaded_bufnr fun(full_path: string): integer
 ---@field is_file fun(path: string): boolean
 ---@field is_dir fun(path: string): boolean
@@ -37,6 +38,20 @@ function M.qualified_name(name, group)
     return name
   end
   return group .. '_' .. name
+end
+
+--- The human-facing connection label: `{group}/{name}` when grouped, else just
+--- `{name}`. Used in the winbar and connection pickers so a name reused across
+--- groups reads unambiguously. Display only -- use qualified_name for the on-disk
+--- identifier (buffers/save folder).
+---@param name string
+---@param group? string
+---@return string
+function M.display_name(name, group)
+  if group == nil or group == '' then
+    return name
+  end
+  return group .. '/' .. name
 end
 
 --- The number of a loaded buffer whose name is exactly `full_path`, else -1.
