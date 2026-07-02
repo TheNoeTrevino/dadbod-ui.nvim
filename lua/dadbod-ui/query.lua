@@ -721,6 +721,57 @@ function Query:explain_query(is_visual, opts)
   end)
 end
 
+--- Export the current query buffer (or visual selection) to a file: run its SQL
+--- and write the RESULTS in a chosen format, the export dual of `execute_query`
+--- and the query-buffer counterpart to `.dbout`'s `export_result`. Reuses the same
+--- buffer read (`get_lines`), connection (`b:dbui_db_key_name`) and bind-parameter
+--- flow -- placeholders are prompted and substituted BEFORE the query runs, so the
+--- file reflects the query you'd actually execute. Hands the resolved query +
+--- connection to `export.export_prompt`, which prompts for format + path. The
+--- output filename defaults to the buffer's table name (`b:dbui_table_name`) when
+--- set, else a name derived from the query. Backs `api.export_query`/`export_selection`.
+---@param is_visual? boolean
+---@return nil
+function Query:export_query(is_visual)
+  local notify = require('dadbod-ui.notifications')
+  local export = require('dadbod-ui.export')
+  local lines = self:get_lines(is_visual)
+  local entry = self.instance.dbs[vim.b.dbui_db_key_name]
+  if entry == nil then
+    return notify.error('Buffer not attached to any database')
+  end
+  -- Read the table name now: an async bind-param prompt may resolve after focus
+  -- has moved off this buffer. Empty (a scratch query) => let export derive one.
+  local raw_table = vim.b.dbui_table_name
+  local source = (type(raw_table) == 'string' and raw_table ~= '') and raw_table or nil
+  local pattern = self.config.bind_param_pattern
+  local names = bind_params.detect(lines, pattern)
+
+  -- Hand the (already param-substituted) SQL to the shared interactive export core.
+  local function export_lines(final_lines)
+    export.export_prompt({
+      url = entry.conn,
+      scheme = entry.scheme,
+      query = table.concat(final_lines, '\n'),
+      source = source,
+    })
+  end
+
+  if #names == 0 then
+    return export_lines(lines)
+  end
+
+  -- Capture the buffer now: an async prompt may resolve after focus has moved.
+  local bufnr = vim.api.nvim_get_current_buf()
+  prompt_params(self.input, names, stored_params(bufnr), function(values)
+    if values == nil then
+      return notify.info('Bind parameters cancelled. Query not exported.')
+    end
+    vim.b[bufnr].dbui_bind_params = values
+    export_lines(bind_params.substitute(lines, values, pattern))
+  end)
+end
+
 --- Cancel the running async query for the current query buffer (`:DBUICancelQuery`
 --- / the `cancel` query mapping), through `bridge.cancel`. Gated on
 --- `bridge.can_cancel()`: when dadbod exposes no async cancellation there is

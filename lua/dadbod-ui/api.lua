@@ -105,6 +105,8 @@
 ---@field explain_execute fun(name: string, sql: string, opts?: DadbodUI.ExplainOpts): boolean, string|nil
 ---@field explain_query fun(opts?: DadbodUI.ExplainOpts)
 ---@field explain_selection fun(opts?: DadbodUI.ExplainOpts)
+---@field export_query fun()
+---@field export_selection fun()
 ---@field export fun(spec: DadbodUI.ApiExportSpec): boolean, string|nil
 ---@field export_result fun(page_choice?: 'full'|'current')
 ---@field on fun(event: DadbodUI.EventName, cb: fun(event: DadbodUI.HookEvent)): DadbodUI.EventHandle|nil, string|nil
@@ -829,6 +831,21 @@ end
 ---@param opts? DadbodUI.ExplainOpts
 function M.explain_selection(opts)
   require('dadbod-ui').explain_selection(opts)
+end
+
+--- Export the CURRENT query buffer's results to a file: run its SQL and write the
+--- rows in a chosen format, prompting for format + path -- the query-buffer dual
+--- of `export` (which takes an explicit name+sql+path) and the counterpart to
+--- `export_result` (which works on the `.dbout` result buffer). Reuses the
+--- buffer's connection + bind-param context. Runs on the focused query buffer.
+function M.export_query()
+  require('dadbod-ui').export_query()
+end
+
+--- Export the current VISUAL SELECTION's results to a file -- the export dual of
+--- `execute_selection`. Same prompt + connection/bind-param reuse as `export_query`.
+function M.export_selection()
+  require('dadbod-ui').export_selection()
 end
 
 -- Export ---------------------------------------------------------------------
