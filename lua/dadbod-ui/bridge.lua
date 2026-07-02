@@ -26,9 +26,47 @@
 --- keys, so aliases would inject phantom non-canonical entries (`postgres`,
 --- `sqlite3`) alongside the real ones.
 
+---@alias DadbodUI.SystemCompleted { code: integer, signal: integer, stdout?: string, stderr?: string }
+---@alias DadbodUI.ConnectAsyncCallback fun(ok: boolean, conn: string)
+---@alias DadbodUI.RunManyCallback fun(results: DadbodUI.SystemCompleted[])
+---@alias DadbodUI.ExecuteEventCallback fun(info: DadbodUI.ExecuteEvent)
+---@alias DadbodUI.AutocmdOpts { group?: integer|string, once?: boolean }
+
+---@class DadbodUI.BridgeModule
+---@field is_available fun(): boolean
+---@field parse_url fun(url: string): DadbodUI.ParsedUrl
+---@field resolve fun(url: string): string
+---@field safe_url fun(url: string): string
+---@field scheme_of fun(url: string): string
+---@field schemes fun(): string[]
+---@field supports fun(url: string, name: string): boolean
+---@field adapter_call fun(url: string, name: string, args: any[]|nil, default: any|nil): any
+---@field dispatch fun(url: string, name: string, ...: any): any
+---@field input_extension fun(url: string): string
+---@field output_extension fun(url: string): string
+---@field dbout_input fun(file: string): string|nil
+---@field connect fun(url: string): string
+---@field connect_async fun(url: string, on_result: DadbodUI.ConnectAsyncCallback)
+---@field can_cancel fun(): boolean
+---@field cancel fun(bufnr: integer|nil)
+---@field systemlist fun(cmd: string[], input: string|nil): string[]
+---@field command fun(url: string, mode: string|nil): string[]
+---@field run_many fun(specs: DadbodUI.CommandSpec[], on_done: DadbodUI.RunManyCallback)
+---@field run_many_sync fun(specs: DadbodUI.CommandSpec[], timeout_ms: integer|nil): DadbodUI.SystemCompleted[]
+---@field execute fun(url: string, sql: string, quiet?: boolean, vertical?: boolean)
+---@field execute_buffer fun(quiet?: boolean, vertical?: boolean)
+---@field execute_file fun(file: string, url: string, quiet?: boolean, vertical?: boolean)
+---@field execute_lines fun(lines: string[], url: string, quiet?: boolean, vertical?: boolean)
+---@field on_pre fun(cb: DadbodUI.ExecuteEventCallback, opts?: DadbodUI.AutocmdOpts): integer
+---@field on_post fun(cb: DadbodUI.ExecuteEventCallback, opts?: DadbodUI.AutocmdOpts): integer
+
+---@private
 local fn = vim.fn
+---@private
 local api = vim.api
 
+---@type DadbodUI.BridgeModule
+---@diagnostic disable-next-line: missing-fields
 local M = {}
 
 --- True when vim-dadbod is installed (its autoload is on the runtimepath).
@@ -37,6 +75,7 @@ function M.is_available()
   return fn.globpath(vim.o.runtimepath, 'autoload/db.vim') ~= ''
 end
 
+---@private
 ---@return nil
 local function require_dadbod()
   if not M.is_available() then
@@ -317,7 +356,7 @@ end
 --- Prefer this in the UI: introspection stays off the main thread, the drawer
 --- can show a loading state and fill in as results arrive.
 ---@param specs DadbodUI.CommandSpec[]
----@param on_done fun(results: vim.SystemCompleted[])  results[i] aligns with specs[i]
+---@param on_done DadbodUI.RunManyCallback  results[i] aligns with specs[i]
 ---@return nil
 function M.run_many(specs, on_done)
   local results = {}
@@ -345,7 +384,7 @@ end
 --- async `run_many` in the UI and reserve this for scripts/tests.
 ---@param specs DadbodUI.CommandSpec[]
 ---@param timeout_ms integer|nil
----@return vim.SystemCompleted[]
+---@return DadbodUI.SystemCompleted[]
 function M.run_many_sync(specs, timeout_ms)
   local handles = {}
   for i, spec in ipairs(specs) do
@@ -369,6 +408,7 @@ end
 -- `silent exe mods .. 'split'/'pedit'` (db.vim) open the `.dbout` result window
 -- as a vertical split instead of the default horizontal one -- see
 -- `dadbod-ui.config`'s `result_layout`.
+---@private
 ---@param quiet? boolean
 ---@param vertical? boolean
 ---@return string
@@ -444,9 +484,10 @@ end
 
 -- dadbod fires `doautocmd User {output}/DBExecute{Pre,Post}`; the original UI
 -- matches these with the trailing-suffix pattern `*DBExecutePre|Post`.
+---@private
 ---@param suffix string
----@param cb fun(info: DadbodUI.ExecuteEvent)
----@param opts? { group?: integer|string, once?: boolean }
+---@param cb DadbodUI.ExecuteEventCallback
+---@param opts? DadbodUI.AutocmdOpts
 ---@return integer
 local function on_event(suffix, cb, opts)
   opts = opts or {}

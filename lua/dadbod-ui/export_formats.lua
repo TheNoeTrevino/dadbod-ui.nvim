@@ -13,6 +13,18 @@
 --- SQL NULL is the module sentinel `M.NULL`, never a Lua nil -- Lua arrays cannot
 --- hold nil holes, and we must distinguish a real NULL from an empty string.
 
+---@class DadbodUI.ExportFormatsModule
+---@field NULL table  the SQL-NULL sentinel carried in `ExportData` rows
+---@field csv fun(data: DadbodUI.ExportData, opts?: table): string
+---@field tsv fun(data: DadbodUI.ExportData, opts?: table): string
+---@field json fun(data: DadbodUI.ExportData, opts?: table): string
+---@field markdown fun(data: DadbodUI.ExportData): string
+---@field html fun(data: DadbodUI.ExportData): string
+---@field xml fun(data: DadbodUI.ExportData): string
+---@field sql fun(data: DadbodUI.ExportData, opts?: table): string
+
+---@type DadbodUI.ExportFormatsModule
+---@diagnostic disable-next-line: missing-fields
 local M = {}
 
 --- The SQL-NULL sentinel carried in `ExportData` rows. Compare cells with
@@ -23,12 +35,14 @@ M.NULL = setmetatable({}, {
   end,
 })
 
+---@private
 ---@param v any
 ---@return boolean
 local function is_null(v)
   return v == M.NULL
 end
 
+---@private
 -- Lua-pattern-escape `s` (like `vim.pesc`) and `map(fn, list)` (like
 -- `vim.tbl_map`), reimplemented with only stdlib so this module stays free of the
 -- `vim` API -- it must load and run inside a `vim.uv` worker thread (see
@@ -39,6 +53,7 @@ local function pesc(s)
   return (s:gsub('[%^%$%(%)%%%.%[%]%*%+%-%?]', '%%%1'))
 end
 
+---@private
 ---@param fn fun(v: any): any
 ---@param list any[]
 ---@return any[]
@@ -50,6 +65,7 @@ local function map(fn, list)
   return out
 end
 
+---@private
 --- Whether `s` may be emitted as a bare JSON/SQL numeric or boolean literal under
 --- `coerce_numbers`. Strict on purpose: a plain boolean, or a number with no
 --- leading zeros, no leading/trailing dot, and no exponent -- so `007`, `1.`,
@@ -68,6 +84,7 @@ end
 
 -- CSV / TSV ------------------------------------------------------------------
 
+---@private
 --- A field needs quoting when it contains the delimiter, the quote char, or a
 --- line break (CR/LF) -- the RFC-4180 quoting triggers.
 ---@param value string
@@ -81,6 +98,7 @@ local function needs_quote(value, delimiter, quote)
     or value:find('\r', 1, true) ~= nil
 end
 
+---@private
 --- Render one already-stringified field. With quoting enabled (a non-empty
 --- `quote`), RFC-4180 rules apply: quote when needed, escaping the quote char by
 --- doubling. With quoting disabled (TSV), embedded newlines collapse to
@@ -107,6 +125,7 @@ local function csv_field(value, opts)
   return value
 end
 
+---@private
 --- Join one row (header or data) into a delimited line. Header cells are plain
 --- strings; data cells may be the NULL sentinel, rendered as `null_string`.
 ---@param cells any[]
@@ -125,6 +144,7 @@ local function csv_row(cells, opts, is_data)
   return table.concat(out, opts.delimiter)
 end
 
+---@private
 --- Resolve csv opts over the defaults. `header` defaults true; `quote` defaults
 --- `"`; `null_string` empty; `line_feed_escape` empty (so embedded newlines stay
 --- and trigger quoting).
@@ -179,6 +199,7 @@ end
 
 -- JSON -----------------------------------------------------------------------
 
+---@private
 --- Escape a string for a JSON double-quoted literal: backslash first, then quote
 --- and the common control chars, then any remaining C0 control as `\u00xx`.
 ---@param s string
@@ -192,6 +213,7 @@ local function json_escape(s)
   return s
 end
 
+---@private
 --- A cell as a JSON value: NULL -> `null`; with `coerce_numbers`, a numeric or
 --- boolean-looking string is emitted bare; otherwise a quoted, escaped string.
 ---@param cell any
@@ -236,6 +258,7 @@ end
 
 -- Markdown -------------------------------------------------------------------
 
+---@private
 --- A cell for a GitHub Markdown table: NULL -> empty; pipes escaped as `\|`;
 --- newlines collapsed to `<br>` so the cell stays on one table row.
 ---@param cell any
@@ -270,6 +293,7 @@ end
 
 -- HTML -----------------------------------------------------------------------
 
+---@private
 --- Escape text for HTML element content / attribute values.
 ---@param s string
 ---@return string
@@ -311,6 +335,7 @@ end
 
 -- XML ------------------------------------------------------------------------
 
+---@private
 --- Escape text for XML content / attribute values (adds `'` over HTML).
 ---@param s string
 ---@return string
@@ -343,6 +368,7 @@ end
 
 -- SQL INSERT -----------------------------------------------------------------
 
+---@private
 --- A cell as a SQL literal: NULL -> bare `NULL`; with `coerce_numbers`, a
 --- numeric/boolean-looking string is emitted bare; otherwise a single-quoted
 --- string with `'` doubled.

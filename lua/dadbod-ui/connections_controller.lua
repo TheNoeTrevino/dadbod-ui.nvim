@@ -9,11 +9,22 @@
 --- the instance plus the pure transforms, so it requires neither `drawer` nor
 --- `query` and keeps `state` the dependency sink.
 
+---@alias DadbodUI.ConnectionsControllerOpts { instance: DadbodUI.Instance, input: DadbodUI.UiInput, confirm: DadbodUI.Confirm, render: fun() }
+
+---@class DadbodUI.ConnectionsControllerModule
+---@field new fun(opts: DadbodUI.ConnectionsControllerOpts): DadbodUI.ConnectionsController
+---@field Controller DadbodUI.ConnectionsController
+
+---@private
 local connections = require('dadbod-ui.connections')
+---@private
 local bridge = require('dadbod-ui.bridge')
 
+---@type DadbodUI.ConnectionsControllerModule
+---@diagnostic disable-next-line: missing-fields
 local M = {}
 
+---@private
 --- Resolve and validate a url the user typed. Returns `(resolved, nil)` or
 --- `(nil, err)` when dadbod rejects it.
 ---@param url string

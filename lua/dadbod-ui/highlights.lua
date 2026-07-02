@@ -11,11 +11,18 @@
 --- namespace. Groups are defined once with `default = true` links so users can
 --- override them.
 
+---@class DadbodUI.HighlightsModule
+---@field NS integer  extmark namespace, cleared and repainted on every render
+---@field define fun()
+---@field highlights_for fun(node: DadbodUI.Node, line_text: string, icons: DadbodUI.Icons): DadbodUI.Highlight[]
+
+---@type DadbodUI.HighlightsModule
+---@diagnostic disable-next-line: missing-fields
 local M = {}
 
--- Dedicated namespace cleared and repainted on every render.
 M.NS = vim.api.nvim_create_namespace('dadbod_ui')
 
+---@private
 -- Node type -> the highlight group for its icon column. Anything not listed
 -- falls back to DadbodUIIcon (linked to Directory), matching the original, which
 -- links most icon glyphs to Directory and singles out a few by icon name.

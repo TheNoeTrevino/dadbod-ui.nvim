@@ -13,10 +13,19 @@
 ---     literal `\N` for SQL NULL, so NULLs ARE recovered here (mapped to the
 ---     `export_formats.NULL` sentinel).
 
+---@class DadbodUI.ExportExtractModule
+---@field from_csv fun(text: string, opts?: { delimiter?: string, quote?: string }): DadbodUI.ExportData
+---@field from_tsv fun(text: string, opts?: { header?: boolean }): DadbodUI.ExportData
+---@field parse fun(scheme: string, text: string): DadbodUI.ExportData
+
+---@private
 local formats = require('dadbod-ui.export_formats')
 
+---@type DadbodUI.ExportExtractModule
+---@diagnostic disable-next-line: missing-fields
 local M = {}
 
+---@private
 -- Plain (non-pattern) split on a literal separator, like
 -- `vim.split(s, sep, { plain = true })`. Reimplemented with only stdlib so this
 -- module (and its `export_formats` dependency) stays free of the `vim` API and can
@@ -40,6 +49,7 @@ end
 
 -- CSV (RFC-4180) -------------------------------------------------------------
 
+---@private
 --- Parse RFC-4180 CSV `text` into a list of row arrays (each a list of string
 --- fields). Handles quoted fields containing the delimiter, CR/LF, and doubled
 --- quote escapes. A trailing record separator does not yield a spurious empty row.
@@ -113,6 +123,7 @@ local function parse_csv(text, delimiter, quote)
   return rows
 end
 
+---@private
 --- Turn a list of parsed row-arrays into `ExportData`: the first row becomes the
 --- column header, the rest the data rows. `null_marker` (when given) maps a field
 --- equal to it to the NULL sentinel. Empty input yields empty columns/rows.
@@ -156,8 +167,10 @@ end
 
 -- TSV (mysql --batch) --------------------------------------------------------
 
+---@private
 local TSV_UNESCAPE = { t = '\t', n = '\n', r = '\r', ['0'] = '\0', ['\\'] = '\\' }
 
+---@private
 --- Unescape one mysql `--batch` field: `\t \n \r \0 \\` map to their characters,
 --- any other `\x` drops the backslash. (A whole-field `\N` is handled before this
 --- as SQL NULL.)

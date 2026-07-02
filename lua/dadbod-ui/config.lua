@@ -4,6 +4,14 @@
 --- smooth migration we also read the legacy `g:db_ui_*` globals: precedence is
 --- defaults < legacy globals < `setup()` opts.
 
+---@class DadbodUI.ConfigModule
+---@field defaults DadbodUI.Config
+---@field mapping_sections { group: string, title: string }[]
+---@field mapping_order table<string, string[]>
+---@field resolve fun(opts?: table): DadbodUI.Config
+
+---@type DadbodUI.ConfigModule
+---@diagnostic disable-next-line: missing-fields
 local M = {}
 
 --- Built-in defaults. Keys mirror the original `g:db_ui_*` options with the
@@ -191,12 +199,14 @@ M.mapping_order = {
   results = { 'jump_foreign', 'cell_value', 'yank_header', 'toggle_layout', 'next_page', 'prev_page', 'export' },
 }
 
+---@private
 -- The two function-valued options used the capitalized `g:Db_ui_*` globals.
 local funcref_globals = {
   buffer_name_generator = 'Db_ui_buffer_name_generator',
   table_name_sorter = 'Db_ui_table_name_sorter',
 }
 
+---@private
 -- vimscript stores booleans as 0/1; in Lua 0 is truthy, so coerce per type.
 ---@param default any
 ---@param value any
@@ -208,6 +218,7 @@ local function coerce(default, value)
   return value
 end
 
+---@private
 -- Read a legacy global for `key`, or nil when unset. `0` funcref globals (the
 -- "disabled" sentinel) are treated as nil.
 ---@param key string
