@@ -126,6 +126,8 @@
 ---@field off fun(handle: DadbodUI.EventHandle): boolean
 ---@field statusline fun(opts?: DadbodUI.StatuslineOpts): string
 
+-- NOTE: its okay if this gets really big. Its just a place for us to put things users can leverage to script
+
 local state = require('dadbod-ui.state')
 local bridge = require('dadbod-ui.bridge')
 
