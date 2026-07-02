@@ -1,10 +1,10 @@
----@mod dadbod-ui.schemas.parse  Shared parsing/escaping helpers for schema adapters
----
---- Internal helpers used by the per-adapter builders (and the dispatcher): Vim
---- list-slice emulation, blank detection, SQL identifier/literal escaping, the
---- routine-kind keyword map, and the `s:results_parser` port. These are ported
---- verbatim from vim-dadbod-ui's `autoload/db_ui/schemas.vim`; the slicing and
---- splitting rules encode each CLI's exact output framing and must not change.
+-- Shared parsing/escaping helpers for schema adapters
+--
+-- Internal helpers used by the per-adapter builders (and the dispatcher): Vim
+-- list-slice emulation, blank detection, SQL identifier/literal escaping, the
+-- routine-kind keyword map, and the `s:results_parser` port. These are ported
+-- verbatim from vim-dadbod-ui's `autoload/db_ui/schemas.vim`; the slicing and
+-- splitting rules encode each CLI's exact output framing and must not change.
 
 local P = {}
 

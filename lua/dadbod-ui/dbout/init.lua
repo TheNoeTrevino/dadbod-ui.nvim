@@ -1,22 +1,22 @@
----@mod dadbod-ui.dbout  Result buffers: in-buffer loading spinner + result list
----
---- Drives the `.dbout` result buffers that dadbod produces. dadbod opens the
---- (empty) output buffer in a preview window and fires `*DBExecutePre`, runs the
---- query asynchronously, reloads the file with rows, then fires `*DBExecutePost`.
---- We hook those events to animate a loading spinner *inside* the output buffer
---- while the query runs (replaced by the rows on completion), and we record each
---- executed result under the drawer's `Query results` section.
----
---- This deviates from the original on the loading symbol only: vim-dadbod-ui
---- shows a floating progress window, whereas we animate a braille `dots12`
---- spinner in the buffer itself. Both are gated by `disable_progress_bar`.
----
---- This module is the wiring / coordinator: it owns the per-execution pending
---- context and the DB event hooks (`_on_pre`/`_on_post`), and delegates the result
---- winbar / summary to `dadbod-ui.dbout.winbar`, pagination to
---- `dadbod-ui.dbout.pagination`, and folding + cell navigation to
---- `dadbod-ui.dbout.cells`. Their surfaces are re-exported here so
---- `require('dadbod-ui.dbout').<name>` stays the single public entry point.
+-- Result buffers: in-buffer loading spinner + result list
+--
+-- Drives the `.dbout` result buffers that dadbod produces. dadbod opens the
+-- (empty) output buffer in a preview window and fires `*DBExecutePre`, runs the
+-- query asynchronously, reloads the file with rows, then fires `*DBExecutePost`.
+-- We hook those events to animate a loading spinner *inside* the output buffer
+-- while the query runs (replaced by the rows on completion), and we record each
+-- executed result under the drawer's `Query results` section.
+--
+-- This deviates from the original on the loading symbol only: vim-dadbod-ui
+-- shows a floating progress window, whereas we animate a braille `dots12`
+-- spinner in the buffer itself. Both are gated by `disable_progress_bar`.
+--
+-- This module is the wiring / coordinator: it owns the per-execution pending
+-- context and the DB event hooks (`_on_pre`/`_on_post`), and delegates the result
+-- winbar / summary to `dadbod-ui.dbout.winbar`, pagination to
+-- `dadbod-ui.dbout.pagination`, and folding + cell navigation to
+-- `dadbod-ui.dbout.cells`. Their surfaces are re-exported here so
+-- `require('dadbod-ui.dbout').<name>` stays the single public entry point.
 
 local bridge = require('dadbod-ui.bridge')
 local spinner = require('dadbod-ui.spinner')

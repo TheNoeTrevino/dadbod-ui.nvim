@@ -1,19 +1,19 @@
----@mod dadbod-ui.schemas  Per-adapter schema/table introspection (SQL + parsers)
----
---- Faithful port of vim-dadbod-ui's `autoload/db_ui/schemas.vim`. Each supported
---- adapter carries the SQL that lists its schemas and its (schema, table) pairs,
---- plus a `parse_results` function that turns the raw command output into either
---- a list of names (`min_len == 1`) or a list of `{ schema, table }` rows
---- (`min_len == 2`). The queries and the slicing/splitting rules are ported
---- verbatim -- they encode each CLI's exact output framing (header rows, footer
---- counts, column delimiters) and must not be paraphrased.
----
---- We diverge from the original in *execution only*: instead of dadbod's blocking
---- `db#systemlist`, the drawer builds a `DadbodUI.CommandSpec` via `command_spec`
---- and runs schema + table listing concurrently through `bridge.run_many`, so a
---- large database never freezes the UI on expand. The command construction still
---- goes through dadbod (via `bridge.command`) so the per-adapter argv stays
---- correct.
+-- Per-adapter schema/table introspection (SQL + parsers)
+--
+-- Faithful port of vim-dadbod-ui's `autoload/db_ui/schemas.vim`. Each supported
+-- adapter carries the SQL that lists its schemas and its (schema, table) pairs,
+-- plus a `parse_results` function that turns the raw command output into either
+-- a list of names (`min_len == 1`) or a list of `{ schema, table }` rows
+-- (`min_len == 2`). The queries and the slicing/splitting rules are ported
+-- verbatim -- they encode each CLI's exact output framing (header rows, footer
+-- counts, column delimiters) and must not be paraphrased.
+--
+-- We diverge from the original in *execution only*: instead of dadbod's blocking
+-- `db#systemlist`, the drawer builds a `DadbodUI.CommandSpec` via `command_spec`
+-- and runs schema + table listing concurrently through `bridge.run_many`, so a
+-- large database never freezes the UI on expand. The command construction still
+-- goes through dadbod (via `bridge.command`) so the per-adapter argv stays
+-- correct.
 
 ---@class DadbodUI.SchemasModule
 ---@field results_parser fun(results: string[], delimiter: string, min_len: integer): any[]

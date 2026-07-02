@@ -1,10 +1,10 @@
----@mod dadbod-ui.dbout.winbar  Result summary + winbar compositing + export overlay
----
---- Everything that paints the `.dbout` result window's `winbar`: the pure summary
---- builders (`_footer_rows`/`_data_rows`/`_count_rows`/`_summary_text`), the
---- two-part compositing of the per-buffer query-time / pagination base and the
---- global export overlay, the pagination + nav segments, and the ghost text
---- trailing the executed query line. `init` drives these from `_on_pre`/`_on_post`.
+-- Result summary + winbar compositing + export overlay
+--
+-- Everything that paints the `.dbout` result window's `winbar`: the pure summary
+-- builders (`_footer_rows`/`_data_rows`/`_count_rows`/`_summary_text`), the
+-- two-part compositing of the per-buffer query-time / pagination base and the
+-- global export overlay, the pagination + nav segments, and the ghost text
+-- trailing the executed query line. `init` drives these from `_on_pre`/`_on_post`.
 
 local spinner = require('dadbod-ui.spinner')
 local spinners = require('dadbod-ui.spinners')

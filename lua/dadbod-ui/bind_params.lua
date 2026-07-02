@@ -1,33 +1,33 @@
----@mod dadbod-ui.bind_params  Bind-parameter detection, quoting and substitution
----
---- The pure, side-effect-free core of M9. vim-dadbod-ui scans a query for
---- placeholders (default `:name`), prompts for each, and substitutes the quoted
---- values before handing the SQL to the engine. This module owns the three
---- testable pieces of that flow -- detection, value quoting, and substitution --
---- while `dadbod-ui.query` owns the interactive prompting and the
---- `b:dbui_bind_params` persistence. None of these functions touch a buffer, the
---- engine, or config, so they unit-test directly.
----
---- Deliberate improvements over the original (`autoload/db_ui/query.vim` +
---- `quote_query_value`):
----   * Placeholders are matched with `vim.regex` against the user's Vim-regex
----     `bind_param_pattern`, so a custom pattern (e.g. `\$\d\+`) Just Works
----     without rebuilding a vimscript regex by string concatenation.
----   * A placeholder is ignored when it sits inside a single-quoted SQL string
----     literal (`'... :id ...'`) or a comment (`-- :id`, `/* :id */`) --
----     consistently for BOTH detection and substitution. A small lexer carries
----     string and block-comment state across lines, so multi-line literals and
----     `/* ... */` blocks mask correctly. The original filtered such names out of
----     prompting but would still substitute them if the same name appeared
----     unquoted elsewhere, handled only single-line single-quoted strings, and
----     never skipped comments.
----   * The colon-prefix guard (so `value::text` casts are not seen as `:text`
----     placeholders) is a single "preceding char is not `:`" check rather than a
----     grouped capture, which keeps it pattern-agnostic.
----   * `quote()` escapes embedded single quotes (`O'Brien` -> `'O''Brien'`),
----     passes NULL and decimals/negatives through bare, and still respects an
----     already-quoted literal -- the original neither escaped quotes nor knew
----     about NULL or non-integer numbers.
+-- Bind-parameter detection, quoting and substitution
+--
+-- The pure, side-effect-free core of M9. vim-dadbod-ui scans a query for
+-- placeholders (default `:name`), prompts for each, and substitutes the quoted
+-- values before handing the SQL to the engine. This module owns the three
+-- testable pieces of that flow -- detection, value quoting, and substitution --
+-- while `dadbod-ui.query` owns the interactive prompting and the
+-- `b:dbui_bind_params` persistence. None of these functions touch a buffer, the
+-- engine, or config, so they unit-test directly.
+--
+-- Deliberate improvements over the original (`autoload/db_ui/query.vim` +
+-- `quote_query_value`):
+--   * Placeholders are matched with `vim.regex` against the user's Vim-regex
+--     `bind_param_pattern`, so a custom pattern (e.g. `\$\d\+`) Just Works
+--     without rebuilding a vimscript regex by string concatenation.
+--   * A placeholder is ignored when it sits inside a single-quoted SQL string
+--     literal (`'... :id ...'`) or a comment (`-- :id`, `/* :id */`) --
+--     consistently for BOTH detection and substitution. A small lexer carries
+--     string and block-comment state across lines, so multi-line literals and
+--     `/* ... */` blocks mask correctly. The original filtered such names out of
+--     prompting but would still substitute them if the same name appeared
+--     unquoted elsewhere, handled only single-line single-quoted strings, and
+--     never skipped comments.
+--   * The colon-prefix guard (so `value::text` casts are not seen as `:text`
+--     placeholders) is a single "preceding char is not `:`" check rather than a
+--     grouped capture, which keeps it pattern-agnostic.
+--   * `quote()` escapes embedded single quotes (`O'Brien` -> `'O''Brien'`),
+--     passes NULL and decimals/negatives through bare, and still respects an
+--     already-quoted literal -- the original neither escaped quotes nor knew
+--     about NULL or non-integer numbers.
 
 ---@class DadbodUI.BindParamsModule
 ---@field quote fun(val: string): string

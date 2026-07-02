@@ -1,9 +1,9 @@
----@mod dadbod-ui.icons  Effective drawer icon set
----
---- Resolves the icon table the drawer renders with: a base set (plain unicode or
---- nerd-font glyphs) merged with the user's `icons` overrides. `expanded` /
---- `collapsed` may be given as a single string (applies to every node type) or a
---- per-type table. The `group` icon falls back to the `db` icon.
+-- Effective drawer icon set
+--
+-- Resolves the icon table the drawer renders with: a base set (plain unicode or
+-- nerd-font glyphs) merged with the user's `icons` overrides. `expanded` /
+-- `collapsed` may be given as a single string (applies to every node type) or a
+-- per-type table. The `group` icon falls back to the `db` icon.
 
 ---@class DadbodUI.IconsModule
 ---@field resolve fun(config: DadbodUI.Config): DadbodUI.Icons

@@ -1,9 +1,9 @@
----@mod dadbod-ui.drawer.paint  The buffer-touching render half (lines + extmarks)
----
---- Standalone functions (no `self`): the drawer hands them a buffer, a node list
---- and the resolved icons. Kept apart from `drawer/content.lua` (the pure
---- `Node[]` builders) so the build/paint purity split stays visible in the file
---- layout.
+-- The buffer-touching render half (lines + extmarks)
+--
+-- Standalone functions (no `self`): the drawer hands them a buffer, a node list
+-- and the resolved icons. Kept apart from `drawer/content.lua` (the pure
+-- `Node[]` builders) so the build/paint purity split stays visible in the file
+-- layout.
 
 local highlights = require('dadbod-ui.highlights')
 

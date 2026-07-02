@@ -1,14 +1,14 @@
----@mod dadbod-ui.notifications  User-facing messages
----
---- Neovim-native port of vim-dadbod-ui's notification layer. Messages route
---- through `vim.notify` (so a UI plugin like nvim-notify can render them), with
---- an `:echo` fallback for users who prefer the command line. The legacy Vim-8
---- popup/float backends are dropped.
----
---- Honors the resolved config (read lazily from `dadbod-ui.state`):
---- `disable_info_notifications` suppresses info, `force_echo_notifications`
---- forces the echo backend, `use_nvim_notify` opts into nvim-notify niceties
---- (info-toast replacement). The title is always `[DBUI]`.
+-- User-facing messages
+--
+-- Neovim-native port of vim-dadbod-ui's notification layer. Messages route
+-- through `vim.notify` (so a UI plugin like nvim-notify can render them), with
+-- an `:echo` fallback for users who prefer the command line. The legacy Vim-8
+-- popup/float backends are dropped.
+--
+-- Honors the resolved config (read lazily from `dadbod-ui.state`):
+-- `disable_info_notifications` suppresses info, `force_echo_notifications`
+-- forces the echo backend, `use_nvim_notify` opts into nvim-notify niceties
+-- (info-toast replacement). The title is always `[DBUI]`.
 
 ---@class DadbodUI.NotificationsModule
 ---@field info fun(msg: string|string[], opts?: DadbodUI.NotifyOpts)

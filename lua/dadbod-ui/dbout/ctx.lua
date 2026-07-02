@@ -1,9 +1,9 @@
----@mod dadbod-ui.dbout.ctx  Shared dbout state: attached drawer + effective config
----
---- The one bit of module state the dbout submodules share with `init`: the
---- attached drawer and the `current_config` helper derived from it. Kept in its
---- own file so `winbar` / `pagination` / `cells` can read the effective config
---- without requiring `init` (which requires them -- that would be circular).
+-- Shared dbout state: attached drawer + effective config
+--
+-- The one bit of module state the dbout submodules share with `init`: the
+-- attached drawer and the `current_config` helper derived from it. Kept in its
+-- own file so `winbar` / `pagination` / `cells` can read the effective config
+-- without requiring `init` (which requires them -- that would be circular).
 
 ---@class DadbodUI.DboutCtx
 --- The drawer the dbout module re-renders through; set by `init` on attach, read

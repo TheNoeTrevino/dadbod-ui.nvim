@@ -1,19 +1,19 @@
----@mod dadbod-ui.paginator  Per-adapter result-set pagination (data + rewrite)
----
---- Appends a LIMIT/OFFSET paging clause to a plain SELECT so result buffers can
---- show one page at a time and step through with `[` / `]`. Modelled on DBeaver's
---- approach: NOT a subquery wrap -- the clause is appended to the query string and
---- a guard bails out the moment the query already carries a paging clause or is
---- not a plain SELECT.
----
---- Two append styles, declared per scheme below (mirroring the scheme->config
---- shape of `dadbod-ui.table_helpers`):
----   * `limit_offset` -- `LIMIT <length> OFFSET <offset>` (postgres, sqlite,
----     clickhouse, bigquery)
----   * `limit_comma`  -- `LIMIT <offset>, <length>` (mysql, mariadb)
---- sqlserver (TOP injection) and oracle (ROWNUM) are left UNSUPPORTED for now --
---- DBeaver does these at the AST level / has oracle commented out -- so they are
---- absent from the table and `paginate` no-ops for them.
+-- Per-adapter result-set pagination (data + rewrite)
+--
+-- Appends a LIMIT/OFFSET paging clause to a plain SELECT so result buffers can
+-- show one page at a time and step through with `[` / `]`. Modelled on DBeaver's
+-- approach: NOT a subquery wrap -- the clause is appended to the query string and
+-- a guard bails out the moment the query already carries a paging clause or is
+-- not a plain SELECT.
+--
+-- Two append styles, declared per scheme below (mirroring the scheme->config
+-- shape of `dadbod-ui.table_helpers`):
+--   * `limit_offset` -- `LIMIT <length> OFFSET <offset>` (postgres, sqlite,
+--     clickhouse, bigquery)
+--   * `limit_comma`  -- `LIMIT <offset>, <length>` (mysql, mariadb)
+-- sqlserver (TOP injection) and oracle (ROWNUM) are left UNSUPPORTED for now --
+-- DBeaver does these at the AST level / has oracle commented out -- so they are
+-- absent from the table and `paginate` no-ops for them.
 
 ---@class DadbodUI.PaginatorModule
 ---@field supports fun(scheme: string): boolean
