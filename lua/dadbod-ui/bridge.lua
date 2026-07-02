@@ -236,24 +236,32 @@ function M.connect_async(url, on_result)
     return finish(true, resolved)
   end
 
+  -- `vim.system`'s callback runs in a fast event context (|api-fast|), where
+  -- reading a Vim option (adapter_call/dispatch -> resolve -> is_available ->
+  -- `vim.o.runtimepath`) raises E5560. Do ALL post-processing on the main loop:
+  -- everything below touches Vim fns, so the whole body is scheduled and calls
+  -- `on_result` directly (finish/fallback_sync would double-schedule).
   vim.system(probe.cmd, { text = true, stdin = probe.stdin }, function(obj)
-    if probe.input_file then
-      pcall(fn.delete, probe.input_file)
-    end
-    if obj.code == 0 then
-      return finish(true, resolved)
-    end
-    -- Mirror `db#connect`'s auth-retry guard: output matches the adapter's auth
-    -- pattern (case-insensitive) AND the url has a user with no password. Only
-    -- then is a password prompt warranted -- defer to the blocking connect for it.
-    local pattern = M.adapter_call(resolved, 'auth_pattern', {}, 'auth\\|login')
-    local out = (obj.stdout or '') .. '\n' .. (obj.stderr or '')
-    local needs_auth = fn.match(out, '\\c' .. pattern) > -1 and fn.match(resolved, '^[^:]*://[^:/@]*@') > -1
-    if needs_auth then
-      return fallback_sync()
-    end
-    local err = obj.stderr ~= nil and obj.stderr ~= '' and obj.stderr or (obj.stdout or '')
-    finish(false, 'DB exec error: ' .. err)
+    vim.schedule(function()
+      if probe.input_file then
+        pcall(fn.delete, probe.input_file)
+      end
+      if obj.code == 0 then
+        return on_result(true, resolved)
+      end
+      -- Mirror `db#connect`'s auth-retry guard: output matches the adapter's auth
+      -- pattern (case-insensitive) AND the url has a user with no password. Only
+      -- then is a password prompt warranted -- defer to the blocking connect for it.
+      local pattern = M.adapter_call(resolved, 'auth_pattern', {}, 'auth\\|login')
+      local out = (obj.stdout or '') .. '\n' .. (obj.stderr or '')
+      local needs_auth = fn.match(out, '\\c' .. pattern) > -1 and fn.match(resolved, '^[^:]*://[^:/@]*@') > -1
+      if needs_auth then
+        local ok, conn = pcall(M.connect, url)
+        return on_result(ok, conn)
+      end
+      local err = obj.stderr ~= nil and obj.stderr ~= '' and obj.stderr or (obj.stdout or '')
+      on_result(false, 'DB exec error: ' .. err)
+    end)
   end)
 end
 
