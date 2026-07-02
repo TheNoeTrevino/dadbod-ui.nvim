@@ -69,7 +69,13 @@ function M._step_page(delta)
     return notify.error('Unable to paginate this query.')
   end
 
-  set_pending(vim.tbl_extend('force', state, { page = new_page }))
+  -- Clear the stale `last` flag when stepping to a different page: it belongs to
+  -- the page we are leaving, and `_on_post` recomputes it from the new page's row
+  -- count. Left set, a failed row count on a non-last page would carry the old
+  -- `last = true` forward and make `]` refuse to advance ever after.
+  local next_state = vim.tbl_extend('force', state, { page = new_page })
+  next_state.last = nil
+  set_pending(next_state)
   -- No "Loading page N" notification: the result winbar carries the page state
   -- and shows a "running" segment for the load (painted from `_on_pre`), so the
   -- feedback stays inline and the command line stays quiet.

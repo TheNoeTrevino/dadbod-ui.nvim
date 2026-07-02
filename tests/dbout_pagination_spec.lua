@@ -141,3 +141,41 @@ describe('dbout: _step_page last-page guard', function()
     assert.same({}, infos)
   end)
 end)
+
+describe('dbout: _step_page clears the stale last flag', function()
+  local bridge = require('dadbod-ui.bridge')
+  local pagination = require('dadbod-ui.dbout.pagination')
+  local captured, orig_exec
+
+  before_each(function()
+    captured = nil
+    orig_exec = bridge.execute_lines
+    bridge.execute_lines = function() end
+    -- Intercept the page state _step_page arms for the next execution.
+    pagination._set_pending_fn(function(s)
+      captured = s
+    end)
+  end)
+
+  after_each(function()
+    bridge.execute_lines = orig_exec
+    pagination._set_pending_fn(dbout.set_pending) -- restore init's channel
+    vim.b.dbui_page = nil
+  end)
+
+  it('drops last when stepping forward off a non-last page', function()
+    vim.b.dbui_page = state({ page = 1, last = false })
+    dbout.next_page()
+    assert.equals(2, captured.page)
+    -- last belongs to the page we left; it must be recomputed for the new page,
+    -- so a failed row count can't carry a stale true forward and jam `]`.
+    assert.is_nil(captured.last)
+  end)
+
+  it('drops last when stepping back off the last page', function()
+    vim.b.dbui_page = state({ page = 3, last = true })
+    dbout.prev_page()
+    assert.equals(2, captured.page)
+    assert.is_nil(captured.last)
+  end)
+end)
