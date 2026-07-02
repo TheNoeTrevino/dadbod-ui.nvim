@@ -222,7 +222,11 @@ describe('api: sqlite end-to-end (guarded)', function()
     local rows, err = api.query_sync('qa', 'select name from contacts')
     assert.is_nil(err)
     assert.is_truthy(rows)
-    assert.is_true(vim.tbl_contains(rows, 'ada'))
+    -- Raw adapter output: the sqlite3 CLI pads/formats cells differently across
+    -- versions, so match the value as a substring rather than an exact line.
+    assert.is_truthy(vim.iter(rows):any(function(line)
+      return line:find('ada', 1, true) ~= nil
+    end))
     assert.is_true(api.is_connected('qa'))
   end)
 
