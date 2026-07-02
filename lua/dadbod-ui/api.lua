@@ -102,29 +102,28 @@ local M = {}
 ---@return DadbodUI.ConnectionEntry|nil
 local function resolve(name)
   local instance = state.get()
+  local list = instance.dbs_list
+  -- Each form is tried as its OWN pass so precedence holds across the whole list:
+  -- an exact key_name anywhere beats a bare-name match earlier in the list.
   -- Exact key_name: never ambiguous, so it wins.
-  for _, record in ipairs(instance.dbs_list) do
-    if record.key_name == name then
-      return instance.dbs[record.key_name]
-    end
-  end
+  local record = vim.iter(list):find(function(r)
+    return r.key_name == name
+  end)
   -- `group/name`: the friendly disambiguator for a name reused across groups.
   local group, conn = name:match('^(.+)/(.+)$')
-  if group ~= nil then
-    for _, record in ipairs(instance.dbs_list) do
-      if record.group == group and record.name == conn then
-        return instance.dbs[record.key_name]
-      end
-    end
+  if record == nil and group ~= nil then
+    record = vim.iter(list):find(function(r)
+      return r.group == group and r.name == conn
+    end)
   end
-  -- Bare display name (first match; falls through here when the name legitimately
-  -- contains a '/' but matches no group).
-  for _, record in ipairs(instance.dbs_list) do
-    if record.name == name then
-      return instance.dbs[record.key_name]
-    end
+  -- Bare display name (first match; reached when `name` has no '/' or its
+  -- group/name form matched nothing but the literal name still exists).
+  if record == nil then
+    record = vim.iter(list):find(function(r)
+      return r.name == name
+    end)
   end
-  return nil
+  return record and instance.dbs[record.key_name] or nil
 end
 
 --- A fresh introspection controller bound to the current session config, with a
