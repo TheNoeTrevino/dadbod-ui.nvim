@@ -66,10 +66,10 @@ local function paginatable(sql)
   if lower:find(';', 1, true) then
     return false -- multiple statements; pagination targets a single SELECT
   end
-  for _, kw in ipairs(guard) do
-    if lower:match('%f[%a]' .. kw .. '%f[%A]') then
-      return false
-    end
+  if vim.iter(guard):any(function(kw)
+    return lower:match('%f[%a]' .. kw .. '%f[%A]') ~= nil
+  end) then
+    return false -- an existing paging/aggregate guard word
   end
   return true
 end

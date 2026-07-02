@@ -105,13 +105,25 @@ function M.from_global(g_db, g_dbs)
     return out
   end
   if vim.islist(g_dbs) then
-    for _, db in ipairs(g_dbs) do
-      out[#out + 1] = record(db.name, resolve_var(db.url), 'g:dbs', db.group)
-    end
+    vim.list_extend(
+      out,
+      vim
+        .iter(g_dbs)
+        :map(function(db)
+          return record(db.name, resolve_var(db.url), 'g:dbs', db.group)
+        end)
+        :totable()
+    )
   else
-    for name, url in pairs(g_dbs) do
-      out[#out + 1] = record(name, resolve_var(url), 'g:dbs')
-    end
+    vim.list_extend(
+      out,
+      vim
+        .iter(g_dbs)
+        :map(function(name, url)
+          return record(name, resolve_var(url), 'g:dbs')
+        end)
+        :totable()
+    )
   end
   return out
 end
@@ -146,14 +158,15 @@ end
 ---@return DadbodUI.ConnectionRecord[]
 function M.from_dotenv(env, config)
   local prefix = config.dotenv_variable_prefix
-  local out = {}
-  for name, url in pairs(env) do
-    if name:sub(1, #prefix) == prefix then
-      local db_name = name:sub(#prefix + 1):lower()
-      out[#out + 1] = record(db_name, url, 'dotenv')
-    end
-  end
-  return out
+  return vim
+    .iter(env)
+    :filter(function(name)
+      return name:sub(1, #prefix) == prefix
+    end)
+    :map(function(name, url)
+      return record(name:sub(#prefix + 1):lower(), url, 'dotenv')
+    end)
+    :totable()
 end
 
 --- Records from a decoded connections.json array (`{ name, url, group? }`).
@@ -352,19 +365,16 @@ end
 ---@return DadbodUI.FileConnection[]|nil, string|nil
 function M.rename_connection(list, old_name, old_url, new_name, new_url, group)
   local resolved = bridge.resolve(old_url):lower()
-  local match_idx = nil
-  for i, conn in ipairs(list) do
-    if target_conn(conn, old_name, resolved, group) then
-      match_idx = i
-      break
-    end
-  end
+  local match_idx = vim.iter(ipairs(list)):find(function(_, conn)
+    return target_conn(conn, old_name, resolved, group)
+  end)
   -- A rename keeps the entry's group, so the new name only collides within it.
   local group = match_idx ~= nil and (list[match_idx].group or '') or ''
-  for i, conn in ipairs(list) do
-    if i ~= match_idx and same_slot(conn, new_name, group) then
-      return nil, 'Connection with that name already exists in that group. Please enter a different name.'
-    end
+  local collides = vim.iter(ipairs(list)):any(function(i, conn)
+    return i ~= match_idx and same_slot(conn, new_name, group)
+  end)
+  if collides then
+    return nil, 'Connection with that name already exists in that group. Please enter a different name.'
   end
   local out = vim.deepcopy(list)
   if match_idx ~= nil then
@@ -394,18 +404,14 @@ end
 ---@return DadbodUI.FileConnection[]|nil, string|nil
 function M.set_group(list, name, url, group, cur_group)
   local resolved = bridge.resolve(url):lower()
-  local match_idx = nil
-  for i, conn in ipairs(list) do
-    if target_conn(conn, name, resolved, cur_group) then
-      match_idx = i
-      break
-    end
-  end
-  for i, conn in ipairs(list) do
-    local conn_group = conn.group or ''
-    if i ~= match_idx and conn.name:lower() == name:lower() and conn_group:lower() == group:lower() then
-      return nil, 'A connection with that name already exists in that group. Please choose a different group.'
-    end
+  local match_idx = vim.iter(ipairs(list)):find(function(_, conn)
+    return target_conn(conn, name, resolved, cur_group)
+  end)
+  local collides = vim.iter(ipairs(list)):any(function(i, conn)
+    return i ~= match_idx and conn.name:lower() == name:lower() and (conn.group or ''):lower() == group:lower()
+  end)
+  if collides then
+    return nil, 'A connection with that name already exists in that group. Please choose a different group.'
   end
   local out = vim.deepcopy(list)
   if match_idx ~= nil then
@@ -476,13 +482,9 @@ function M.move_connection(list, name, url, direction, group)
   -- Deepcopy up front and drive everything off the copy's visual order, so the
   -- returned list is a fresh, block-contiguous ordering and the input is untouched.
   local out = visual_order(vim.deepcopy(list))
-  local i = nil
-  for idx, conn in ipairs(out) do
-    if target_conn(conn, name, resolved, group) then
-      i = idx
-      break
-    end
-  end
+  local i = vim.iter(ipairs(out)):find(function(_, conn)
+    return target_conn(conn, name, resolved, group)
+  end)
   if i == nil then
     return out, nil
   end
@@ -505,10 +507,11 @@ function M.move_connection(list, name, url, direction, group)
   -- down), so only the group changes -- no reorder. Refuse a name collision in
   -- the target group first (mirrors add/set_group).
   local target_group = neighbor.group or ''
-  for k, conn in ipairs(out) do
-    if k ~= i and same_slot(conn, name, target_group) then
-      return nil, 'A connection with that name already exists in that group. Please choose a different group.'
-    end
+  local collides = vim.iter(ipairs(out)):any(function(k, conn)
+    return k ~= i and same_slot(conn, name, target_group)
+  end)
+  if collides then
+    return nil, 'A connection with that name already exists in that group. Please choose a different group.'
   end
   -- (An explicit if/else, not `cond and nil or x`: that idiom can't yield nil.)
   if target_group == '' then
