@@ -153,10 +153,13 @@ function Query:generate_buffer_name(entry, opts)
   if opts.table ~= nil and opts.table ~= '' then
     suffix = string.format('%s-%s', opts.table, opts.label)
   end
-  local buffer_name = utils.slug(string.format('%s-%s', entry.name, suffix))
+  -- Prefix with the group-qualified name (not the bare `entry.name`) so tmp query
+  -- files for a name reused across groups stay namespaced and resolve back to the
+  -- right connection (see get_saved_query_db_name / Drawer:pick_db).
+  local buffer_name = utils.slug(string.format('%s-%s', entry.save_name, suffix))
   buffer_name = string.format('%s-%s.%s', buffer_name, time, entry.extension)
   if self.config.buffer_name_generator then
-    buffer_name = string.format('%s-%s', entry.name, self.config.buffer_name_generator(opts))
+    buffer_name = string.format('%s-%s', entry.save_name, self.config.buffer_name_generator(opts))
   end
   if self.instance.tmp_location ~= '' then
     return string.format('%s/%s', self.instance.tmp_location, buffer_name)
@@ -832,10 +835,13 @@ function Query:get_saved_query_db_name()
       filename = vim.fn.fnamemodify(filename, ':e')
     end
     local match = vim.iter(self.instance.dbs_list):find(function(record)
-      return filename:match('^' .. vim.pesc(record.name) .. '%-') ~= nil
+      local qname = utils.qualified_name(record.name, record.group)
+      return filename:match('^' .. vim.pesc(qname) .. '%-') ~= nil
     end)
     if match ~= nil then
-      return match.name
+      -- Return the group-qualified name so a name reused across groups maps back
+      -- to THIS connection (pick_db matches on the qualified name too).
+      return utils.qualified_name(match.name, match.group)
     end
   end
   if vim.fn.fnamemodify(dir, ':h') == self.instance.save_path then

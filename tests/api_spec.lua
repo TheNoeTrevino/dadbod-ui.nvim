@@ -114,6 +114,61 @@ describe('api: add (programmatic)', function()
   end)
 end)
 
+describe('api: grouped connections (name reused across groups)', function()
+  local dir
+  before_each(function()
+    dir = vim.fn.tempname()
+    vim.fn.mkdir(dir, 'p')
+    -- Two connections both named 'prod', disambiguated only by their group.
+    require('dadbod-ui.connections').write_file(dir .. '/connections.json', {
+      { name = 'prod', url = 'postgres://h/analytics', group = 'analytics' },
+      { name = 'prod', url = 'postgres://h/billing', group = 'billing' },
+      { name = 'stage', url = 'postgres://h/stage' },
+    })
+    vim.g.dbs = nil
+    require('dadbod-ui.state').setup({ save_location = dir, show_help = false })
+    require('dadbod-ui.state').get()
+  end)
+  after_each(function()
+    state.reset()
+    if dir then
+      vim.fn.delete(dir, 'rf')
+      dir = nil
+    end
+  end)
+
+  it('list exposes group and key_name for disambiguation', function()
+    local by_group = {}
+    for _, c in ipairs(api.list()) do
+      if c.name == 'prod' then
+        by_group[c.group] = c.key_name
+      end
+    end
+    assert.equals('analytics_prod_file', by_group.analytics)
+    assert.equals('billing_prod_file', by_group.billing)
+  end)
+
+  it('resolves a grouped connection via group/name', function()
+    -- url is the resolved url (postgres -> postgresql), so match the distinct path.
+    assert.is_truthy(api.info('analytics/prod').url:match('h/analytics$'))
+    assert.is_truthy(api.info('billing/prod').url:match('h/billing$'))
+  end)
+
+  it('resolves via full key_name', function()
+    assert.is_truthy(api.info('billing_prod_file').url:match('h/billing$'))
+  end)
+
+  it('resolves an ungrouped connection by bare name', function()
+    assert.is_truthy(api.info('stage').url:match('h/stage$'))
+  end)
+
+  it('errors for an unknown group/name', function()
+    local rows, err = api.query_sync('marketing/prod', 'select 1')
+    assert.is_nil(rows)
+    assert.is_truthy(err and err:match('no connection named marketing/prod'))
+  end)
+end)
+
 describe('api: sqlite end-to-end (guarded)', function()
   local dir, db_path
   before_each(function()

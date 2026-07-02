@@ -121,13 +121,17 @@ local function make_entry(record, save_path, config, old_buffers)
   local scheme = parsed.scheme or ''
   local scheme_info = schemas.get(scheme, config)
   local db_name = (parsed.path or ''):gsub('^/', '')
-  local save_name = record.group ~= '' and (record.group .. '_' .. record.name) or record.name
+  -- The group-qualified identifier ties the save folder AND the tmp query-buffer
+  -- files to this specific connection, so a name reused across groups never
+  -- collides on disk or resolves back to the wrong db (see utils.qualified_name).
+  local save_name = utils.qualified_name(record.name, record.group)
   return {
     url = record.url,
     source = record.source,
     name = record.name,
     group = record.group,
     key_name = record.key_name,
+    save_name = save_name,
     scheme = scheme,
     db_name = db_name ~= '' and db_name or record.name,
     save_path = save_path ~= '' and (save_path .. '/' .. save_name) or '',
@@ -147,7 +151,7 @@ local function make_entry(record, save_path, config, old_buffers)
     tables = { expanded = false, list = {}, items = {} },
     schemas = { expanded = false, list = {}, items = {} },
     routines = { expanded = false, list = {}, items = {}, flat = {} },
-    buffers = { expanded = false, list = buffers_for(old_buffers, record.name), tmp = {} },
+    buffers = { expanded = false, list = buffers_for(old_buffers, save_name), tmp = {} },
     saved_queries = { expanded = false, list = {} },
   }
 end
@@ -249,6 +253,8 @@ function Instance:connections_list()
     local entry = self.dbs[r.key_name]
     return {
       name = r.name,
+      group = r.group,
+      key_name = r.key_name,
       url = r.url,
       is_connected = entry ~= nil and M.is_connected(entry),
       source = r.source,

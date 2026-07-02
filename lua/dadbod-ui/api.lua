@@ -34,6 +34,9 @@
 ---@alias DadbodUI.ApiOkCallback fun(ok: boolean, err: string|nil)
 
 ---@class DadbodUI.ApiConnInfo
+---@field name string  the display name (not unique across groups)
+---@field group string  the group name ('' when ungrouped)
+---@field key_name string  the unique key ({group}_{name}_{source}); pass to any api verb
 ---@field url string  the connection url
 ---@field conn string  the live resolved connection ('' when not connected)
 ---@field scheme string  the adapter scheme
@@ -86,15 +89,38 @@ local M = {}
 
 -- Helpers --------------------------------------------------------------------
 
---- Resolve a connection `name` to its entry. Matches the display `name` first,
---- then `key_name` (so a name reused across groups can be disambiguated).
+--- Resolve a connection `name` to its entry. Accepts three forms, in order of
+--- precedence:
+---   * the full `key_name` (`{group}_{name}_{source}` when grouped, else
+---     `{name}_{source}`) -- always unambiguous;
+---   * `"{group}/{name}"` -- to pick a specific grouped connection when the bare
+---     name is reused across groups;
+---   * the bare display `name` -- resolves the first match, so prefer one of the
+---     forms above when a name collides across groups.
 ---@private
 ---@param name string
 ---@return DadbodUI.ConnectionEntry|nil
 local function resolve(name)
   local instance = state.get()
+  -- Exact key_name: never ambiguous, so it wins.
   for _, record in ipairs(instance.dbs_list) do
-    if record.name == name or record.key_name == name then
+    if record.key_name == name then
+      return instance.dbs[record.key_name]
+    end
+  end
+  -- `group/name`: the friendly disambiguator for a name reused across groups.
+  local group, conn = name:match('^(.+)/(.+)$')
+  if group ~= nil then
+    for _, record in ipairs(instance.dbs_list) do
+      if record.group == group and record.name == conn then
+        return instance.dbs[record.key_name]
+      end
+    end
+  end
+  -- Bare display name (first match; falls through here when the name legitimately
+  -- contains a '/' but matches no group).
+  for _, record in ipairs(instance.dbs_list) do
+    if record.name == name then
       return instance.dbs[record.key_name]
     end
   end
@@ -201,6 +227,9 @@ function M.info(name)
     return nil
   end
   return {
+    name = entry.name,
+    group = entry.group,
+    key_name = entry.key_name,
     url = entry.url,
     conn = entry.conn or '',
     scheme = entry.scheme,

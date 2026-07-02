@@ -486,8 +486,11 @@ function Drawer:pick_db(saved_name, cb)
     return cb(nil)
   end
   if saved_name ~= '' then
+    -- `saved_name` is the group-qualified id from get_saved_query_db_name, so match
+    -- on the same qualified id -- a bare-name match would resolve a name reused
+    -- across groups to whichever came first (wrong db).
     return cb(entry_of(vim.iter(list):find(function(r)
-      return r.name:lower() == saved_name:lower()
+      return utils.qualified_name(r.name, r.group):lower() == saved_name:lower()
     end)))
   end
   if #list == 1 then
