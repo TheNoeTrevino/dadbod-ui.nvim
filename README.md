@@ -136,7 +136,94 @@ return {
 
 ## Scripting examples
 
-TODO
+Everything the plugin does is reachable from Lua through `require('dadbod-ui.api')`
+— a thin, stable facade with no default mappings, so you can wire your own. There
+are no `:DBUI*` commands you can't script.
+
+Connections are addressed by **name**. When a name is reused across groups,
+disambiguate with `"{group}/{name}"` or the full `key_name` from `api.list()`.
+
+```lua
+local api = require('dadbod-ui.api')
+```
+
+### Drawer
+
+```lua
+api.open()            -- open the drawer (accepts mods, e.g. api.open('tab'))
+api.toggle()
+api.close()
+api.reveal('dev')     -- open + expand + focus a connection (introspects it)
+api.refresh('dev')    -- re-scan schemas/tables + reload saved queries
+```
+
+### Connections
+
+```lua
+for _, c in ipairs(api.list()) do print(c.group, c.name, c.is_connected) end
+local info = api.info('analytics/prod')  -- url, scheme, tables, schemas, connected…
+api.is_connected('dev')
+
+-- Manage the connections.json store (non-interactive; file-backed conns only):
+api.add({ name = 'dev', url = 'postgres://localhost/dev', group = 'local' })
+api.rename('dev', 'development')
+api.duplicate('development', 'dev-copy', 'scratch')  -- clone into another group
+api.set_group('dev-copy', 'archive')                 -- '' to ungroup
+api.move('development', 'up')                         -- reorder among siblings
+api.remove('dev-copy')
+
+-- Live connection lifecycle:
+api.connect('dev', function(ok, err) end)  -- async; no-op if already connected
+api.disconnect('dev')                      -- drop the live handle (next use reconnects)
+```
+
+### Querying
+
+```lua
+-- Async, returns raw adapter output lines; never opens a result window:
+api.query('dev', 'select count(*) from users', function(rows, err)
+  if err then return vim.notify(err, vim.log.levels.ERROR) end
+  vim.print(rows)
+end)
+
+local rows, err = api.query_sync('dev', 'select 1')  -- blocking dual for scripts
+api.execute('dev', 'select * from users')            -- run through :DB, open .dbout
+api.open_query('dev')                                -- fresh scratch buffer bound to dev
+api.switch_buffer('prod')                            -- reassign the current query buffer
+```
+
+### Introspection
+
+```lua
+api.tables('dev', function(tables) vim.print(tables) end)
+api.schemas('dev', function(schemas) vim.print(schemas) end)
+api.introspect('dev', function(data) vim.print(data.tables, data.schemas, data.routines) end)
+```
+
+### Export
+
+```lua
+api.export({ name = 'dev', sql = 'select * from users', format = 'csv', path = '/tmp/users.csv' })
+```
+
+### Events
+
+Observe the connect / execute / cancel lifecycle at runtime. Unlike the single-slot
+`hooks` in `setup{}`, any number of listeners can subscribe and they compose with a
+configured hook rather than replacing it (listeners are observers — an `on_connect`
+listener can't rewrite the url).
+
+```lua
+local handle = api.on('on_execute_query_post', function(ev)
+  vim.notify(('query finished in %ss (exit %s)'):format(ev.runtime, ev.exit_status))
+  -- ev.rows() reads the result lazily; ev.query is the executed statement
+end)
+
+api.off(handle)  -- unsubscribe
+```
+
+Events: `on_connect`, `on_connect_post`, `on_execute_query`, `on_execute_query_post`,
+`on_cancel_query`, `on_cancel_query_post`.
 
 ## Contributing
 

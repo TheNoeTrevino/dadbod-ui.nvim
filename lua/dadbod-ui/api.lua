@@ -10,6 +10,13 @@
 --- of the port follows. Lifecycle (`setup`) stays on `require('dadbod-ui')`; this
 --- module is for driving connections, introspection, queries and exports.
 ---
+--- The surface groups into: drawer control (`open`/`toggle`/`close`/`reveal`/
+--- `refresh`), connection management (`list`/`info`/`add`/`remove`/`rename`/
+--- `duplicate`/`set_group`/`move`/`connect`/`disconnect`), introspection
+--- (`introspect`/`schemas`/`tables`), queries (`query`/`query_sync`/`execute`/
+--- `open_query`/`switch_buffer`), export (`export`/`export_result`) and a runtime
+--- event bus (`on`/`off`) for observing the connect/execute/cancel lifecycle.
+---
 --- Connections are addressed by NAME -- the display name from
 --- `require('dadbod-ui.api').list()` (its `key_name` also resolves, to
 --- disambiguate a name reused across groups).
@@ -65,16 +72,25 @@
 ---@field open fun(mods?: string)
 ---@field toggle fun()
 ---@field close fun()
+---@field reveal fun(name: string): boolean, string|nil
+---@field refresh fun(name: string): boolean, string|nil
 ---@field list fun(): DadbodUI.ConnectionInfo[]
 ---@field info fun(name: string): DadbodUI.ApiConnInfo|nil
 ---@field is_connected fun(name: string): boolean
 ---@field add fun(spec: DadbodUI.ApiAddSpec): boolean, string|nil
+---@field remove fun(name: string): boolean, string|nil
+---@field rename fun(name: string, new_name: string, new_url?: string): boolean, string|nil
+---@field duplicate fun(name: string, new_name: string, group?: string): boolean, string|nil
+---@field set_group fun(name: string, group: string): boolean, string|nil
+---@field move fun(name: string, direction: 'up'|'down'): boolean, string|nil
 ---@field connect fun(name: string, cb?: DadbodUI.ApiOkCallback)
+---@field disconnect fun(name: string): boolean, string|nil
 ---@field schemas fun(name: string, cb: fun(schemas: string[]|nil, err: string|nil))
 ---@field tables fun(name: string, cb: fun(tables: string[]|nil, err: string|nil))
 ---@field introspect fun(name: string, cb: fun(data: DadbodUI.ApiIntrospection|nil, err: string|nil))
 ---@field add_connection fun()
 ---@field switch_buffer fun(name?: string): boolean, string|nil
+---@field open_query fun(name: string, edit_action?: string): boolean, string|nil
 ---@field find_buffer fun()
 ---@field rename_buffer fun()
 ---@field execute_query fun()
@@ -86,6 +102,8 @@
 ---@field execute fun(name: string, sql: string): boolean, string|nil
 ---@field export fun(spec: DadbodUI.ApiExportSpec): boolean, string|nil
 ---@field export_result fun(page_choice?: 'full'|'current')
+---@field on fun(event: DadbodUI.EventName, cb: fun(event: DadbodUI.HookEvent)): DadbodUI.EventHandle|nil, string|nil
+---@field off fun(handle: DadbodUI.EventHandle): boolean
 ---@field statusline fun(opts?: DadbodUI.StatuslineOpts): string
 
 local state = require('dadbod-ui.state')
@@ -133,6 +151,53 @@ local function resolve(name)
     end)
   end
   return record and instance.dbs[record.key_name] or nil
+end
+
+--- Resolve `name` to an entry that lives in `connections.json` -- the only ones a
+--- store mutation (remove/rename/duplicate/set_group/move) can touch. Returns
+--- `nil, err` for an unknown name or a connection sourced from `vim.g.dbs`/env
+--- (which the store does not own, so it cannot rewrite).
+---@private
+---@param name string
+---@return DadbodUI.ConnectionEntry|nil, string|nil
+local function mutable_entry(name)
+  local entry = resolve(name)
+  if entry == nil then
+    return nil, 'no connection named ' .. tostring(name)
+  end
+  if entry.source ~= 'file' then
+    return nil,
+      string.format(
+        "connection '%s' is not stored in connections.json (source: %s); only file-backed connections can be modified",
+        name,
+        entry.source
+      )
+  end
+  return entry
+end
+
+--- Read the connections store, apply `fn(connections, list)` (a pure transform
+--- returning `(new_list, err)`), persist the result and re-discover so the change
+--- is immediately resolvable. The shared spine of every store mutation; mirrors
+--- `add`. Returns `false, err` when no store path is configured or `fn` rejects.
+---@private
+---@param fn fun(connections: DadbodUI.ConnectionsModule, list: DadbodUI.FileConnection[]): DadbodUI.FileConnection[]|nil, string|nil
+---@return boolean ok
+---@return string|nil err
+local function apply_store(fn)
+  local instance = state.get()
+  local path = instance.connections_path
+  if path == nil then
+    return false, 'no connections.json path is configured (set save_location)'
+  end
+  local connections = require('dadbod-ui.connections')
+  local new_list, err = fn(connections, connections.read_file(path))
+  if new_list == nil then
+    return false, err
+  end
+  connections.write_file(path, new_list)
+  instance:repopulate()
+  return true
 end
 
 --- A fresh introspection controller bound to the current session config, with a
@@ -215,6 +280,36 @@ function M.close()
   require('dadbod-ui').close()
 end
 
+--- Open the drawer, expand `name` (introspecting it lazily, as clicking its node
+--- would) and put the cursor on it. Returns `false, err` for an unknown name.
+---@param name string
+---@return boolean ok
+---@return string|nil err
+function M.reveal(name)
+  local entry = resolve(name)
+  if entry == nil then
+    return false, 'no connection named ' .. tostring(name)
+  end
+  require('dadbod-ui').reveal(entry.key_name)
+  return true
+end
+
+--- Re-introspect `name`: reload its saved queries and re-scan schemas/tables from
+--- the live database (connecting first if needed), re-rendering the drawer when
+--- open. Refreshes the metadata `info`/`tables`/`schemas` report. Returns
+--- `false, err` for an unknown name.
+---@param name string
+---@return boolean ok
+---@return string|nil err
+function M.refresh(name)
+  local entry = resolve(name)
+  if entry == nil then
+    return false, 'no connection named ' .. tostring(name)
+  end
+  require('dadbod-ui').refresh(entry.key_name)
+  return true
+end
+
 -- Connections ----------------------------------------------------------------
 
 --- All discovered connections with their connection state.
@@ -280,6 +375,98 @@ function M.add(spec)
   return true
 end
 
+--- Remove `name` from the `connections.json` store (the dual of `add`). Only the
+--- exact connection resolved is removed -- a name reused across groups leaves its
+--- siblings intact. Returns `false, err` for an unknown or non-file connection.
+---@param name string
+---@return boolean ok
+---@return string|nil err
+function M.remove(name)
+  local entry, err = mutable_entry(name)
+  if entry == nil then
+    return false, err
+  end
+  return apply_store(function(connections, list)
+    return connections.delete_connection(list, entry.name, entry.url, entry.group), nil
+  end)
+end
+
+--- Rename `name` in the store to `new_name` (keeping its group), optionally also
+--- changing its url (`new_url` defaults to the current one). Returns `false, err`
+--- when `new_name` collides with another connection in the same group, or the name
+--- is unknown / non-file.
+---@param name string
+---@param new_name string
+---@param new_url? string
+---@return boolean ok
+---@return string|nil err
+function M.rename(name, new_name, new_url)
+  local entry, err = mutable_entry(name)
+  if entry == nil then
+    return false, err
+  end
+  return apply_store(function(connections, list)
+    return connections.rename_connection(list, entry.name, entry.url, new_name, new_url or entry.url, entry.group)
+  end)
+end
+
+--- Copy `name` under `new_name` (same url), into `group` when given, else the
+--- source's own group. The clone may keep the source name only if it lands in a
+--- different group. Returns `false, err` on a same-group name collision or an
+--- unknown / non-file source.
+---@param name string
+---@param new_name string
+---@param group? string
+---@return boolean ok
+---@return string|nil err
+function M.duplicate(name, new_name, group)
+  local entry, err = mutable_entry(name)
+  if entry == nil then
+    return false, err
+  end
+  return apply_store(function(connections, list)
+    return connections.duplicate_connection(list, new_name, entry.url, group ~= nil and group or entry.group)
+  end)
+end
+
+--- Move `name` into `group` (an empty string ungroups it). Returns `false, err`
+--- when another connection of the same name already lives in the target group
+--- (which would merge them under one key on the next discover), or the name is
+--- unknown / non-file.
+---@param name string
+---@param group string
+---@return boolean ok
+---@return string|nil err
+function M.set_group(name, group)
+  local entry, err = mutable_entry(name)
+  if entry == nil then
+    return false, err
+  end
+  return apply_store(function(connections, list)
+    return connections.set_group(list, entry.name, entry.url, group or '', entry.group)
+  end)
+end
+
+--- Reorder `name` one slot `'up'` or `'down'` among its group siblings (the drawer's
+--- `<C-Up>`/`<C-Down>`), persisting the new order. Clamps at the ends. Returns
+--- `false, err` for a bad direction or an unknown / non-file connection.
+---@param name string
+---@param direction 'up'|'down'
+---@return boolean ok
+---@return string|nil err
+function M.move(name, direction)
+  if direction ~= 'up' and direction ~= 'down' then
+    return false, "direction must be 'up' or 'down'"
+  end
+  local entry, err = mutable_entry(name)
+  if entry == nil then
+    return false, err
+  end
+  return apply_store(function(connections, list)
+    return connections.move_connection(list, entry.name, entry.url, direction, entry.group)
+  end)
+end
+
 --- Connect `name` (no-op when already connected). Non-blocking; `cb(ok, err)`
 --- fires on the main loop once the outcome is known.
 ---@param name string
@@ -291,6 +478,22 @@ function M.connect(name, cb)
     return cb(false, 'no connection named ' .. tostring(name))
   end
   ensure_connected(entry, cb)
+end
+
+--- Drop `name`'s live connection so `is_connected` reports false and the next
+--- query/connect re-probes (the dual of `connect`). Cached tables/schemas are
+--- kept -- this forgets the live handle, not the introspected metadata. Returns
+--- `false, err` for an unknown name.
+---@param name string
+---@return boolean ok
+---@return string|nil err
+function M.disconnect(name)
+  local entry = resolve(name)
+  if entry == nil then
+    return false, 'no connection named ' .. tostring(name)
+  end
+  state.disconnect(entry)
+  return true
 end
 
 --- Add a connection interactively (prompts for url + name) -- the Lua equivalent
@@ -409,6 +612,24 @@ end
 --- of `:DBUIFindBuffer`. Operates on the current buffer.
 function M.find_buffer()
   require('dadbod-ui').find_buffer()
+end
+
+--- Open a fresh scratch query buffer bound to `name` -- the programmatic dual of
+--- the drawer's "New query" node. `edit_action` is the open command (`'edit'`
+--- default, or a split like `'vertical botright split'`). The buffer carries the
+--- full `b:dbui_*` contract, so `execute_query`/`:w` run against `name` and the
+--- winbar/completion light up. Returns `false, err` for an unknown name.
+---@param name string
+---@param edit_action? string
+---@return boolean ok
+---@return string|nil err
+function M.open_query(name, edit_action)
+  local entry = resolve(name)
+  if entry == nil then
+    return false, 'no connection named ' .. tostring(name)
+  end
+  require('dadbod-ui').open_query(entry.key_name, edit_action)
+  return true
 end
 
 --- Rename the current query buffer's on-disk file -- the Lua equivalent of
@@ -553,6 +774,40 @@ end
 ---@param page_choice? 'full'|'current'
 function M.export_result(page_choice)
   require('dadbod-ui.export').export_interactive(vim.api.nvim_get_current_buf(), nil, page_choice)
+end
+
+-- Events ---------------------------------------------------------------------
+
+--- Subscribe `cb` to a lifecycle `event`, returning a handle to pass to `off`.
+--- Unlike the single-slot `config.hooks`, any number of listeners can observe the
+--- same event, and they compose with a configured hook rather than replacing it.
+--- Listeners are OBSERVERS: an `on_connect` listener sees the event but cannot
+--- rewrite the url (that stays the config hook's job). Each fires isolated under
+--- `pcall`. Events: `on_connect`, `on_connect_post`, `on_execute_query`,
+--- `on_execute_query_post`, `on_cancel_query`, `on_cancel_query_post` (payloads:
+--- `DadbodUI.ConnectEvent` / `DadbodUI.QueryEvent` / `DadbodUI.QueryResultEvent` /
+--- `DadbodUI.CancelEvent`). Returns `nil, err` for an unknown event name.
+---
+--- >lua
+---   local h = require('dadbod-ui.api').on('on_execute_query_post', function(ev)
+---     vim.print(ev.runtime, ev.exit_status)
+---   end)
+---   -- later: require('dadbod-ui.api').off(h)
+--- <
+---@param event DadbodUI.EventName
+---@param cb fun(event: DadbodUI.HookEvent)
+---@return DadbodUI.EventHandle|nil handle
+---@return string|nil err
+function M.on(event, cb)
+  return require('dadbod-ui.events').on(event, cb)
+end
+
+--- Remove the listener a `handle` (from `on`) refers to. Returns whether one was
+--- actually removed (false for a stale or foreign handle).
+---@param handle DadbodUI.EventHandle
+---@return boolean
+function M.off(handle)
+  return require('dadbod-ui.events').off(handle)
 end
 
 -- Statusline -----------------------------------------------------------------

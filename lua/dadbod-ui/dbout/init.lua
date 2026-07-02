@@ -320,10 +320,10 @@ function M._on_post(output_file)
   -- loaded result buffer when available, else the output file -- so a hook that
   -- only wants the status/timing pays nothing. `query` is the executed statement
   -- (the result's input file). Isolated: a throwing hook never disturbs the result.
-  -- Guarded on the hook's presence: `hooks.run` no-ops when it is unset (the
-  -- default), but only after the `query` input-file read below -- so skip that I/O
-  -- entirely unless a hook is actually registered.
-  if type(config.hooks) == 'table' and config.hooks.on_execute_query_post then
+  -- Guarded on the hook's presence: `hooks.run` no-ops when nobody is listening
+  -- (the default), but only after the `query` input-file read below -- so skip that
+  -- I/O entirely unless a config hook OR a runtime `api.on` listener is registered.
+  if require('dadbod-ui.hooks').has(config, 'on_execute_query_post') then
     local status = type(db) == 'table' and tonumber(db.exit_status) or 0
     local input = bridge.dbout_input(output_file)
     require('dadbod-ui.hooks').run(config, 'on_execute_query_post', {
