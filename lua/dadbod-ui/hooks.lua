@@ -17,6 +17,12 @@
 --- Leaf module: it requires nothing from the project at load time and lazy-requires
 --- `notifications` only on the error path, so the acyclic graph is preserved.
 
+---@class DadbodUI.HooksModule
+---@field run fun(config: DadbodUI.Config, name: string, event: DadbodUI.HookEvent): any
+---@field transform fun(config: DadbodUI.Config, name: string, event: DadbodUI.HookEvent): string|nil
+
+---@type DadbodUI.HooksModule
+---@diagnostic disable-next-line: missing-fields
 local M = {}
 
 --- Invoke the hook named `name` (if configured) with `event`, isolated under

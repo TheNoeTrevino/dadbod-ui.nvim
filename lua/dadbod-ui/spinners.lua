@@ -29,6 +29,46 @@
 -- LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 -- OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 -- SOFTWARE.
+
+---@class DadbodUI.SpinnersModule
+---@field check string[]
+---@field dots string[]
+---@field dots_negative string[]
+---@field dots_snake string[]
+---@field dots_footsteps string[]
+---@field dots_hop string[]
+---@field dots12 string[]
+---@field line string[]
+---@field pipe string[]
+---@field dots_ellipsis string[]
+---@field dots_scrolling string[]
+---@field star string[]
+---@field flip string[]
+---@field hamburger string[]
+---@field grow_vertical string[]
+---@field grow_horizontal string[]
+---@field noise string[]
+---@field dots_bounce string[]
+---@field triangle string[]
+---@field arc string[]
+---@field circle string[]
+---@field square_corners string[]
+---@field circle_quarters string[]
+---@field circle_halves string[]
+---@field dots_toggle string[]
+---@field box_toggle string[]
+---@field arrow string[]
+---@field zip string[]
+---@field bouncing_bar string[]
+---@field bouncing_ball string[]
+---@field clock string[]
+---@field earth string[]
+---@field moon string[]
+---@field dots_pulse string[]
+---@field meter string[]
+
+---@type DadbodUI.SpinnersModule
+---@diagnostic disable-next-line: missing-fields
 local M = {}
 
 M.check = {

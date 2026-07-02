@@ -22,8 +22,10 @@ local spinner = require('dadbod-ui.spinner')
 local spinners = require('dadbod-ui.spinners')
 local utils = require('dadbod-ui.utils')
 
+---@private
 local INDENT = 2
 
+---@private
 -- The connected predicate lives in state (the SSOT); required lazily here to
 -- keep the dependency graph acyclic, mirroring the lazy state require in M.new.
 ---@param entry DadbodUI.ConnectionEntry
@@ -32,6 +34,13 @@ local function is_connected(entry)
   return require('dadbod-ui.state').is_connected(entry)
 end
 
+---@class DadbodUI.DrawerModule
+---@field new fun(instance?: DadbodUI.Instance): DadbodUI.Drawer
+---@field Drawer DadbodUI.Drawer  the class table
+---@field _line_for fun(node: DadbodUI.Node): string  test seam: asserts line_for matches a full paint
+
+---@type DadbodUI.DrawerModule
+---@diagnostic disable-next-line: missing-fields
 local M = {}
 
 ---@class DadbodUI.Drawer
@@ -261,6 +270,7 @@ function Drawer:build_content()
   return self.content
 end
 
+---@private
 --- The display string for a single node: indent + icon + separator + label. The
 --- single source of truth for a rendered line, shared by the full `paint` and
 --- the targeted `repaint_db_node` so an animated spinner frame lands identically
@@ -274,6 +284,7 @@ local function line_for(node)
   return indent .. node.icon .. sep .. node.label .. trailer
 end
 
+---@private
 --- Apply the highlight ranges for ONE line (0-based `lnum`) as extmarks in the
 --- `dadbod_ui` namespace. The caller is responsible for clearing the namespace
 --- over the affected range first. Shared by the full `paint` and the single-line
@@ -291,6 +302,7 @@ local function apply_line_highlights(bufnr, lnum, hls)
   end
 end
 
+---@private
 --- Paint a node list into `bufnr`: map each node to its display string (via
 --- `line_for`), overwrite the buffer under a `modifiable` toggle, then re-apply
 --- the per-node highlights as extmarks in the `dadbod_ui` namespace (cleared

@@ -16,13 +16,54 @@
 --- without a database -- the default seams call `bridge` / `vim.system` /
 --- `writefile` / `notifications`.
 
+---@alias DadbodUI.ExportRunOnDone fun(result: DadbodUI.SystemCompleted)
+---@alias DadbodUI.ExportTransformCallback fun(ok: boolean, content: string?, rows: integer?, err: string?)
+---@alias DadbodUI.ExportTransform fun(scheme: string, stdout: string, fmt: string, opts: table, source: string, cb: DadbodUI.ExportTransformCallback)
+--- A progress backend: `start` shows a spinner for the format and returns a
+--- token; `stop` tears it down for that token.
+---@class DadbodUI.ExportProgress
+---@field start fun(fmt: string): integer
+---@field stop fun(token: integer)
+---@alias DadbodUI.ExportBufferInfo { url: string, scheme: string, query: string, source: string, page: DadbodUI.PageState? }
+
+--- The injectable collaborators for `export` / `export_interactive`; every field
+--- defaults to the real seam when absent.
+---@class DadbodUI.ExportDeps
+---@field bridge? table  the engine bridge
+---@field run? fun(cmd: string[], stdin: string|nil, on_done: DadbodUI.ExportRunOnDone)
+---@field write? fun(path: string, content: string): boolean, string?
+---@field notify? table
+---@field transform? DadbodUI.ExportTransform
+---@field progress? DadbodUI.ExportProgress
+---@field config? table  the resolved `export` config block
+---@field select? function
+---@field input? function
+---@field confirm? fun(msg: string): boolean
+
+---@class DadbodUI.ExportModule
+---@field _run fun(cmd: string[], stdin: string|nil, on_done: DadbodUI.ExportRunOnDone)  test seam: async process runner
+---@field _write fun(path: string, content: string): boolean, string?  test seam: file writer
+---@field format fun(data: DadbodUI.ExportData, fmt: string, opts?: table): string
+---@field _transform_sync fun(scheme: string, stdout: string, fmt: string, opts: table, source: string): string, integer  test seam: inline parse+format core
+---@field _TRANSFORM_THRESHOLD integer  test seam: bytes below which the transform runs inline
+---@field _transform_async DadbodUI.ExportTransform  test seam: worker-thread parse+format
+---@field resolve_buffer fun(bufnr: integer): DadbodUI.ExportBufferInfo|nil, string?
+---@field query_for fun(info: table, page_choice?: 'full'|'current'): string
+---@field export fun(params: table, deps?: DadbodUI.ExportDeps)
+---@field _dbout_progress fun(bufnr: integer): DadbodUI.ExportProgress|nil  test seam: default winbar progress backend
+---@field default_path fun(source: string, fmt: string, dir?: string): string
+---@field format_opts fun(cfg: table, fmt: string, scheme: string): table
+---@field export_interactive fun(bufnr: integer, deps?: DadbodUI.ExportDeps, page_choice?: 'full'|'current')
+
+---@type DadbodUI.ExportModule
+---@diagnostic disable-next-line: missing-fields
 local M = {}
 
 --- Default async process runner: run `cmd` (argv) feeding `stdin`, invoking
---- `on_done(result)` on the main loop with a `vim.SystemCompleted`.
+--- `on_done(result)` on the main loop with a `DadbodUI.SystemCompleted`.
 ---@param cmd string[]
 ---@param stdin string|nil
----@param on_done fun(result: vim.SystemCompleted)
+---@param on_done DadbodUI.ExportRunOnDone
 function M._run(cmd, stdin, on_done)
   vim.system(cmd, { text = true, stdin = stdin }, function(obj)
     vim.schedule(function()
@@ -66,6 +107,7 @@ function M.format(data, fmt, opts)
   return require('dadbod-ui.export_formats')[fmt](data, opts)
 end
 
+---@private
 -- The `.../lua` directory this plugin lives under, derived from THIS file's path
 -- (`.../lua/dadbod-ui/export.lua` -> `.../lua`). Passed into the worker thread so
 -- it can `require` the (vim-free) extractor / formatter with no runtimepath.
@@ -75,6 +117,7 @@ local function lua_dir()
   return vim.fn.fnamemodify(this, ':h:h')
 end
 
+---@private
 -- Serialize a flat table of scalar `opts` (strings / numbers / booleans) to a Lua
 -- source literal, so it can be handed to the worker thread as a string and rebuilt
 -- there with `loadstring`. Only the value kinds the format-opts tables actually
@@ -127,7 +170,7 @@ M._TRANSFORM_THRESHOLD = 64 * 1024
 ---@param fmt string
 ---@param opts table
 ---@param source string
----@param cb fun(ok: boolean, content: string?, rows: integer?, err: string?)
+---@param cb DadbodUI.ExportTransformCallback
 ---@return nil
 function M._transform_async(scheme, stdout, fmt, opts, source, cb)
   stdout = stdout or ''
@@ -179,6 +222,7 @@ function M._transform_async(scheme, stdout, fmt, opts, source, cb)
   work:queue(lua_dir(), scheme, stdout, fmt, serialize_opts(opts), source or '')
 end
 
+---@private
 --- A usable table/source name derived from `query`: the first identifier after a
 --- `FROM` (quoting / schema-qualifier stripped to its last segment), else
 --- `results`. Used for the JSON-wrap key, the SQL `INSERT` target, and the default
@@ -205,7 +249,7 @@ end
 --- pagination state (`b:dbui_page`) when the result is paged. Returns nil + an error
 --- string when the buffer isn't an export-able result.
 ---@param bufnr integer
----@return { url: string, scheme: string, query: string, source: string, page: DadbodUI.PageState? }|nil, string?
+---@return DadbodUI.ExportBufferInfo|nil, string?
 function M.resolve_buffer(bufnr)
   local bridge = require('dadbod-ui.bridge')
   local db = vim.fn.getbufvar(bufnr, 'db')
@@ -248,6 +292,7 @@ function M.query_for(info, page_choice)
   return info.query
 end
 
+---@private
 --- Build the export command: the adapter base argv plus the native-passthrough or
 --- canonical-extract flags, with the query delivered on stdin or appended as the
 --- final argv element per the adapter. Returns `{ cmd, stdin, native }`.
@@ -276,7 +321,7 @@ end
 --- failure mode (unsupported adapter / format, CLI non-zero exit, write error).
 --- Async; collaborators come from `deps` (defaulting to the real seams).
 ---@param params table
----@param deps? { bridge?: table, run?: function, write?: function, notify?: table }
+---@param deps? DadbodUI.ExportDeps
 ---@return nil
 function M.export(params, deps)
   deps = deps or {}
@@ -311,6 +356,7 @@ function M.export(params, deps)
   end
 
   local spec = build_command(params, bridge)
+  ---@param result DadbodUI.SystemCompleted|nil
   run(spec.cmd, spec.stdin, function(result)
     if result == nil or result.code ~= 0 then
       stop_progress()
@@ -363,7 +409,7 @@ end
 --- bufnr is not usable, so `M.export` simply runs without a spinner. Lazy require
 --- keeps export <-> dbout free of a load-time cycle.
 ---@param bufnr integer
----@return { start: fun(fmt: string): integer, stop: fun(token: integer) }|nil
+---@return DadbodUI.ExportProgress|nil
 function M._dbout_progress(bufnr)
   local ok, dbout = pcall(require, 'dadbod-ui.dbout')
   if not ok or type(bufnr) ~= 'number' then
@@ -381,10 +427,12 @@ end
 
 -- Interactive entry point ----------------------------------------------------
 
+---@private
 -- Display labels (mirroring DBeaver's target-format list) and file extensions
 -- per format id. `format_item` shows the label; the file gets the extension.
 local LABELS =
   { csv = 'CSV', tsv = 'TSV', json = 'JSON', markdown = 'Markdown', html = 'HTML', xml = 'XML', sql = 'SQL' }
+---@private
 local EXTENSIONS = { csv = 'csv', tsv = 'tsv', json = 'json', markdown = 'md', html = 'html', xml = 'xml', sql = 'sql' }
 
 --- The default output path for `source` in `fmt`: `<dir>/<source-or-export>.<ext>`,
@@ -417,9 +465,10 @@ function M.format_opts(cfg, fmt, scheme)
   return opts
 end
 
+---@private
 --- The resolved `export` config block (prefer_native + per-format opts), from the
 --- session config unless `deps.config` overrides it. `{}` when unavailable.
----@param deps table
+---@param deps DadbodUI.ExportDeps
 ---@return table
 local function export_config(deps)
   if deps.config ~= nil then
@@ -436,7 +485,7 @@ end
 --- so the flow is testable without a UI. `prefer_native` and per-format options
 --- come from the `export` config block.
 ---@param bufnr integer
----@param deps? table  { select?, input?, config?, bridge?, run?, write?, notify? }
+---@param deps? DadbodUI.ExportDeps  { select?, input?, config?, bridge?, run?, write?, notify? }
 ---@param page_choice? 'full'|'current'  which rows to export (DECISION-003); default 'full'
 ---@return nil
 function M.export_interactive(bufnr, deps, page_choice)

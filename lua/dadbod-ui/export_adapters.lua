@@ -11,17 +11,30 @@
 --- v1 adapters: postgres, mysql/mariadb, sqlite (DECISION-004). Others return
 --- unsupported until their row is added.
 
+---@class DadbodUI.ExportAdaptersModule
+---@field supports fun(scheme: string): boolean
+---@field formats_for fun(scheme: string): string[]
+---@field uses_stdin fun(scheme: string): boolean
+---@field extract_args fun(scheme: string): string[]|nil
+---@field native_args fun(scheme: string, fmt: string): string[]|nil
+---@field is_native fun(scheme: string, fmt: string, prefer_native: boolean): boolean
+
+---@type DadbodUI.ExportAdaptersModule
+---@diagnostic disable-next-line: missing-fields
 local M = {}
 
+---@private
 --- Every target format the Lua formatters can produce from the canonical extract;
 --- any supported adapter offers all of them (native passthrough is an
 --- optimization, never a coverage limit -- DECISION-001).
 local ALL_FORMATS = { 'csv', 'json', 'markdown', 'html', 'xml', 'sql', 'tsv' }
 
+---@private
 -- The OS null device, used to skip the CLI's user rc file (see the rc-suppression
 -- flags below). `/dev/null` on unix, `NUL` on Windows.
 local NULLDEV = vim.fn.has('win32') == 1 and 'NUL' or '/dev/null'
 
+---@private
 -- Per-adapter export config. `stdin` = deliver the query on stdin (else append it
 -- as the final argv element -- after the trailing `-c` for postgres). `extract` =
 -- the canonical delimited mode (the faithful row source we parse). `native` = the
@@ -38,6 +51,7 @@ local postgres = {
   extract = { '--no-psqlrc', '--csv', '-c' },
   native = { csv = { '--no-psqlrc', '--csv', '-c' }, html = { '--no-psqlrc', '-H', '-c' } },
 }
+---@private
 local mysql = {
   stdin = true,
   extract = { '--batch' },
@@ -47,6 +61,7 @@ local mysql = {
   -- the formatter across adapters.
   native = { html = { '--html' }, xml = { '--xml' } },
 }
+---@private
 local sqlite = {
   -- stdin delivery (not a positional arg): sqlite3 treats a positional SQL string
   -- beginning with `-` (e.g. a `-- comment` line) as an unknown option and aborts.
@@ -70,6 +85,7 @@ local sqlite = {
   },
 }
 
+---@private
 -- scheme -> config, keyed by both the raw url scheme (e.g. `postgres`, `sqlite3`)
 -- and the canonical adapter name, so a lookup works regardless of which the caller
 -- holds (same dual-keying as `dadbod-ui.paginator`).
@@ -82,6 +98,7 @@ local adapters = {
   sqlite3 = sqlite,
 }
 
+---@private
 ---@param scheme string
 ---@return table|nil
 local function adapter(scheme)
@@ -123,6 +140,7 @@ function M.extract_args(scheme)
   return a and vim.deepcopy(a.extract) or nil
 end
 
+---@private
 --- The adapter's own native-passthrough flag table for `(scheme, fmt)` (shared,
 --- never mutated), or nil when the CLI cannot emit that format directly.
 ---@param scheme string
