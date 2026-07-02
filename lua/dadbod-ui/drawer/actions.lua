@@ -32,12 +32,9 @@ function Drawer:toggle_help()
   -- Built from `config.mappings` so the help window and the live keymaps can
   -- never drift; disabled (`key = 'none'`) actions are already filtered out.
   local lines = require('dadbod-ui.mappings').help_lines(self.config)
-  local max_len = 0
-  for _, line in ipairs(lines) do
-    if #line > max_len then
-      max_len = #line
-    end
-  end
+  local max_len = vim.iter(lines):fold(0, function(acc, line)
+    return math.max(acc, #line)
+  end)
 
   local width = math.min(max_len + 4, vim.o.columns - 4)
   local height = #lines

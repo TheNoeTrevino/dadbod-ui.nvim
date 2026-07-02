@@ -181,21 +181,22 @@ function Query:focus_window()
     return
   end
   -- (a) reuse a window already holding a dbui query buffer.
-  for _, win in ipairs(wins) do
-    local buf = vim.api.nvim_win_get_buf(win)
-    local key = vim.b[buf].dbui_db_key_name
-    if key and key ~= '' then
-      vim.api.nvim_set_current_win(win)
-      return
-    end
+  local reuse = vim.iter(wins):find(function(win)
+    local key = vim.b[vim.api.nvim_win_get_buf(win)].dbui_db_key_name
+    return key and key ~= ''
+  end)
+  if reuse then
+    vim.api.nvim_set_current_win(reuse)
+    return
   end
   -- (b) else any normal editable window.
-  for _, win in ipairs(wins) do
+  local editable = vim.iter(wins):find(function(win)
     local buf = vim.api.nvim_win_get_buf(win)
-    if vim.bo[buf].filetype ~= 'dbui' and vim.bo[buf].buftype ~= 'nofile' and vim.bo[buf].modifiable then
-      vim.api.nvim_set_current_win(win)
-      return
-    end
+    return vim.bo[buf].filetype ~= 'dbui' and vim.bo[buf].buftype ~= 'nofile' and vim.bo[buf].modifiable
+  end)
+  if editable then
+    vim.api.nvim_set_current_win(editable)
+    return
   end
   -- (c) else open a vertical split on the side opposite the drawer.
   vim.cmd('silent! ' .. win_cmd)
@@ -819,16 +820,12 @@ function Query:edit_bind_parameters()
   -- from detect), then any stored names no longer in the buffer (sorted, for
   -- stability).
   local names = bind_params.detect(self:get_lines(), self.config.bind_param_pattern)
-  local seen = {}
-  for _, name in ipairs(names) do
-    seen[name] = true
-  end
-  local orphans = {}
-  for name in pairs(params) do
-    if not seen[name] then
-      orphans[#orphans + 1] = name
-    end
-  end
+  local orphans = vim
+    .iter(vim.tbl_keys(params))
+    :filter(function(name)
+      return not vim.tbl_contains(names, name)
+    end)
+    :totable()
   table.sort(orphans)
   vim.list_extend(names, orphans)
 
