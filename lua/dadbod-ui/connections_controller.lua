@@ -26,7 +26,11 @@ local M = {}
 
 ---@private
 --- Resolve and validate a url the user typed. Returns `(resolved, nil)` or
---- `(nil, err)` when dadbod rejects it.
+--- `(nil, err)` when dadbod rejects it. The resolved value is for validation
+--- (and deriving a default name) only -- callers persist the RAW typed url so
+--- env-var references like `$DB_PASS` stay unexpanded on disk (matching
+--- upstream vim-dadbod-ui, which validates via `db#url#parse` but saves the
+--- typed url).
 ---@param url string
 ---@return string|nil, string|nil
 local function validate_url(url)
@@ -39,6 +43,21 @@ local function validate_url(url)
     return nil, tostring(result)
   end
   return result, nil
+end
+
+---@private
+--- Guard a mutation to a persistable connection: only `file`-source entries live
+--- in connections.json, so variable/env/dotenv connections can't be edited and
+--- are refused with a notification. Returns true when `entry` is safe to mutate.
+---@param entry DadbodUI.ConnectionEntry
+---@param verb string  the refused action, for the message ('edit' | 'move' | 'delete')
+---@return boolean
+local function require_file_source(entry, verb)
+  if entry.source == 'file' then
+    return true
+  end
+  require('dadbod-ui.notifications').error(string.format('Cannot %s connections added via variables.', verb))
+  return false
 end
 
 ---@class DadbodUI.ConnectionsController
@@ -121,7 +140,11 @@ function Controller:add_connection()
       if store == nil then
         return
       end
-      local list, add_err = connections.add_connection(store, name, resolved)
+      -- Persist the RAW url the user typed, not the resolved one: resolving
+      -- expands `$DB_PASS`-style env references, which would write plaintext
+      -- secrets to disk and freeze the value against later rotation. We only
+      -- resolve to validate (above); the store keeps the typed url.
+      local list, add_err = connections.add_connection(store, name, url)
       if list == nil then
         return notify.error(add_err or 'Could not add connection.')
       end
@@ -136,10 +159,10 @@ end
 ---@param entry DadbodUI.ConnectionEntry
 ---@return nil
 function Controller:rename_connection(entry)
-  local notify = require('dadbod-ui.notifications')
-  if entry.source ~= 'file' then
-    return notify.error('Cannot edit connections added via variables.')
+  if not require_file_source(entry, 'edit') then
+    return
   end
+  local notify = require('dadbod-ui.notifications')
   self.input(
     { prompt = string.format('Edit connection url for "%s": ', entry.name), default = entry.url },
     function(url)
@@ -162,7 +185,9 @@ function Controller:rename_connection(entry)
         if store == nil then
           return
         end
-        local list, rename_err = connections.rename_connection(store, entry.name, entry.url, name, resolved)
+        -- Persist the raw typed url (see validate_url); pass entry.group so the
+        -- right clone is located when a same (name, url) exists in two groups.
+        local list, rename_err = connections.rename_connection(store, entry.name, entry.url, name, url, entry.group)
         if list == nil then
           return notify.error(rename_err or 'Could not rename connection.')
         end
@@ -210,7 +235,8 @@ function Controller:duplicate_connection(entry)
         if store == nil then
           return
         end
-        local list, dup_err = connections.duplicate_connection(store, name, resolved, group)
+        -- Persist the raw typed url (see validate_url), not the resolved one.
+        local list, dup_err = connections.duplicate_connection(store, name, url, group)
         if list == nil then
           return notify.error(dup_err or 'Could not duplicate connection.')
         end
@@ -227,10 +253,10 @@ end
 ---@param entry DadbodUI.ConnectionEntry
 ---@return nil
 function Controller:set_group(entry)
-  local notify = require('dadbod-ui.notifications')
-  if entry.source ~= 'file' then
-    return notify.error('Cannot edit connections added via variables.')
+  if not require_file_source(entry, 'edit') then
+    return
   end
+  local notify = require('dadbod-ui.notifications')
   self.input({ prompt = 'Enter group name: ', default = entry.group }, function(group)
     if group == nil then
       return
@@ -240,7 +266,9 @@ function Controller:set_group(entry)
     if store == nil then
       return
     end
-    local list, err = connections.set_group(store, entry.name, entry.url, group)
+    -- Pass entry.group as the CURRENT group so the right clone is located when a
+    -- same (name, url) exists in two groups; `group` is the new target group.
+    local list, err = connections.set_group(store, entry.name, entry.url, group, entry.group)
     if list == nil then
       return notify.error(err or 'Could not set group.')
     end
@@ -256,25 +284,34 @@ end
 ---@param direction 'up'|'down'
 ---@return nil
 function Controller:move_connection(entry, direction)
-  local notify = require('dadbod-ui.notifications')
-  if entry.source ~= 'file' then
-    return notify.error('Cannot move connections added via variables.')
+  if not require_file_source(entry, 'move') then
+    return
   end
+  local notify = require('dadbod-ui.notifications')
   local store = self:read_store()
   if store == nil then
     return
   end
-  local list, err = connections.move_connection(store, entry.name, entry.url, direction)
+  -- Pass entry.group so the right clone is located when a same (name, url)
+  -- exists in two groups.
+  local list, err = connections.move_connection(store, entry.name, entry.url, direction, entry.group)
   if list == nil then
     return notify.error(err or 'Could not move connection.')
   end
   self:commit_connections(list)
 end
 
---- Confirm, then remove a file-source connection.
+--- Confirm, then remove a file-source connection. Only file-source connections
+--- are deletable; discovered ones (g:dbs/env/dotenv) are refused with a
+--- notification (mirroring the `rename`/`set_group`/`move` guards) -- otherwise
+--- deleting one would silently rewrite connections.json and could drop an
+--- unrelated file entry sharing its name+url.
 ---@param entry DadbodUI.ConnectionEntry
 ---@return nil
 function Controller:delete_connection(entry)
+  if not require_file_source(entry, 'delete') then
+    return
+  end
   if not self.confirm(string.format('Are you sure you want to delete connection %s?', entry.name)) then
     return
   end
@@ -282,7 +319,9 @@ function Controller:delete_connection(entry)
   if store == nil then
     return
   end
-  local list = connections.delete_connection(store, entry.name, entry.url)
+  -- Pass entry.group so only the targeted clone is removed when a same
+  -- (name, url) exists in two groups.
+  local list = connections.delete_connection(store, entry.name, entry.url, entry.group)
   self:commit_connections(list)
 end
 

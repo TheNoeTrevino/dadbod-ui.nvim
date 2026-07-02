@@ -81,6 +81,20 @@ describe('connections: from_dotenv', function()
     local r = connections.from_dotenv({ PG_MAIN = 'postgres://h/m' }, custom)
     assert.equals('main', r[1].name)
   end)
+
+  it('anchors the prefix to the start (ignores a mid-name match)', function()
+    -- XDG_DB_UI_CACHE contains DB_UI_ but not at the start, so it is not a conn.
+    local r = connections.from_dotenv({ XDG_DB_UI_CACHE = 'postgres://h/c', DB_UI_PROD = 'postgres://h/p' }, cfg)
+    assert.equals(1, #r)
+    assert.equals('prod', r[1].name)
+  end)
+
+  it('strips only the single leading prefix', function()
+    -- A later occurrence of the prefix inside the name is left intact.
+    local r = connections.from_dotenv({ DB_UI_STAGING_DB_UI_X = 'postgres://h/s' }, cfg)
+    assert.equals(1, #r)
+    assert.equals('staging_db_ui_x', r[1].name)
+  end)
 end)
 
 describe('connections: from_file', function()
