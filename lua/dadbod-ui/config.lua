@@ -149,7 +149,10 @@ M.defaults = {
       goto_child = { key = '<C-n>', desc = 'Go to child node' },
     },
     query = {
-      execute = { key = '<Leader>S', desc = 'Execute query (whole buffer / visual selection)', mode = { 'n', 'v' } },
+      execute = { key = '<Leader>S', desc = 'Execute query (whole buffer)' },
+      execute_selection = { key = '<Leader>S', desc = 'Execute the visual selection', mode = 'v' },
+      explain = { key = '<Leader>P', desc = 'Explain query plan (whole buffer)' },
+      explain_selection = { key = '<Leader>P', desc = 'Explain the visual selection', mode = 'v' },
       edit_bind_params = { key = '<Leader>E', desc = 'Edit bind parameters' },
       save_query = { key = '<Leader>W', desc = 'Save the current query (tmp buffers)' },
       cancel = { key = '<Leader>C', desc = 'Cancel the running query' },
@@ -166,6 +169,7 @@ M.defaults = {
       next_page = { key = ']', desc = 'Next page of results' },
       prev_page = { key = '[', desc = 'Previous page of results' },
       export = { key = '<Leader>X', desc = 'Export result to a file' },
+      cancel = { key = '<Leader>C', desc = 'Cancel the running query' },
     },
   },
 }
@@ -202,8 +206,17 @@ M.mapping_order = {
     'goto_parent',
     'goto_child',
   },
-  query = { 'execute', 'edit_bind_params', 'save_query', 'cancel' },
-  results = { 'jump_foreign', 'cell_value', 'yank_header', 'toggle_layout', 'next_page', 'prev_page', 'export' },
+  query = { 'execute', 'execute_selection', 'explain', 'explain_selection', 'edit_bind_params', 'save_query', 'cancel' },
+  results = {
+    'jump_foreign',
+    'cell_value',
+    'yank_header',
+    'toggle_layout',
+    'next_page',
+    'prev_page',
+    'export',
+    'cancel',
+  },
 }
 
 ---@private

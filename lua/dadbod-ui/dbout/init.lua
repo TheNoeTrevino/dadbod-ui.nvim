@@ -415,6 +415,12 @@ function M.setup_buffer(bufnr)
     export = function()
       require('dadbod-ui.export').export_interactive(bufnr)
     end,
+    -- The async job is tied to THIS output buffer's `b:db` (dadbod also binds its
+    -- own `<C-c>` here), so `cancel_query` -- which cancels `nvim_get_current_buf()`
+    -- -- targets the query that produced these results. Reuses the full hook path.
+    cancel = function()
+      require('dadbod-ui').cancel_query()
+    end,
   }, { buffer = bufnr, silent = true, nowait = true })
 end
 

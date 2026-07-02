@@ -340,8 +340,17 @@ function Query:setup_buffer(entry, opts, name)
     -- window. `execute` is mode-aware (visual runs the selection). `save_query`
     -- is offered only for writable tmp SQL buffers, so it is omitted otherwise.
     local handlers = {
-      execute = function(mode)
-        self:execute_query(mode == 'v')
+      execute = function()
+        self:execute_query(false)
+      end,
+      execute_selection = function()
+        self:execute_query(true)
+      end,
+      explain = function()
+        self:explain_query(false)
+      end,
+      explain_selection = function()
+        self:explain_query(true)
       end,
       edit_bind_params = function()
         self:edit_bind_parameters()
