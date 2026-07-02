@@ -56,7 +56,7 @@ end
 ---@param entry DadbodUI.ConnectionEntry
 ---@return string
 function M.connection_winbar(entry)
-  local text = entry.group ~= '' and (entry.group .. '/' .. entry.name) or entry.name
+  local text = utils.display_name(entry.name, entry.group)
   return string.format('%%=%%#DadbodUIWinbarConnection# %s ', (text:gsub('%%', '%%%%')))
 end
 
