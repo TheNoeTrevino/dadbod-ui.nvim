@@ -404,7 +404,11 @@ function Introspect:populate_tables(entry)
   if entry.routine_support then
     -- Routines aren't part of dadbod's `tables` call, so fetch them separately and
     -- non-blockingly; the tree renders now and fills in the Procedures node on land.
-    bridge.run_many({ schemas.command_spec(entry.conn, scheme_info, scheme_info.procedures_query) }, function(results)
+    -- Prefer the database-scoped query (`tables_procedures_query`) here: this path
+    -- has no schema browsing, so without the scope the global `procedures_query`
+    -- would list routines from every schema on the server into this one db's node.
+    local query = scheme_info.tables_procedures_query or scheme_info.procedures_query
+    bridge.run_many({ schemas.command_spec(entry.conn, scheme_info, query) }, function(results)
       local routine_rows = scheme_info.parse_results(schemas.result_lines(results[1]), 3)
       self:apply_routines(entry, scheme_info, routine_rows)
       self.render()

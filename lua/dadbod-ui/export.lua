@@ -152,7 +152,10 @@ end
 ---@return string content, integer rows
 function M._transform_sync(scheme, stdout, fmt, opts, source)
   local data = require('dadbod-ui.export_extract').parse(scheme, stdout or '')
-  data.source = source
+  -- Normalize '' to nil: an empty string is truthy in Lua, so `data.source` would
+  -- otherwise defeat the `opts.table or data.source or 'exported_table'` fallback
+  -- chain in the SQL formatter (and wrap the JSON export under an empty key).
+  data.source = require('dadbod-ui.export_formats').nonempty(source)
   return M.format(data, fmt, opts), #data.rows
 end
 
@@ -198,7 +201,9 @@ function M._transform_async(scheme, stdout, fmt, opts, source, cb)
         local formats = require('dadbod-ui.export_formats')
         local o = (loadstring or load)(opts_src)()
         local data = extract.parse(scheme_, text)
-        data.source = source_
+        -- Same '' -> nil normalization as `_transform_sync` (the empty string
+        -- crossed the thread boundary as the nil carrier -- see `work:queue` below).
+        data.source = formats.nonempty(source_)
         return formats[fmt_](data, o), #data.rows
       end)
       if ok then
@@ -230,8 +235,12 @@ end
 ---@param query string
 ---@return string
 local function derive_source(query)
-  -- word-boundary, case-insensitive FROM, optional opening quote/bracket, then the identifier
-  local ident = query:match('%f[%w][Ff][Rr][Oo][Mm]%s+["`%[]?([%w_%.]+)')
+  -- word-boundary, case-insensitive FROM, optional opening quote/bracket, then the identifier.
+  -- The leading frontier includes `_` in its word-char set (`%f[%w_]`, not the
+  -- plain `%f[%w]` Lua's `%w` lacks underscore for) so `a_from FROM t` doesn't
+  -- match the trailing "from" inside the identifier `a_from` -- `_` -> `f` is not
+  -- a boundary once `_` counts as a word char.
+  local ident = query:match('%f[%w_][Ff][Rr][Oo][Mm]%s+["`%[]?([%w_%.]+)')
   if ident then
     local name = ident:match('([%w_]+)$') -- last dotted segment (drops schema.)
     if name and name ~= '' then
@@ -443,7 +452,7 @@ local EXTENSIONS = { csv = 'csv', tsv = 'tsv', json = 'json', markdown = 'md', h
 ---@param dir? string  configured default directory ('' / nil => cwd)
 ---@return string
 function M.default_path(source, fmt, dir)
-  local base = (source ~= nil and source ~= '') and source or 'export'
+  local base = require('dadbod-ui.export_formats').nonempty(source) or 'export'
   local base_dir = (dir ~= nil and dir ~= '') and vim.fn.expand(dir) or vim.fn.getcwd()
   return string.format('%s/%s.%s', base_dir, base, EXTENSIONS[fmt] or fmt)
 end

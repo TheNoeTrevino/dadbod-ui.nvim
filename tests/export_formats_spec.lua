@@ -84,6 +84,32 @@ describe('export_formats.tsv', function()
     local data = { columns = { 'a', 'b' }, rows = { { 'x\ty', 'z' } } }
     assert.are.equal('a\tb\nx\\ty\tz', fmt.tsv(data))
   end)
+
+  it('escapes a literal backslash first, so it stays distinct from an escaped tab', function()
+    -- regression: without escaping '\' -> '\\' FIRST, a literal two-char "\t" in
+    -- the data would be indistinguishable from an escaped real tab.
+    local data = { columns = { 'a' }, rows = { { 'back\\slash' } } }
+    assert.are.equal('a\nback\\\\slash', fmt.tsv(data))
+
+    local literal_bs_t = { columns = { 'a', 'b' }, rows = { { 'x\\ty', 'z' } } } -- literal backslash + 't', not a tab
+    local real_tab = { columns = { 'a', 'b' }, rows = { { 'x\ty', 'z' } } } -- a real tab char
+    assert.are_not.equal(fmt.tsv(literal_bs_t), fmt.tsv(real_tab)) -- must not collide
+  end)
+end)
+
+describe('export_formats.csv: replacement strings with %', function()
+  it('does not raise on a line_feed_escape / escape_delimiter containing %', function()
+    -- regression: a raw '%' in a gsub REPLACEMENT string errors ("invalid use of
+    -- '%' in replacement string"); user-configured escape strings must be safe.
+    local data = { columns = { 'a', 'b' }, rows = { { 'line\nbreak', 'has,comma' } } }
+    local ok, out = pcall(fmt.csv, data, {
+      quote = '',
+      line_feed_escape = '%n',
+      escape_delimiter = '%d',
+    })
+    assert.is_true(ok)
+    assert.are.equal('a,b\nline%nbreak,has%dcomma', out)
+  end)
 end)
 
 describe('export_formats.json', function()
@@ -221,5 +247,20 @@ describe('export_formats.sql', function()
   it('falls back to exported_table and coerces numbers when asked', function()
     local data = { columns = { 'n' }, rows = { { '42' } } }
     assert.are.equal('INSERT INTO exported_table (n) VALUES (42);', fmt.sql(data, { coerce_numbers = true }))
+  end)
+
+  it('doubles the quote char inside a quoted identifier so it stays balanced', function()
+    -- regression: a column named a"b used to emit the broken `"a"b"`.
+    local data = { columns = { 'a"b' }, rows = { { '1' } }, source = 't"1' }
+    assert.are.equal('INSERT INTO "t""1" ("a""b") VALUES (\'1\');', fmt.sql(data, { quote_identifiers = true }))
+  end)
+
+  it('normalizes an empty-string opts.table / data.source to the exported_table fallback', function()
+    -- regression: '' is truthy in Lua, so opts.table = '' (or data.source = '')
+    -- used to win over the 'exported_table' fallback and emit a broken, empty
+    -- identifier (`INSERT INTO  (...)`).
+    local data = { columns = { 'n' }, rows = { { '1' } }, source = '' }
+    assert.are.equal("INSERT INTO exported_table (n) VALUES ('1');", fmt.sql(data, { table = '' }))
+    assert.are.equal("INSERT INTO exported_table (n) VALUES ('1');", fmt.sql(data))
   end)
 end)

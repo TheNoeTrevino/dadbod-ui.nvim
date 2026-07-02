@@ -170,7 +170,9 @@ function M.normalize_table_list(scheme, raw)
   end
   if lower:match('^mysql') then
     return vim.tbl_filter(function(name)
-      return not name:match('mysql: %[Warning%]') and not name:match('Tables_in_')
+      -- Anchored to the START of the name: an unanchored `Tables_in_` would also
+      -- drop any real table whose name merely CONTAINS that substring.
+      return not name:match('mysql: %[Warning%]') and not name:match('^Tables_in')
     end, raw)
   end
   return raw
