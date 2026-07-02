@@ -275,16 +275,26 @@ function M.connect_async(url, on_result)
     return finish(true, resolved)
   end
 
+  -- Remove the auth-input temp file (if the adapter used one) once the probe is
+  -- done -- on success, failure, or a spawn that never started.
+  local function cleanup_input()
+    if probe.input_file then
+      pcall(fn.delete, probe.input_file)
+    end
+  end
+
   -- `vim.system`'s callback runs in a fast event context (|api-fast|), where
   -- reading a Vim option (adapter_call/dispatch -> resolve -> is_available ->
   -- `vim.o.runtimepath`) raises E5560. Do ALL post-processing on the main loop:
   -- everything below touches Vim fns, so the whole body is scheduled and calls
   -- `on_result` directly (finish/fallback_sync would double-schedule).
-  vim.system(probe.cmd, { text = true, stdin = probe.stdin }, function(obj)
+  -- Guard the spawn: a missing client binary makes `vim.system` throw ENOENT
+  -- raw, the callback never fires (drawer stuck "connecting"), and the auth-input
+  -- temp file written above leaks. On failure, delete that file and finish with a
+  -- clean message matching dadbod's own (`DB: '<exec>' executable not found`).
+  local spawned = pcall(vim.system, probe.cmd, { text = true, stdin = probe.stdin }, function(obj)
     vim.schedule(function()
-      if probe.input_file then
-        pcall(fn.delete, probe.input_file)
-      end
+      cleanup_input()
       if obj.code == 0 then
         return on_result(true, resolved)
       end
@@ -302,6 +312,10 @@ function M.connect_async(url, on_result)
       on_result(false, 'DB exec error: ' .. err)
     end)
   end)
+  if not spawned then
+    cleanup_input()
+    finish(false, "DB: '" .. tostring(probe.cmd[1]) .. "' executable not found")
+  end
 end
 
 --- Whether dadbod exposes async cancellation (i.e. the async path is available).
@@ -363,6 +377,10 @@ end
 ---
 --- Prefer this in the UI: introspection stays off the main thread, the drawer
 --- can show a loading state and fill in as results arrive.
+---
+--- A spec whose spawn throws (e.g. the client binary is not installed) records a
+--- `nil` result in that slot rather than stranding the join, so `on_done` always
+--- fires exactly once; callers must tolerate `nil` holes in `results`.
 ---@param specs DadbodUI.CommandSpec[]
 ---@param on_done DadbodUI.RunManyCallback  results[i] aligns with specs[i]
 ---@return nil
@@ -372,17 +390,29 @@ function M.run_many(specs, on_done)
   if remaining == 0 then
     return on_done(results)
   end
+  -- One shared completion path (the wg.Done()): every branch routes through here so
+  -- `remaining` reliably reaches 0 and `on_done` fires exactly once. A spawn that
+  -- throws (e.g. missing binary) must NOT strand the join -- it records a nil result
+  -- for that spec and completes through the same path.
+  local function done(i, obj)
+    results[i] = obj
+    remaining = remaining - 1
+    if remaining == 0 then
+      vim.schedule(function()
+        on_done(results)
+      end)
+    end
+  end
   for i, spec in ipairs(specs) do
     -- spawn now (concurrent); the callback is the wg.Done()
-    vim.system(spec.cmd, { text = true, stdin = spec.stdin }, function(obj)
-      results[i] = obj
-      remaining = remaining - 1
-      if remaining == 0 then
-        vim.schedule(function()
-          on_done(results)
-        end)
-      end
+    local spawned = pcall(vim.system, spec.cmd, { text = true, stdin = spec.stdin }, function(obj)
+      done(i, obj)
     end)
+    if not spawned then
+      -- `vim.system` threw (e.g. the binary is not installed): the callback will
+      -- never run, so complete this spec here with a nil result.
+      done(i, nil)
+    end
   end
 end
 
@@ -433,13 +463,27 @@ end
 --- `*DBExecutePost`. Drive the in-buffer loading indicator from `on_pre` /
 --- `on_post`. Pass `quiet` to suppress dadbod's `Running query...` echo; pass
 --- `vertical` to open the result window as a vertical split.
+---
+--- `url` is spliced in raw, NOT `fnameescape`-d: `:DB` takes `<q-args>` with no
+--- filename expansion, and `fnameescape` backslash-escapes `%`, which mangles a
+--- percent-encoded credential (`p%40ss` -> `p\%40ss`) that dadbod's `s:expand_all`
+--- never un-escapes -- breaking auth. dadbod's `s:cmd_split` parses the url as a
+--- leading non-whitespace token, so a (space-free) url passes through intact.
+---
+--- A newline in `sql` would terminate the `:DB` Ex command and run the remainder
+--- as a second command (injection). Multi-line queries are routed through the
+--- temp-file path (`execute_lines`), which dadbod reads verbatim, so inline
+--- splicing only ever handles a single line.
 ---@param url string  resolved connection url
 ---@param sql string  the query text (single statement)
 ---@param quiet? boolean
 ---@param vertical? boolean
 function M.execute(url, sql, quiet, vertical)
   require_dadbod()
-  vim.cmd(string.format('%sDB %s %s', mods_prefix(quiet, vertical), fn.fnameescape(url), sql))
+  if sql:find('\n', 1, true) then
+    return M.execute_lines(vim.split(sql, '\n', { plain = true }), url, quiet, vertical)
+  end
+  vim.cmd(string.format('%sDB %s %s', mods_prefix(quiet, vertical), url, sql))
 end
 
 --- Execute the whole current buffer against its `b:db` (dadbod's `%DB`). The
@@ -469,7 +513,10 @@ end
 ---@return nil
 function M.execute_file(file, url, quiet, vertical)
   require_dadbod()
-  vim.cmd(string.format('%sDB %s < %s', mods_prefix(quiet, vertical), fn.fnameescape(url), fn.fnameescape(file)))
+  -- `url` is spliced in raw (see `execute`): `fnameescape` corrupts percent-encoded
+  -- credentials. `file` stays `fnameescape`-d -- it can hold Vim-special chars, and
+  -- tempnames never contain `%`, so this escaping is safe here.
+  vim.cmd(string.format('%sDB %s < %s', mods_prefix(quiet, vertical), url, fn.fnameescape(file)))
 end
 
 --- Write `lines` to a temp file (named with the adapter's input extension) and
