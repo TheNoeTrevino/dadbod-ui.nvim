@@ -111,6 +111,20 @@ describe('connection management: add', function()
     assert.is_truthy(notifications.get_last_msg():find('refusing to overwrite'))
   end)
 
+  it('persists the raw typed url so env references are not expanded to plaintext', function()
+    -- $DBUI_TEST_PASS resolves to a secret; only the raw reference must hit disk,
+    -- so the password stays out of connections.json and env rotation keeps working.
+    vim.fn.setenv('DBUI_TEST_PASS', 'secret123')
+    local raw = 'postgres://user:$DBUI_TEST_PASS@localhost/shop'
+    d = make_drawer({ save_location = dir, inputs = { raw, 'shop' } })
+    d:connections():add_connection()
+
+    local file = stored(d.instance.connections_path)
+    assert.equals(1, #file)
+    assert.equals(raw, file[1].url) -- stored verbatim, unresolved
+    assert.is_nil(file[1].url:find('secret123', 1, true)) -- secret never written
+  end)
+
   it('makes the empty-state Add connection node functional', function()
     d = make_drawer({ save_location = dir, inputs = { 'sqlite:' .. dir .. '/qa.db', 'qa' } })
     d:open()
@@ -404,6 +418,30 @@ describe('connection management: delete', function()
     vim.api.nvim_win_set_cursor(d.winid, { 1, 0 })
     d:delete_line()
     assert.is_truthy(notifications.get_last_msg():find('Cannot delete'))
+  end)
+
+  it('refuses to delete a non-file connection at the controller (guards the store)', function()
+    -- Even called directly, the controller must refuse a variable-source entry so
+    -- it can't rewrite connections.json (or drop a file entry sharing name+url).
+    d = make_drawer({ save_location = dir, g_dbs = { dev = 'postgres://h/dev' }, confirm = true })
+    d:connections():delete_connection(entry_named(d, 'dev'))
+    assert.is_truthy(notifications.get_last_msg():find('via variables'))
+  end)
+
+  it('deletes only the targeted clone when a same name+url lives in two groups', function()
+    -- geekom/postgres and pi/postgres share name AND url; deleting the pi clone
+    -- must leave geekom's intact (the controller threads entry.group through).
+    local seed = {
+      { name = 'postgres', url = 'sqlite:' .. dir .. '/db', group = 'geekom' },
+      { name = 'postgres', url = 'sqlite:' .. dir .. '/db', group = 'pi' },
+    }
+    connections.write_file(dir .. '/connections.json', seed)
+    d = make_drawer({ save_location = dir, file_entries = seed, confirm = true })
+    d:connections():delete_connection(d.instance.dbs['pi_postgres_file'])
+
+    local file = stored(d.instance.connections_path)
+    assert.equals(1, #file)
+    assert.equals('geekom', file[1].group)
   end)
 end)
 
