@@ -655,7 +655,13 @@ function Query:execute_query(is_visual)
     if values == nil then
       return notify.info('Bind parameters cancelled. Query not executed.')
     end
-    vim.b[bufnr].dbui_bind_params = values
+    -- The async prompt may resolve after the origin buffer was wiped (see the
+    -- focus-change note above); persist the answers only when it still exists,
+    -- but run the query regardless -- execution targets the captured `entry`, not
+    -- the current buffer.
+    if vim.api.nvim_buf_is_valid(bufnr) then
+      vim.b[bufnr].dbui_bind_params = values
+    end
     local final = bind_params.substitute(lines, values, pattern)
     run(function()
       self:dispatch(final, entry, false, quiet)
@@ -725,6 +731,12 @@ function Query:edit_bind_parameters()
     self.input({ prompt = string.format('Edit value for %s -> ', name), default = params[name] }, function(val)
       if val == nil then
         return -- cancelled, no change
+      end
+      -- The prompt is async: the buffer may have been wiped while it was open.
+      -- There is nothing to run here, so abort with a notification rather than
+      -- throwing on the buffer-var write.
+      if not vim.api.nvim_buf_is_valid(bufnr) then
+        return notify.warn('Buffer no longer available; bind parameter not saved.')
       end
       local updated = stored_params(bufnr)
       updated[name] = val
