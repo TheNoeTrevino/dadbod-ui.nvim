@@ -37,7 +37,7 @@
 ---@field cancel_query fun()
 ---@field get_conn_info fun(key_name: string): table
 ---@field find_buffer fun()
----@field switch_buffer fun()
+---@field switch_buffer fun(name?: string): boolean|nil, string|nil
 ---@field rename_buffer fun()
 ---@field print_last_query_info fun()
 ---@field statusline fun(opts?: DadbodUI.StatuslineOpts): string
@@ -160,10 +160,13 @@ end
 --- `:DBUISwitchBuffer`: prompts for a different db, reassigns the buffer
 --- (rewriting `b:db`/`b:dbui_db_key_name`, the winbar and the execute-on-save
 --- autocmds) without touching the buffer text. A bare buffer falls back to the
---- `find_buffer` assign path.
----@return nil
-function M.switch_buffer()
-  drawer():switch_buffer()
+--- `find_buffer` assign path. Pass `name` to switch straight to that connection
+--- with no prompt (returns `ok, err`); see `dadbod-ui.api.switch_buffer`.
+---@param name? string
+---@return boolean|nil ok
+---@return string|nil err
+function M.switch_buffer(name)
+  return drawer():switch_buffer(name)
 end
 
 --- Rename the current query buffer's on-disk file (and move its buffer tracking).
