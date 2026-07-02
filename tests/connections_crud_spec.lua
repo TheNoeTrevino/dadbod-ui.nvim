@@ -35,6 +35,28 @@ describe('connections: read_file on corrupt content', function()
     assert.same({}, list)
     assert.is_false(hit)
   end)
+
+  it('fires on_error for an unreadable file instead of throwing E484', function()
+    -- root bypasses file permissions, so we can't simulate an unreadable file.
+    if vim.uv.getuid and vim.uv.getuid() == 0 then
+      return
+    end
+    local dir = vim.fn.tempname()
+    vim.fn.mkdir(dir, 'p')
+    local path = dir .. '/connections.json'
+    vim.fn.writefile({ '[]' }, path)
+    vim.fn.setfperm(path, '---------') -- chmod 000: present but unreadable
+    local hit = false
+    local list
+    assert.has_no.errors(function()
+      list = connections.read_file(path, function()
+        hit = true
+      end)
+    end)
+    assert.same({}, list)
+    assert.is_true(hit)
+    vim.fn.delete(dir, 'rf')
+  end)
 end)
 
 describe('connections: add_connection', function()
@@ -132,6 +154,19 @@ describe('connections: delete_connection', function()
     local list = connections.delete_connection(base, 'A', 'postgres://h/a')
     assert.equals(0, #list)
   end)
+
+  it('deletes only the targeted clone when a same name+url lives in two groups', function()
+    -- geekom/postgres and pi/postgres share name AND url; deleting one must not
+    -- take out the other (the group-blind first-match bug).
+    local base = {
+      { name = 'postgres', url = 'postgres://h/db', group = 'geekom' },
+      { name = 'postgres', url = 'postgres://h/db', group = 'pi' },
+    }
+    local list = connections.delete_connection(base, 'postgres', 'postgres://h/db', 'geekom')
+    assert.equals(1, #list)
+    assert.equals('pi', list[1].group)
+    assert.equals(2, #base) -- input untouched
+  end)
 end)
 
 describe('connections: rename_connection', function()
@@ -177,6 +212,24 @@ describe('connections: rename_connection', function()
     assert.equals('postgres', list[2].name)
     assert.equals('pi', list[2].group) -- still pi; the geekom/postgres is untouched
   end)
+
+  it('renames only the targeted clone when a same name+url lives in two groups', function()
+    local base = {
+      { name = 'postgres', url = 'postgres://h/db', group = 'geekom' },
+      { name = 'postgres', url = 'postgres://h/db', group = 'pi' },
+    }
+    local list, err =
+      connections.rename_connection(base, 'postgres', 'postgres://h/db', 'renamed', 'postgres://h/db2', 'pi')
+    assert.is_nil(err)
+    local by_group = {}
+    for _, c in ipairs(list) do
+      by_group[c.group] = c
+    end
+    assert.equals('postgres', by_group.geekom.name) -- geekom clone untouched
+    assert.equals('postgres://h/db', by_group.geekom.url)
+    assert.equals('renamed', by_group.pi.name) -- only the pi clone changed
+    assert.equals('postgres://h/db2', by_group.pi.url)
+  end)
 end)
 
 describe('connections: set_group', function()
@@ -211,6 +264,23 @@ describe('connections: set_group', function()
     local list, err = connections.set_group(base, 'dev', 'postgres://h/b', 'Local')
     assert.is_nil(list)
     assert.is_truthy(err)
+  end)
+
+  it('regroups only the targeted clone when a same name+url lives in two groups', function()
+    -- cur_group picks the clone; without it the first (geekom) match would move.
+    local base = {
+      { name = 'postgres', url = 'postgres://h/db', group = 'geekom' },
+      { name = 'postgres', url = 'postgres://h/db', group = 'pi' },
+    }
+    local list, err = connections.set_group(base, 'postgres', 'postgres://h/db', 'moved', 'pi')
+    assert.is_nil(err)
+    local by_group = {}
+    for _, c in ipairs(list) do
+      by_group[c.group] = c
+    end
+    assert.is_not_nil(by_group.geekom) -- geekom clone untouched
+    assert.is_not_nil(by_group.moved) -- pi clone regrouped
+    assert.is_nil(by_group.pi)
   end)
 end)
 
@@ -327,5 +397,22 @@ describe('connections: move_connection', function()
     local list, err = connections.move_connection(base, 'zzz', 'postgres://h/zzz', 'down')
     assert.is_nil(err)
     assert.same({ 'a' }, names(list))
+  end)
+
+  it('moves only the targeted clone when a same name+url lives in two groups', function()
+    -- Two groups each hold a `postgres` clone with the SAME url. Moving the pi
+    -- clone must reorder only within pi; the group-blind bug would grab geekom's.
+    local base = {
+      { name = 'postgres', url = 'postgres://h/db', group = 'geekom' },
+      { name = 'other', url = 'postgres://h/o', group = 'geekom' },
+      { name = 'postgres', url = 'postgres://h/db', group = 'pi' },
+      { name = 'z', url = 'postgres://h/z', group = 'pi' },
+    }
+    local list, err = connections.move_connection(base, 'postgres', 'postgres://h/db', 'down', 'pi')
+    assert.is_nil(err)
+    local ids = vim.tbl_map(function(c)
+      return c.name .. '@' .. c.group
+    end, list)
+    assert.same({ 'postgres@geekom', 'other@geekom', 'z@pi', 'postgres@pi' }, ids)
   end)
 end)
