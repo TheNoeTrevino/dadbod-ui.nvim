@@ -14,8 +14,21 @@
 --- `refresh`), connection management (`list`/`info`/`add`/`remove`/`rename`/
 --- `duplicate`/`set_group`/`move`/`connect`/`disconnect`), introspection
 --- (`introspect`/`schemas`/`tables`), queries (`query`/`query_sync`/`execute`/
---- `open_query`/`switch_buffer`), export (`export`/`export_result`) and a runtime
+--- `explain`/`open_query`/`switch_buffer`), export (`export`/`export_result`),
+--- buffer verbs that act on the focused query buffer (`execute_query`/
+--- `execute_selection`/`explain_query`/`explain_selection`/`export_query`/
+--- `export_selection`/`cancel_query`/`find_buffer`/`rename_buffer`) and a runtime
 --- event bus (`on`/`off`) for observing the connect/execute/cancel lifecycle.
+---
+--- WHERE TO CALL EACH -- every verb's doc opens with a usage-context tag:
+---   * `[any]` -- callable from anywhere; addresses a connection by NAME (or takes
+---     explicit args). The scripting/programmatic surface.
+---   * `[query-buf]` -- acts on the CURRENT dadbod-ui query buffer (its connection,
+---     text, visual selection and bind-param context). Call it from a query buffer;
+---     it is the Lua dual of that buffer's mappings/commands.
+---   * `[dbout-buf]` -- acts on the CURRENT `.dbout` result buffer.
+--- The `[any]` verbs are what you script; the `[query-buf]`/`[dbout-buf]` verbs are
+--- what you bind to keys or run interactively inside the plugin's own buffers.
 ---
 --- Connections are addressed by NAME -- the display name from
 --- `require('dadbod-ui.api').list()` (its `key_name` also resolves, to
@@ -105,6 +118,8 @@
 ---@field explain_execute fun(name: string, sql: string, opts?: DadbodUI.ExplainOpts): boolean, string|nil
 ---@field explain_query fun(opts?: DadbodUI.ExplainOpts)
 ---@field explain_selection fun(opts?: DadbodUI.ExplainOpts)
+---@field export_query fun()
+---@field export_selection fun()
 ---@field export fun(spec: DadbodUI.ApiExportSpec): boolean, string|nil
 ---@field export_result fun(page_choice?: 'full'|'current')
 ---@field on fun(event: DadbodUI.EventName, cb: fun(event: DadbodUI.HookEvent)): DadbodUI.EventHandle|nil, string|nil
@@ -287,23 +302,23 @@ end
 
 -- Drawer ---------------------------------------------------------------------
 
---- Open the drawer (accepts command modifiers, e.g. `:tab`).
+--- [any] Open the drawer (accepts command modifiers, e.g. `:tab`).
 ---@param mods? string
 function M.open(mods)
   require('dadbod-ui').open(mods)
 end
 
---- Toggle the drawer open/closed.
+--- [any] Toggle the drawer open/closed.
 function M.toggle()
   require('dadbod-ui').toggle()
 end
 
---- Close the drawer.
+--- [any] Close the drawer.
 function M.close()
   require('dadbod-ui').close()
 end
 
---- Open the drawer, expand `name` (introspecting it lazily, as clicking its node
+--- [any] Open the drawer, expand `name` (introspecting it lazily, as clicking its node
 --- would) and put the cursor on it. Returns `false, err` for an unknown name.
 ---@param name string
 ---@return boolean ok
@@ -317,7 +332,7 @@ function M.reveal(name)
   return true
 end
 
---- Re-introspect `name`: reload its saved queries and re-scan schemas/tables from
+--- [any] Re-introspect `name`: reload its saved queries and re-scan schemas/tables from
 --- the live database (connecting first if needed), re-rendering the drawer when
 --- open. Refreshes the metadata `info`/`tables`/`schemas` report. Returns
 --- `false, err` for an unknown name.
@@ -335,13 +350,13 @@ end
 
 -- Connections ----------------------------------------------------------------
 
---- All discovered connections with their connection state.
+--- [any] All discovered connections with their connection state.
 ---@return DadbodUI.ConnectionInfo[]
 function M.list()
   return state.get():connections_list()
 end
 
---- Connection info for `name`, or nil when unknown. The data dual of the
+--- [any] Connection info for `name`, or nil when unknown. The data dual of the
 --- drawer's details view: url, live handle, known tables/schemas, scheme and a
 --- connected flag. Tables/schemas are only populated once the connection has
 --- been introspected (drawer-expanded or via `introspect`).
@@ -365,7 +380,7 @@ function M.info(name)
   }
 end
 
---- Whether `name` currently holds a live connection. False for an unknown name.
+--- [any] Whether `name` currently holds a live connection. False for an unknown name.
 ---@param name string
 ---@return boolean
 function M.is_connected(name)
@@ -373,7 +388,7 @@ function M.is_connected(name)
   return entry ~= nil and state.is_connected(entry)
 end
 
---- Add a connection to the `connections.json` store programmatically (the
+--- [any] Add a connection to the `connections.json` store programmatically (the
 --- non-interactive dual of `:DBUIAddConnection`). Rediscovers connections on
 --- success so the new one is immediately resolvable. Returns `false, err` when
 --- no store path is configured (needs `save_location`) or the name/url is
@@ -398,7 +413,7 @@ function M.add(spec)
   return true
 end
 
---- Remove `name` from the `connections.json` store (the dual of `add`). Only the
+--- [any] Remove `name` from the `connections.json` store (the dual of `add`). Only the
 --- exact connection resolved is removed -- a name reused across groups leaves its
 --- siblings intact. Returns `false, err` for an unknown or non-file connection.
 ---@param name string
@@ -414,7 +429,7 @@ function M.remove(name)
   end)
 end
 
---- Rename `name` in the store to `new_name` (keeping its group), optionally also
+--- [any] Rename `name` in the store to `new_name` (keeping its group), optionally also
 --- changing its url (`new_url` defaults to the current one). Returns `false, err`
 --- when `new_name` collides with another connection in the same group, or the name
 --- is unknown / non-file.
@@ -433,7 +448,7 @@ function M.rename(name, new_name, new_url)
   end)
 end
 
---- Copy `name` under `new_name` (same url), into `group` when given, else the
+--- [any] Copy `name` under `new_name` (same url), into `group` when given, else the
 --- source's own group. The clone may keep the source name only if it lands in a
 --- different group. Returns `false, err` on a same-group name collision or an
 --- unknown / non-file source.
@@ -452,7 +467,7 @@ function M.duplicate(name, new_name, group)
   end)
 end
 
---- Move `name` into `group` (an empty string ungroups it). Returns `false, err`
+--- [any] Move `name` into `group` (an empty string ungroups it). Returns `false, err`
 --- when another connection of the same name already lives in the target group
 --- (which would merge them under one key on the next discover), or the name is
 --- unknown / non-file.
@@ -470,7 +485,7 @@ function M.set_group(name, group)
   end)
 end
 
---- Reorder `name` one slot `'up'` or `'down'` among its group siblings (the drawer's
+--- [any] Reorder `name` one slot `'up'` or `'down'` among its group siblings (the drawer's
 --- `<C-Up>`/`<C-Down>`), persisting the new order. Clamps at the ends. Returns
 --- `false, err` for a bad direction or an unknown / non-file connection.
 ---@param name string
@@ -490,7 +505,7 @@ function M.move(name, direction)
   end)
 end
 
---- Connect `name` (no-op when already connected). Non-blocking; `cb(ok, err)`
+--- [any] Connect `name` (no-op when already connected). Non-blocking; `cb(ok, err)`
 --- fires on the main loop once the outcome is known.
 ---@param name string
 ---@param cb? DadbodUI.ApiOkCallback
@@ -503,7 +518,7 @@ function M.connect(name, cb)
   ensure_connected(entry, cb)
 end
 
---- Drop `name`'s live connection so `is_connected` reports false and the next
+--- [any] Drop `name`'s live connection so `is_connected` reports false and the next
 --- query/connect re-probes (the dual of `connect`). Cached tables/schemas are
 --- kept -- this forgets the live handle, not the introspected metadata. Returns
 --- `false, err` for an unknown name.
@@ -519,7 +534,7 @@ function M.disconnect(name)
   return true
 end
 
---- Add a connection interactively (prompts for url + name) -- the Lua equivalent
+--- [any] Add a connection interactively (prompts for url + name) -- the Lua equivalent
 --- of `:DBUIAddConnection`. Use `add` to add one programmatically instead.
 function M.add_connection()
   require('dadbod-ui').add_connection()
@@ -527,7 +542,7 @@ end
 
 -- Introspection --------------------------------------------------------------
 
---- Connect (if needed) and introspect `name`, returning its schemas, tables and
+--- [any] Connect (if needed) and introspect `name`, returning its schemas, tables and
 --- routines. Non-blocking; `cb(data, err)` fires once the metadata has landed.
 ---@param name string
 ---@param cb fun(data: DadbodUI.ApiIntrospection|nil, err: string|nil)
@@ -579,7 +594,7 @@ function M.introspect(name, cb)
   end
 end
 
---- Connect (if needed), introspect `name` and return just its schema names.
+--- [any] Connect (if needed), introspect `name` and return just its schema names.
 ---@param name string
 ---@param cb fun(schemas: string[]|nil, err: string|nil)
 function M.schemas(name, cb)
@@ -591,7 +606,7 @@ function M.schemas(name, cb)
   end)
 end
 
---- Connect (if needed), introspect `name` and return just its table names.
+--- [any] Connect (if needed), introspect `name` and return just its table names.
 ---@param name string
 ---@param cb fun(tables: string[]|nil, err: string|nil)
 function M.tables(name, cb)
@@ -605,7 +620,7 @@ end
 
 -- Query ----------------------------------------------------------------------
 
---- Switch the CURRENT query buffer to connection `name` without prompting -- the
+--- [query-buf] Switch the CURRENT query buffer to connection `name` without prompting -- the
 --- scriptable dual of `:DBUISwitchBuffer`. The current buffer must already be a
 --- dadbod-ui query buffer; its text, table/schema and bind-param context ride
 --- across to the new connection. With no `name`, falls back to the interactive
@@ -631,13 +646,13 @@ function M.switch_buffer(name)
   return ok == true, err
 end
 
---- Find/adopt the query buffer for the current db context -- the Lua equivalent
+--- [query-buf] Find/adopt the query buffer for the current db context -- the Lua equivalent
 --- of `:DBUIFindBuffer`. Operates on the current buffer.
 function M.find_buffer()
   require('dadbod-ui').find_buffer()
 end
 
---- Open a fresh scratch query buffer bound to `name` -- the programmatic dual of
+--- [any] Open a fresh scratch query buffer bound to `name` -- the programmatic dual of
 --- the drawer's "New query" node. `edit_action` is the open command (`'edit'`
 --- default, or a split like `'vertical botright split'`). The buffer carries the
 --- full `b:dbui_*` contract, so `execute_query`/`:w` run against `name` and the
@@ -655,37 +670,37 @@ function M.open_query(name, edit_action)
   return true
 end
 
---- Rename the current query buffer's on-disk file -- the Lua equivalent of
+--- [query-buf] Rename the current query buffer's on-disk file -- the Lua equivalent of
 --- `:DBUIRenameBuffer`. Operates on the current buffer.
 function M.rename_buffer()
   require('dadbod-ui').rename_buffer()
 end
 
---- Execute the whole current query buffer through dadbod, opening the `.dbout`
+--- [query-buf] Execute the whole current query buffer through dadbod, opening the `.dbout`
 --- result window -- the Lua equivalent of the `execute` mapping in normal mode.
 function M.execute_query()
   require('dadbod-ui').execute_query()
 end
 
---- Execute the current visual selection through dadbod -- the Lua equivalent of
+--- [query-buf] Execute the current visual selection through dadbod -- the Lua equivalent of
 --- the `execute` mapping in visual mode.
 function M.execute_selection()
   require('dadbod-ui').execute_selection()
 end
 
---- Cancel the running async query for the current query buffer -- the Lua
+--- [query-buf] Cancel the running async query for the current query buffer -- the Lua
 --- equivalent of `:DBUICancelQuery`.
 function M.cancel_query()
   require('dadbod-ui').cancel_query()
 end
 
---- Echo the last executed query and its runtime -- the Lua equivalent of
+--- [query-buf] Echo the last executed query and its runtime -- the Lua equivalent of
 --- `:DBUILastQueryInfo`.
 function M.last_query_info()
   require('dadbod-ui').print_last_query_info()
 end
 
---- Run `sql` against `name` and return the raw, adapter-formatted output lines.
+--- [any] Run `sql` against `name` and return the raw, adapter-formatted output lines.
 --- Connects first if needed. Non-blocking: the query runs through the adapter's
 --- own client (`vim.system`), so Neovim stays responsive and no result window is
 --- opened -- use `execute` for the drawer's `.dbout` view instead.
@@ -707,7 +722,7 @@ function M.query(name, sql, cb)
   end)
 end
 
---- Blocking dual of `query` for scripts and tests: connects (blocking) and runs
+--- [any] Blocking dual of `query` for scripts and tests: connects (blocking) and runs
 --- `sql`, returning the raw output lines. Blocks Neovim for the round-trip --
 --- prefer `query` in interactive contexts.
 ---@param name string
@@ -729,7 +744,7 @@ function M.query_sync(name, sql)
   return parse_result(results[1])
 end
 
---- Execute `sql` against `name` through dadbod's `:DB`, opening the `.dbout`
+--- [any] Execute `sql` against `name` through dadbod's `:DB`, opening the `.dbout`
 --- result window -- the UI dual of `query`. Connects first if needed (blocking,
 --- since `:DB` needs a live handle on the same tick). Returns `false, err` when
 --- the name is unknown or the connection fails.
@@ -754,7 +769,7 @@ end
 
 -- Explain --------------------------------------------------------------------
 
---- Run `sql`'s EXPLAIN plan against `name` and return the raw, adapter-formatted
+--- [any] Run `sql`'s EXPLAIN plan against `name` and return the raw, adapter-formatted
 --- output lines -- the explain dual of `query`, wrapping `sql` in the adapter's
 --- EXPLAIN syntax and running it headlessly (no result window). Pass
 --- `{ analyze = true }` for `EXPLAIN ANALYZE`, which RUNS the query for real
@@ -777,7 +792,7 @@ function M.explain(name, sql, opts, cb)
   M.query(name, explained, cb)
 end
 
---- Blocking dual of `explain` for scripts and tests: wraps `sql` in `name`'s
+--- [any] Blocking dual of `explain` for scripts and tests: wraps `sql` in `name`'s
 --- EXPLAIN syntax and runs it (blocking), returning the raw output lines.
 --- Returns `nil, err` for an unknown name or an adapter without explain support.
 ---@param name string
@@ -793,7 +808,7 @@ function M.explain_sync(name, sql, opts)
   return M.query_sync(name, explained)
 end
 
---- Execute `sql`'s EXPLAIN plan against `name` through dadbod's `:DB`, opening
+--- [any] Execute `sql`'s EXPLAIN plan against `name` through dadbod's `:DB`, opening
 --- the `.dbout` result window -- the UI dual of `explain`. Returns `false, err`
 --- for an unknown name, an adapter without explain support, or a connect
 --- failure.
@@ -810,7 +825,7 @@ function M.explain_execute(name, sql, opts)
   return M.execute(name, explained)
 end
 
---- Explain the CURRENT query buffer's SQL and open the plan in the `.dbout`
+--- [query-buf] Explain the CURRENT query buffer's SQL and open the plan in the `.dbout`
 --- window -- the explain dual of `execute_query`, operating on the focused buffer
 --- rather than a name+sql pair. Reuses the buffer's connection and bind-param
 --- context (placeholders are prompted, then the substituted query is wrapped in
@@ -823,7 +838,7 @@ function M.explain_query(opts)
   require('dadbod-ui').explain_query(opts)
 end
 
---- Explain the current VISUAL SELECTION and open the plan in the `.dbout` window
+--- [query-buf] Explain the current VISUAL SELECTION and open the plan in the `.dbout` window
 --- -- the explain dual of `execute_selection`. Same connection/bind-param reuse
 --- and `opts.analyze` behavior as `explain_query`.
 ---@param opts? DadbodUI.ExplainOpts
@@ -831,9 +846,24 @@ function M.explain_selection(opts)
   require('dadbod-ui').explain_selection(opts)
 end
 
+--- [query-buf] Export the CURRENT query buffer's results to a file: run its SQL and write the
+--- rows in a chosen format, prompting for format + path -- the query-buffer dual
+--- of `export` (which takes an explicit name+sql+path) and the counterpart to
+--- `export_result` (which works on the `.dbout` result buffer). Reuses the
+--- buffer's connection + bind-param context. Runs on the focused query buffer.
+function M.export_query()
+  require('dadbod-ui').export_query()
+end
+
+--- [query-buf] Export the current VISUAL SELECTION's results to a file -- the export dual of
+--- `execute_selection`. Same prompt + connection/bind-param reuse as `export_query`.
+function M.export_selection()
+  require('dadbod-ui').export_selection()
+end
+
 -- Export ---------------------------------------------------------------------
 
---- Run `spec.sql` against `spec.name` and export the result to `spec.path` in
+--- [any] Run `spec.sql` against `spec.name` and export the result to `spec.path` in
 --- `spec.format`, with no drawer or result buffer involved (the headless dual of
 --- `:DBUIExportResult`). Connects first if needed (blocking). The export itself
 --- is asynchronous and reports success/failure through the plugin's
@@ -868,7 +898,7 @@ function M.export(spec)
   return true
 end
 
---- Interactively export the CURRENT `.dbout` result buffer to a file (prompts for
+--- [dbout-buf] Interactively export the CURRENT `.dbout` result buffer to a file (prompts for
 --- format + path) -- the Lua equivalent of `:DBUIExportResult`. `page_choice`
 --- 'current' exports only the on-screen page of a paginated result; 'full' (the
 --- default) exports the whole query. Use `export` for a headless, prompt-free
@@ -880,7 +910,7 @@ end
 
 -- Events ---------------------------------------------------------------------
 
---- Subscribe `cb` to a lifecycle `event`, returning a handle to pass to `off`.
+--- [any] Subscribe `cb` to a lifecycle `event`, returning a handle to pass to `off`.
 --- Unlike the single-slot `config.hooks`, any number of listeners can observe the
 --- same event, and they compose with a configured hook rather than replacing it.
 --- Listeners are OBSERVERS: an `on_connect` listener sees the event but cannot
@@ -904,7 +934,7 @@ function M.on(event, cb)
   return require('dadbod-ui.events').on(event, cb)
 end
 
---- Remove the listener a `handle` (from `on`) refers to. Returns whether one was
+--- [any] Remove the listener a `handle` (from `on`) refers to. Returns whether one was
 --- actually removed (false for a stale or foreign handle).
 ---@param handle DadbodUI.EventHandle
 ---@return boolean
@@ -914,7 +944,7 @@ end
 
 -- Statusline -----------------------------------------------------------------
 
---- Connection/table info for the current query buffer, or the last query's
+--- [query-buf/dbout-buf] Connection/table info for the current query buffer, or the last query's
 --- runtime for a `.dbout` buffer -- safe to embed in a `statusline`/`winbar`
 --- expression. Never opens the drawer. Mirrors the original `db_ui#statusline()`.
 ---@param opts? DadbodUI.StatuslineOpts
