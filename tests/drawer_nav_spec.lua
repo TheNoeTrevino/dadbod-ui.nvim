@@ -68,6 +68,33 @@ describe('drawer: sibling navigation', function()
     assert.equals('b', node.label) -- landed on the next db, not its child
     assert.equals(0, node.level)
   end)
+
+  it('last stops at the final same-level sibling when a separator ends the scan', function()
+    -- A level-1 sibling (Buffers) followed by a deeper child (buf), then a
+    -- top-level separator: `last` must land on Buffers, not the deeper `buf`.
+    d.content = {
+      { level = 0, label = 'a', type = 'db', action = 'toggle' },
+      { level = 1, label = 'New query', type = 'query', action = 'open' },
+      { level = 1, label = 'Buffers', type = 'buffers', action = 'toggle' },
+      { level = 2, label = 'buf', type = 'buffer', action = 'open' },
+      { level = 0, label = '', type = 'help', action = 'noaction' },
+      { level = 0, label = 'Query results', type = 'dbout_list', action = 'call_method' },
+    }
+    vim.bo[d.bufnr].modifiable = true
+    vim.api.nvim_buf_set_lines(d.bufnr, 0, -1, false, {
+      'a',
+      'New query',
+      'Buffers',
+      'buf',
+      '',
+      'Query results',
+    })
+    vim.bo[d.bufnr].modifiable = false
+    d:set_cursor(2) -- on New query (level 1)
+    d:goto_sibling('last')
+    assert.equals(3, cursor_line(d)) -- Buffers, the last level-1 sibling
+    assert.equals('Buffers', d.content[cursor_line(d)].label)
+  end)
 end)
 
 describe('drawer: node navigation', function()
@@ -93,5 +120,12 @@ describe('drawer: node navigation', function()
     d:goto_node('child')
     assert.equals(2, cursor_line(d)) -- expanded, moved onto New query
     assert.equals('  + New query', vim.api.nvim_buf_get_lines(d.bufnr, 1, 2, false)[1])
+  end)
+
+  it('goto parent is a no-op on a top-level node (never jumps to line 1)', function()
+    d:set_cursor(2) -- db 'b', a top-level (level 0) node that is not line 1
+    d:goto_node('parent')
+    assert.equals(2, cursor_line(d)) -- stayed put, did not clamp onto line 1
+    assert.equals('b', d.content[cursor_line(d)].label)
   end)
 end)
