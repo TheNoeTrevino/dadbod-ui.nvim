@@ -40,6 +40,9 @@ Fields ~
 {get_conn_info} `(fun(key_name: string): table)`
 {find_buffer} `(fun())`
 {switch_buffer} `(fun(name?: string): boolean|nil,)` string|nil
+{open_query} `(fun(key_name: string, edit_action?: string))`
+{reveal} `(fun(key_name: string))`
+{refresh} `(fun(key_name: string))`
 {rename_buffer} `(fun())`
 {print_last_query_info} `(fun())`
 {statusline} `(fun(opts?: DadbodUI.StatuslineOpts): string)`
@@ -158,6 +161,39 @@ Return ~
 `(string|nil)` err
 
 ------------------------------------------------------------------------------
+                                                                *M.open_query()*
+                   `M.open_query`({key_name}, {edit_action})
+Open a fresh scratch query buffer bound to the connection `key_name` -- the
+programmatic equivalent of the drawer's "New query" node. `edit_action` is the
+open command (`'edit'` default, or a split like `'vertical botright split'`).
+Delegates to the query controller's open path with a synthetic `query` item.
+Parameters ~
+{key_name} `(string)`
+{edit_action} `(optional)` `(string)`
+Return ~
+`(nil)`
+
+------------------------------------------------------------------------------
+                                                                    *M.reveal()*
+                             `M.reveal`({key_name})
+Open the drawer, expand the connection `key_name` (introspecting it), and put
+the cursor on it. Backs `dadbod-ui.api.reveal`.
+Parameters ~
+{key_name} `(string)`
+Return ~
+`(nil)`
+
+------------------------------------------------------------------------------
+                                                                   *M.refresh()*
+                            `M.refresh`({key_name})
+Re-introspect the connection `key_name` (reload saved queries + re-scan
+schemas/tables), re-rendering the drawer when open. Backs `dadbod-ui.api.refresh`.
+Parameters ~
+{key_name} `(string)`
+Return ~
+`(nil)`
+
+------------------------------------------------------------------------------
                                                              *M.rename_buffer()*
                               `M.rename_buffer`()
 Rename the current query buffer's on-disk file (and move its buffer tracking).
@@ -190,7 +226,8 @@ Return ~
 ------------------------------------------------------------------------------
                                                                      *M.reset()*
                                   `M.reset`()
-Reset session state (drops the cached instance and drawer). For tests/cleanup.
+Reset session state (drops the cached instance and drawer, clears runtime event
+listeners). For tests/cleanup.
 
 
 ==============================================================================
