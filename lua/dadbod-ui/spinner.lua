@@ -19,7 +19,7 @@
 ---@field DEFAULT_INTERVAL integer
 ---@field start fun(key: any, frames: string[], on_tick: DadbodUI.SpinnerOnTick, interval?: integer)
 ---@field stop fun(key: any)
----@field _timers table<any, { timer: uv.uv_timer_t, tick: fun() }>  test seam: keyed registry, `tick` advances a frame
+---@field _timers table<any, { timer: uv.uv_timer_t, tick: fun(), scheduled: fun() }>  test seam: keyed registry (`tick` advances a frame, `scheduled` is the stop-guarded timer callback)
 ---@field _new_timer fun(): uv.uv_timer_t|nil  test seam: injectable timer constructor
 
 ---@type DadbodUI.SpinnerModule
@@ -34,7 +34,7 @@ M.DEFAULT_INTERVAL = 80
 -- key -> { timer = uv.uv_timer_t, tick = fun(): nil }. The registry is keyed so
 -- multiple spinners run independently; `tick` advances one frame (used by the
 -- timer and, in specs, called directly).
----@type table<any, { timer: uv.uv_timer_t, tick: fun(): nil }>
+---@type table<any, { timer: uv.uv_timer_t, tick: fun(): nil, scheduled: fun(): nil }>
 M._timers = {}
 
 -- Injectable timer constructor (defaults to libuv); a spec may swap it for a
@@ -63,11 +63,25 @@ function M.start(key, frames, on_tick, interval)
     on_tick(frames[frame])
     frame = frame % #frames + 1
   end
-  M._timers[key] = { timer = timer, tick = tick }
+  -- A tick scheduled via `vim.schedule_wrap` can still be pending on the loop
+  -- when `stop` (or a replacing `start`) runs, and would then fire afterwards --
+  -- repainting the spinner over results dadbod had already loaded. Guard the
+  -- scheduled path on THIS start still being the registered one: a stale tick
+  -- from a stopped/replaced spinner finds a different (or nil) registration and
+  -- bails. Captured before the registration table so the closure can compare it.
+  local registration
+  local function scheduled()
+    if M._timers[key] ~= registration then
+      return
+    end
+    tick()
+  end
+  registration = { timer = timer, tick = tick, scheduled = scheduled }
+  M._timers[key] = registration
   -- Paint the first frame synchronously so it shows before the loop yields;
   -- subsequent ticks are scheduled (a uv timer callback can't touch the API).
   tick()
-  timer:start(interval, interval, vim.schedule_wrap(tick))
+  timer:start(interval, interval, vim.schedule_wrap(scheduled))
 end
 
 --- Stop, close and forget the spinner for `key`. Idempotent and pcall-guarded:

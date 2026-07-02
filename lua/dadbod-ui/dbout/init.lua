@@ -223,7 +223,9 @@ function M._on_pre(output_file)
   end
   local buf = utils.loaded_bufnr(output_file)
   if buf >= 0 then
-    local summary = cfg.enabled and winbar.RUNNING_SEGMENT or nil
+    -- The running segment is part of the result-buffer summary, so it honors
+    -- `result_buffer`; the winbar itself may still show for a paginated result.
+    local summary = (cfg.enabled and cfg.result_buffer) and winbar.RUNNING_SEGMENT or nil
     winbar.set_base(buf, winbar._winbar_text(page, summary, nil, winbar._nav_keys(config)))
     winbar.arm_winbar_teardown(buf)
   end
@@ -266,8 +268,13 @@ function M._on_post(output_file)
   end
 
   -- The summary text needs query_time enabled; the winbar shows whenever there is
-  -- something to put in it -- the summary and/or the pagination segments.
-  local want_summary = cfg.enabled
+  -- something to put in it -- the summary and/or the pagination segments. The
+  -- result-buffer winbar summary and the query-buffer ghost text are gated
+  -- independently (`result_buffer` / `query_buffer`); we still compute the summary
+  -- text + row count when EITHER surface wants it.
+  local want_result = cfg.enabled and cfg.result_buffer
+  local want_query = cfg.enabled and cfg.query_buffer
+  local want_summary = want_result or want_query
   local want_winbar = winbar.wants_winbar(cfg, page)
   if buf >= 0 and (want_summary or page ~= nil) then
     local status = type(db) == 'table' and tonumber(db.exit_status) or 0
@@ -293,9 +300,12 @@ function M._on_post(output_file)
     end
     local summary = want_summary and winbar._summary_text(runtime, status, cfg.show_row_count and rows or nil) or nil
     if want_winbar then
-      winbar.set_base(buf, winbar._winbar_text(page, summary, rows, winbar._nav_keys(config)))
+      -- Only the result-buffer summary segment is gated on `result_buffer`; the
+      -- pagination/nav segments still render (that's why the winbar shows at all
+      -- for a paginated result with the summary disabled).
+      winbar.set_base(buf, winbar._winbar_text(page, want_result and summary or nil, rows, winbar._nav_keys(config)))
     end
-    if want_summary and cfg.query_buffer and origin ~= nil and summary ~= nil then
+    if want_query and origin ~= nil and summary ~= nil then
       winbar.render_ghost(origin, summary)
     end
   end
