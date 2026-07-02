@@ -181,21 +181,22 @@ function Query:focus_window()
     return
   end
   -- (a) reuse a window already holding a dbui query buffer.
-  for _, win in ipairs(wins) do
-    local buf = vim.api.nvim_win_get_buf(win)
-    local key = vim.b[buf].dbui_db_key_name
-    if key and key ~= '' then
-      vim.api.nvim_set_current_win(win)
-      return
-    end
+  local reuse = vim.iter(wins):find(function(win)
+    local key = vim.b[vim.api.nvim_win_get_buf(win)].dbui_db_key_name
+    return key and key ~= ''
+  end)
+  if reuse then
+    vim.api.nvim_set_current_win(reuse)
+    return
   end
   -- (b) else any normal editable window.
-  for _, win in ipairs(wins) do
+  local editable = vim.iter(wins):find(function(win)
     local buf = vim.api.nvim_win_get_buf(win)
-    if vim.bo[buf].filetype ~= 'dbui' and vim.bo[buf].buftype ~= 'nofile' and vim.bo[buf].modifiable then
-      vim.api.nvim_set_current_win(win)
-      return
-    end
+    return vim.bo[buf].filetype ~= 'dbui' and vim.bo[buf].buftype ~= 'nofile' and vim.bo[buf].modifiable
+  end)
+  if editable then
+    vim.api.nvim_set_current_win(editable)
+    return
   end
   -- (c) else open a vertical split on the side opposite the drawer.
   vim.cmd('silent! ' .. win_cmd)
@@ -658,7 +659,13 @@ function Query:execute_query(is_visual)
     if values == nil then
       return notify.info('Bind parameters cancelled. Query not executed.')
     end
-    vim.b[bufnr].dbui_bind_params = values
+    -- The async prompt may resolve after the origin buffer was wiped (see the
+    -- focus-change note above); persist the answers only when it still exists,
+    -- but run the query regardless -- execution targets the captured `entry`, not
+    -- the current buffer.
+    if vim.api.nvim_buf_is_valid(bufnr) then
+      vim.b[bufnr].dbui_bind_params = values
+    end
     local final = bind_params.substitute(lines, values, pattern)
     run(function()
       self:dispatch(final, entry, false, quiet)
@@ -813,16 +820,12 @@ function Query:edit_bind_parameters()
   -- from detect), then any stored names no longer in the buffer (sorted, for
   -- stability).
   local names = bind_params.detect(self:get_lines(), self.config.bind_param_pattern)
-  local seen = {}
-  for _, name in ipairs(names) do
-    seen[name] = true
-  end
-  local orphans = {}
-  for name in pairs(params) do
-    if not seen[name] then
-      orphans[#orphans + 1] = name
-    end
-  end
+  local orphans = vim
+    .iter(vim.tbl_keys(params))
+    :filter(function(name)
+      return not vim.tbl_contains(names, name)
+    end)
+    :totable()
   table.sort(orphans)
   vim.list_extend(names, orphans)
 
@@ -834,6 +837,12 @@ function Query:edit_bind_parameters()
     self.input({ prompt = string.format('Edit value for %s -> ', name), default = params[name] }, function(val)
       if val == nil then
         return -- cancelled, no change
+      end
+      -- The prompt is async: the buffer may have been wiped while it was open.
+      -- There is nothing to run here, so abort with a notification rather than
+      -- throwing on the buffer-var write.
+      if not vim.api.nvim_buf_is_valid(bufnr) then
+        return notify.warn('Buffer no longer available; bind parameter not saved.')
       end
       local updated = stored_params(bufnr)
       updated[name] = val

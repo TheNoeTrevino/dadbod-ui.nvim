@@ -35,6 +35,18 @@ describe('table_helpers: get', function()
     assert.equals('select 1', table_helpers.get('postgresql', cfg).Aliased)
   end)
 
+  it('lets an exact-scheme override win over the aliased-scheme one', function()
+    local cfg = config.resolve({
+      table_helpers = {
+        postgres = { List = 'alias wins?' },
+        postgresql = { List = 'exact wins' },
+      },
+    })
+    -- The connection's actual scheme (postgresql) must beat its alias (postgres).
+    assert.equals('exact wins', table_helpers.get('postgresql', cfg).List)
+    assert.equals('alias wins?', table_helpers.get('postgres', cfg).List)
+  end)
+
   it('drops helpers explicitly set to the empty string', function()
     local cfg = config.resolve({ table_helpers = { sqlite = { Columns = '' } } })
     assert.is_nil(table_helpers.get('sqlite', cfg).Columns)

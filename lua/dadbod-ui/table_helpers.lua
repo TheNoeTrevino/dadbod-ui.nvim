@@ -283,11 +283,12 @@ function M.get(scheme, config)
     }
   end
 
-  local result = vim.tbl_extend('force', {}, base or { List = '' }, user[scheme] or {})
+  -- Overlay the aliased scheme's overrides first, then the exact scheme's on top:
+  -- an override keyed by the connection's ACTUAL scheme must win over one keyed by
+  -- its alias (the merge order was previously inverted, letting the alias win).
   local mapped = scheme_map[scheme]
-  if mapped then
-    result = vim.tbl_extend('force', result, user[mapped] or {})
-  end
+  local result = vim.tbl_extend('force', {}, base or { List = '' }, (mapped and user[mapped]) or {})
+  result = vim.tbl_extend('force', result, user[scheme] or {})
 
   for key, value in pairs(result) do
     if value == '' then
