@@ -12,7 +12,8 @@ First of all, thank you for considering contributing to this project!
 - You can use the `git log` for examples of previous commit messages.
 - Please try to have an understandable and followable commit history, open a new branch (don't PR changes from your main to the repository's main).
 
-4. Open a PR to main
+4. Open a PR to `nightly` (not `main`!) and reference the issue you are working on
+   a. e.g. `Fixes #123`
 
 ## Config for Local Development
 

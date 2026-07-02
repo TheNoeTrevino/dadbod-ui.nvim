@@ -486,8 +486,11 @@ function Drawer:pick_db(saved_name, cb)
     return cb(nil)
   end
   if saved_name ~= '' then
+    -- `saved_name` is the group-qualified id from get_saved_query_db_name, so match
+    -- on the same qualified id -- a bare-name match would resolve a name reused
+    -- across groups to whichever came first (wrong db).
     return cb(entry_of(vim.iter(list):find(function(r)
-      return r.name:lower() == saved_name:lower()
+      return utils.qualified_name(r.name, r.group):lower() == saved_name:lower()
     end)))
   end
   if #list == 1 then
@@ -573,14 +576,25 @@ end
 --- across so a templated query still resolves. A bare buffer is handed to
 --- `find_buffer` instead (assign, not switch). Picks always prompt -- switching is
 --- an explicit choice -- so a lone connection has nothing to switch to.
----@return nil
-function Drawer:switch_buffer()
+---
+--- `target_name` (name or key_name) switches DIRECTLY to that connection with no
+--- prompt -- the scriptable path behind `dadbod-ui.api.switch_buffer`. It returns
+--- `ok, err`; the interactive path (no `target_name`) shows the picker and
+--- returns nil.
+---@param target_name? string
+---@return boolean|nil ok
+---@return string|nil err
+function Drawer:switch_buffer(target_name)
   local notify = require('dadbod-ui.notifications')
   local bufnr = vim.api.nvim_get_current_buf()
   local key = vim.b[bufnr].dbui_db_key_name
   local current = (type(key) == 'string' and key ~= '') and self.instance.dbs[key] or nil
   if current == nil then
-    -- Nothing to switch FROM: fall back to the assign path.
+    -- Nothing to switch FROM. The interactive verb falls back to the assign
+    -- path; a scripted switch to a named db needs a real query buffer, so error.
+    if target_name ~= nil then
+      return false, 'the current buffer is not a dadbod-ui query buffer'
+    end
     return self:find_buffer()
   end
 
@@ -589,29 +603,28 @@ function Drawer:switch_buffer()
     return r.key_name ~= current.key_name
   end, self.instance.dbs_list)
   if #others == 0 then
+    if target_name ~= nil then
+      return false, 'no other connection to switch this buffer to'
+    end
     return notify.info('No other connection to switch this buffer to.')
   end
 
-  self:query().select(others, {
-    prompt = string.format('Switch buffer from %s to db:', current.name),
-    ---@param r DadbodUI.ConnectionRecord
-    ---@return string
-    format_item = function(r)
-      return r.name
-    end,
-  }, function(choice)
-    if choice == nil then
-      return -- cancelled: leave the buffer on its current connection
-    end
+  -- The switch core: reassign the captured `bufnr` to the chosen record. Shared
+  -- by the picker callback and the direct (scripted) path. Returns `ok, err`.
+  ---@param choice DadbodUI.ConnectionRecord
+  ---@return boolean ok
+  ---@return string|nil err
+  local function do_switch(choice)
     local target = self.instance.dbs[choice.key_name]
     if target == nil or target.key_name == current.key_name then
-      return
+      return false, 'invalid switch target'
     end
     -- The async picker may resolve after focus moved (e.g. into the drawer);
     -- re-enter the buffer's window so setup_buffer acts on the right buffer.
     local win = vim.fn.bufwinid(bufnr)
     if win == -1 then
-      return notify.error('The query buffer is no longer visible; switch aborted.')
+      notify.error('The query buffer is no longer visible; switch aborted.')
+      return false, 'the query buffer is no longer visible'
     end
     vim.api.nvim_set_current_win(win)
 
@@ -648,6 +661,32 @@ function Drawer:switch_buffer()
 
     self:render()
     notify.info('Switched buffer to db ' .. target.name)
+    return true
+  end
+
+  -- Direct path: resolve `target_name` among the candidates and switch, no prompt.
+  if target_name ~= nil then
+    local choice = vim.iter(others):find(function(r)
+      return r.name == target_name or r.key_name == target_name
+    end)
+    if choice == nil then
+      return false, 'no connection named ' .. target_name .. ' to switch to'
+    end
+    return do_switch(choice)
+  end
+
+  self:query().select(others, {
+    prompt = string.format('Switch buffer from %s to db:', current.name),
+    ---@param r DadbodUI.ConnectionRecord
+    ---@return string
+    format_item = function(r)
+      return r.name
+    end,
+  }, function(choice)
+    if choice == nil then
+      return -- cancelled: leave the buffer on its current connection
+    end
+    do_switch(choice)
   end)
 end
 

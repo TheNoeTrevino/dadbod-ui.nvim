@@ -51,6 +51,7 @@
 ---@field cancel fun(bufnr: integer|nil)
 ---@field systemlist fun(cmd: string[], input: string|nil): string[]
 ---@field command fun(url: string, mode: string|nil): string[]
+---@field query_command fun(conn: string, sql: string): DadbodUI.CommandSpec
 ---@field run_many fun(specs: DadbodUI.CommandSpec[], on_done: DadbodUI.RunManyCallback)
 ---@field run_many_sync fun(specs: DadbodUI.CommandSpec[], timeout_ms: integer|nil): DadbodUI.SystemCompleted[]
 ---@field execute fun(url: string, sql: string, quiet?: boolean, vertical?: boolean)
@@ -365,6 +366,25 @@ end
 ---@return string[]
 function M.command(url, mode)
   return M.dispatch(url, mode or 'interactive')
+end
+
+--- Build a `CommandSpec` that runs `sql` against a RESOLVED connection url via
+--- the adapter's own client, capturing its output ourselves -- no `:DB`, no
+--- result window. This is the headless dual of `execute`: adapters that read
+--- their query from stdin (`filter`) get `sql` as `stdin`, the rest take it as
+--- a trailing argument on the `interactive` command (mirroring how
+--- `schemas.command_spec` builds an introspection query). Pair it with
+--- `run_many` / `run_many_sync` to get the raw, adapter-formatted output back.
+---@param conn string  resolved connection url (e.g. from `connect`)
+---@param sql string
+---@return DadbodUI.CommandSpec
+function M.query_command(conn, sql)
+  if M.supports(conn, 'filter') then
+    return { cmd = M.command(conn, 'filter'), stdin = sql }
+  end
+  local cmd = M.command(conn, 'interactive')
+  cmd[#cmd + 1] = sql
+  return { cmd = cmd }
 end
 
 --- Run many commands concurrently and join when ALL finish (non-blocking).

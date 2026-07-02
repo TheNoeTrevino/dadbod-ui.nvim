@@ -231,7 +231,7 @@ function Drawer:get_buffer_name(entry, buffer)
   if vim.fn.fnamemodify(name, ':r') == 'db_ui' then
     name = vim.fn.fnamemodify(name, ':e')
   end
-  return (name:gsub('^' .. vim.pesc(utils.slug(entry.name)) .. '%-', ''))
+  return (name:gsub('^' .. vim.pesc(utils.slug(entry.save_name)) .. '%-', ''))
 end
 
 --- Render the Buffers section: a toggle header with the open-buffer count, and
