@@ -124,6 +124,28 @@ describe('bridge: concurrent introspection (fan-out / WaitGroup)', function()
     assert.equals(0, results[1].code)
     vim.fn.delete(dir, 'rf')
   end)
+
+  it('completes when a spawn fails mid-loop (missing binary)', function()
+    -- Regression: an unguarded `vim.system` throws ENOENT for a missing binary,
+    -- its completion callback never runs, `remaining` never hits 0 and `on_done`
+    -- is unreachable (introspection waits forever). The failed spec must record a
+    -- nil result and complete through the same path so `on_done` fires once.
+    local results, done
+    bridge.run_many({
+      { cmd = { 'sleep', '0.05' } },
+      { cmd = { 'dadbod-ui-definitely-not-a-real-binary' } },
+    }, function(r)
+      results, done = r, true
+    end)
+    assert.is_true(
+      vim.wait(3000, function()
+        return done
+      end, 10),
+      'on_done must fire even when a spawn throws'
+    )
+    assert.equals(0, results[1].code)
+    assert.is_nil(results[2]) -- failed spawn -> nil hole
+  end)
 end)
 
 describe('bridge: connect_async', function()
@@ -280,5 +302,49 @@ describe('bridge: result split modifier', function()
   it('execute_lines: applies the vertical modifier when asked', function()
     bridge.execute_lines({ 'select 1' }, 'sqlite::memory:', nil, true)
     assert.is_truthy(captured:match('^vertical DB '))
+  end)
+end)
+
+describe('bridge: url escaping and injection safety', function()
+  -- These build the `:DB` command string with `vim.cmd` stubbed, asserting the
+  -- url reaches dadbod verbatim (no `fnameescape` corruption) and that a
+  -- newline-bearing query can never splice a second Ex command.
+  local original_cmd, captured
+
+  before_each(function()
+    original_cmd = vim.cmd
+    captured = nil
+    ---@diagnostic disable-next-line: duplicate-set-field
+    vim.cmd = function(command)
+      captured = command
+    end
+  end)
+
+  after_each(function()
+    vim.cmd = original_cmd
+  end)
+
+  it('execute: passes a percent-encoded url through unmangled', function()
+    -- Regression: `fnameescape` backslash-escapes `%`, so `p%40ss` (dadbod's way
+    -- to encode `@` in a password) became `p\%40ss` and auth failed.
+    bridge.execute('postgres://u:p%40ss@h/db', 'select 1')
+    assert.equals('DB postgres://u:p%40ss@h/db select 1', captured)
+    assert.is_nil(captured:find('\\', 1, true))
+  end)
+
+  it('execute_file: passes a percent-encoded url through unmangled', function()
+    bridge.execute_file('/tmp/q.sql', 'postgres://u:p%40ss@h/db')
+    assert.is_truthy(captured:find('DB postgres://u:p%40ss@h/db < ', 1, true))
+  end)
+
+  it('execute: routes newline-containing sql through a temp file (no injection)', function()
+    bridge.execute('sqlite::memory:', 'SELECT 1\nSELECT 2')
+    -- A single `DB <url> < <file>` command, never two Ex commands split on \n.
+    assert.is_nil(captured:find('\n', 1, true))
+    assert.is_truthy(captured:find('DB sqlite::memory: < ', 1, true))
+    local file = captured:match('< (%S+)$')
+    assert.is_string(file)
+    assert.same({ 'SELECT 1', 'SELECT 2' }, vim.fn.readfile(file))
+    vim.fn.delete(file)
   end)
 end)
