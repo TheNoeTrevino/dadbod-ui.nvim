@@ -4,6 +4,15 @@
 --- controllers can `require` it directly without re-introducing their lazy
 --- drawer<->query cycle.
 
+---@class DadbodUI.UtilsModule
+---@field slug fun(str: string): string
+---@field loaded_bufnr fun(full_path: string): integer
+---@field is_file fun(path: string): boolean
+---@field is_dir fun(path: string): boolean
+---@field opposite_position fun(win_position: string): string
+
+---@type DadbodUI.UtilsModule
+---@diagnostic disable-next-line: missing-fields
 local M = {}
 
 --- Strip everything but `[A-Za-z0-9_-]` from `str`. Port of `db_ui#utils#slug`.

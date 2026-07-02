@@ -8,8 +8,15 @@
 --- substitution and execution land in M8. The templates are copied exactly so
 --- that later work has nothing to re-derive.
 
+---@class DadbodUI.TableHelpersModule
+---@field get fun(scheme: string, config?: DadbodUI.Config): table<string, string>
+---@field ordered_names fun(helper_map: table<string, string>, order?: string[]): string[]
+
+---@type DadbodUI.TableHelpersModule
+---@diagnostic disable-next-line: missing-fields
 local M = {}
 
+---@private
 local basic_foreign_key_query = table.concat({
   'SELECT tc.constraint_name, tc.table_name, kcu.column_name, ccu.table_name AS foreign_table_name, ccu.column_name AS foreign_column_name, rc.update_rule, rc.delete_rule',
   'FROM',
@@ -23,11 +30,13 @@ local basic_foreign_key_query = table.concat({
   '',
 }, '\n')
 
+---@private
 local bigquery = {
   List = 'select * from {optional_schema}{table} LIMIT 200',
   Columns = "select * from {schema}.INFORMATION_SCHEMA.COLUMNS where table_name='{table}'",
 }
 
+---@private
 local postgres = {
   List = 'select * from {optional_schema}"{table}" LIMIT 200',
   Columns = "select * from information_schema.columns where table_name='{table}' and table_schema='{schema}'",
@@ -39,6 +48,7 @@ local postgres = {
   ['Primary Keys'] = "SELECT * FROM information_schema.table_constraints WHERE constraint_type = 'PRIMARY KEY' AND table_schema = '{schema}' AND table_name = '{table}'",
 }
 
+---@private
 local mysql = {
   List = 'SELECT * from {optional_schema}`{table}` LIMIT 200',
   Columns = 'DESCRIBE {optional_schema}`{table}`',
@@ -47,6 +57,7 @@ local mysql = {
   ['Primary Keys'] = "SELECT * FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS WHERE TABLE_SCHEMA = '{schema}' AND TABLE_NAME = '{table}' AND CONSTRAINT_TYPE = 'PRIMARY KEY'",
 }
 
+---@private
 -- Oracle helpers share a common FROM/qualify fragment and are each wrapped with
 -- SQL*Plus COLUMN formatting, exactly as the original builds them in a loop.
 local oracle_from = table.concat({
@@ -56,12 +67,14 @@ local oracle_from = table.concat({
   '\tAND N.owner = L.owner',
 }, '\n')
 
+---@private
 local oracle_qualify_and_order_by = table.concat({
   "L.table_name = '{table}'",
   'ORDER BY',
   '\t',
 }, '\n')
 
+---@private
 local oracle_key_cmd = table.concat({
   'SELECT',
   '\tL.table_name,',
@@ -72,6 +85,7 @@ local oracle_key_cmd = table.concat({
   '\tAND ' .. oracle_qualify_and_order_by .. 'L.column_name',
 }, '\n')
 
+---@private
 local oracle = {
   Columns = 'DESCRIBE "{schema}"."{table}"',
   ['Foreign Keys'] = oracle_key_cmd:format('R'),
@@ -129,6 +143,7 @@ for helper, query in pairs(oracle) do
   }, '\n')
 end
 
+---@private
 local sqlserver_column_summary_query = table.concat({
   "select c.column_name + ' (' + ",
   "    isnull(( select 'PK, ' from information_schema.table_constraints as k join information_schema.key_column_usage as kcu on k.constraint_name = kcu.constraint_name where constraint_type='PRIMARY KEY' and k.table_name = c.table_name and kcu.column_name = c.column_name), '') + ",
@@ -138,6 +153,7 @@ local sqlserver_column_summary_query = table.concat({
   " from information_schema.columns c where c.table_name='{table}' and c.TABLE_SCHEMA = '{schema}'",
 }, '\n')
 
+---@private
 local sqlserver_foreign_keys_query = table.concat({
   'SELECT c.constraint_name  ',
   '    ,kcu.column_name as column_name  ',
@@ -161,6 +177,7 @@ local sqlserver_foreign_keys_query = table.concat({
   " and c.TABLE_NAME = '{table}' and c.TABLE_SCHEMA = '{schema}'",
 }, '\n')
 
+---@private
 local sqlserver_references_query = table.concat({
   ' select kcu1.constraint_name as constraint_name  ',
   '     ,kcu1.table_name as foreign_table_name   ',
@@ -179,6 +196,7 @@ local sqlserver_references_query = table.concat({
   " where kcu2.table_name='{table}' and kcu2.table_schema = '{schema}'",
 }, '\n')
 
+---@private
 local sqlserver_primary_keys = table.concat({
   '  select tc.constraint_name, kcu.column_name ',
   '  from ',
@@ -191,12 +209,14 @@ local sqlserver_primary_keys = table.concat({
   " and tc.table_name = '{table}' and tc.table_schema = '{schema}'",
 }, '\n')
 
+---@private
 local sqlserver_constraints_query = table.concat({
   ' SELECT u.CONSTRAINT_NAME, c.CHECK_CLAUSE FROM INFORMATION_SCHEMA.CONSTRAINT_TABLE_USAGE u ',
   '     inner join INFORMATION_SCHEMA.CHECK_CONSTRAINTS c on u.CONSTRAINT_NAME = c.CONSTRAINT_NAME ',
   " where TABLE_NAME = '{table}' and u.TABLE_SCHEMA = '{schema}'",
 }, '\n')
 
+---@private
 local sqlserver = {
   List = 'select top 200 * from {optional_schema}[{table}]',
   Columns = sqlserver_column_summary_query,
@@ -208,11 +228,13 @@ local sqlserver = {
   Describe = "exec sp_help '{schema}.{table}'",
 }
 
+---@private
 local clickhouse = {
   List = 'select * from `{schema}`.`{table}` limit 100 Format PrettyCompactMonoBlock',
   Columns = "select name from system.columns where database='{schema}' and table='{table}'",
 }
 
+---@private
 -- scheme -> helper map. SQLite's `List` is the user's default query, so it is
 -- filled in at `get` time from config; the rest are static.
 local helpers = {
@@ -227,6 +249,7 @@ local helpers = {
 }
 helpers.postgres = helpers.postgresql
 
+---@private
 -- Bidirectional alias map: an override under one name also applies to its twin.
 local scheme_map = {
   postgres = 'postgresql',
@@ -279,6 +302,7 @@ function M.get(scheme, config)
   return result
 end
 
+---@private
 -- Canonical display order for table helpers. `List` always comes first; the
 -- rest follow a fixed, schema-independent sequence. Names not listed here
 -- (adapter extras like `Constraints`/`Describe`, and any user-added helper)

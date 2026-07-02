@@ -13,6 +13,17 @@
 --- interval. The registry entry also carries the bare `tick` closure so specs can
 --- advance a spinner deterministically (`_timers[key].tick()`) instead of sleeping.
 
+---@alias DadbodUI.SpinnerOnTick fun(frame: string)
+
+---@class DadbodUI.SpinnerModule
+---@field DEFAULT_INTERVAL integer
+---@field start fun(key: any, frames: string[], on_tick: DadbodUI.SpinnerOnTick, interval?: integer)
+---@field stop fun(key: any)
+---@field _timers table<any, { timer: uv.uv_timer_t, tick: fun() }>  test seam: keyed registry, `tick` advances a frame
+---@field _new_timer fun(): uv.uv_timer_t|nil  test seam: injectable timer constructor
+
+---@type DadbodUI.SpinnerModule
+---@diagnostic disable-next-line: missing-fields
 local M = {}
 
 -- The default per-frame interval in milliseconds. A caller may override it per

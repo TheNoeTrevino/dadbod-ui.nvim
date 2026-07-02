@@ -5,13 +5,30 @@
 --- connection handle) are layered on by later milestones; this milestone owns
 --- identity, paths, and the public connection list.
 
+---@class DadbodUI.StateModule
+---@field new fun(config: DadbodUI.Config): DadbodUI.Instance
+---@field is_connected fun(entry: DadbodUI.ConnectionEntry): boolean
+---@field Instance DadbodUI.Instance
+---@field setup fun(opts?: table): DadbodUI.Config
+---@field config fun(): DadbodUI.Config
+---@field get fun(): DadbodUI.Instance
+---@field reset fun()
+
+---@private
 local connections = require('dadbod-ui.connections')
+---@private
 local bridge = require('dadbod-ui.bridge')
+---@private
 local config_mod = require('dadbod-ui.config')
+---@private
 local schemas = require('dadbod-ui.schemas')
+---@private
 local table_helpers = require('dadbod-ui.table_helpers')
+---@private
 local utils = require('dadbod-ui.utils')
 
+---@type DadbodUI.StateModule
+---@diagnostic disable-next-line: missing-fields
 local M = {}
 
 ---@class DadbodUI.Instance
@@ -27,6 +44,7 @@ local M = {}
 local Instance = {}
 Instance.__index = Instance
 
+---@private
 ---@param path string|nil
 ---@return string
 local function expand_dir(path)
@@ -36,6 +54,7 @@ local function expand_dir(path)
   return (vim.fn.fnamemodify(path, ':p'):gsub('/$', ''))
 end
 
+---@private
 --- The adapter's canonical query-input file extension (`sql` for
 --- postgres/mysql/sqlite, adapter-specific otherwise), defaulting to `sql` when
 --- dadbod can't answer. This is the extension a genuine query file for the
@@ -48,6 +67,7 @@ local function resolve_extension(url)
   return (ok and ext ~= '') and ext or 'sql'
 end
 
+---@private
 --- The query-buffer filetype for an adapter: the schema metadata's own filetype
 --- if it declares one, else dadbod's input extension (mongodb's `js` is mapped
 --- to `javascript`), defaulting to `sql`. Mirrors the original's
@@ -68,6 +88,7 @@ local function resolve_filetype(url, scheme_info)
   return filetype
 end
 
+---@private
 --- Tmp-location query files belonging to `name`: a startup buffer is restored
 --- under a connection when its basename (or extension, for `db_ui.<name>` style
 --- names) starts with `<name>-`. Port of the `old_buffers` filter in
@@ -84,6 +105,7 @@ local function buffers_for(old_buffers, name)
   end, old_buffers)
 end
 
+---@private
 --- Build a data entry for a discovered connection. Captures identity, scheme,
 --- db name, save path and the adapter's schema metadata (schema support, quote
 --- rules, default scheme, filetype, table helpers). The schema/table *contents*
@@ -239,7 +261,9 @@ M.Instance = Instance
 -- Singleton: the current session's config and instance. This module is the
 -- single source of truth other modules reach via `state.get()`; it never
 -- requires drawer/query/dbout, so the dependency graph stays acyclic.
+---@private
 local current_config = nil
+---@private
 local current_instance = nil
 
 --- Resolve and store config for the session, dropping any built instance so the

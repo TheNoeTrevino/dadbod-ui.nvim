@@ -5,8 +5,14 @@
 --- `collapsed` may be given as a single string (applies to every node type) or a
 --- per-type table. The `group` icon falls back to the `db` icon.
 
+---@class DadbodUI.IconsModule
+---@field resolve fun(config: DadbodUI.Config): DadbodUI.Icons
+
+---@type DadbodUI.IconsModule
+---@diagnostic disable-next-line: missing-fields
 local M = {}
 
+---@private
 ---@param nerd boolean
 ---@return DadbodUI.Icons
 local function base_set(nerd)
@@ -85,6 +91,7 @@ local function base_set(nerd)
   }
 end
 
+---@private
 -- `value` may be a string (apply to every type) or a per-type table.
 ---@param set DadbodUI.Icons
 ---@param key 'expanded'|'collapsed'

@@ -5,8 +5,29 @@
 --- `dadbod-ui.bridge`. Sibling modules are required lazily so startup cost stays
 --- near zero and the dependency graph stays acyclic.
 
+---@class DadbodUI.InitModule
+---@field bridge DadbodUI.BridgeModule  the vim-dadbod boundary
+---@field config DadbodUI.Config  resolved config, exposed for inspection (SSOT is dadbod-ui.state)
+---@field setup fun(opts?: table): table
+---@field open fun(mods?: string)
+---@field toggle fun()
+---@field close fun()
+---@field add_connection fun()
+---@field connections_list fun(): DadbodUI.ConnectionInfo[]
+---@field execute_query fun()
+---@field execute_selection fun()
+---@field cancel_query fun()
+---@field get_conn_info fun(key_name: string): table
+---@field find_buffer fun()
+---@field rename_buffer fun()
+---@field print_last_query_info fun()
+---@field statusline fun(opts?: DadbodUI.StatuslineOpts): string
+---@field reset fun()
+
 local state = require('dadbod-ui.state')
 
+---@type DadbodUI.InitModule
+---@diagnostic disable-next-line: missing-fields
 local M = {}
 
 --- The vim-dadbod boundary (see `lua/dadbod-ui/bridge.lua`).
@@ -15,8 +36,10 @@ M.bridge = require('dadbod-ui.bridge')
 ---@type DadbodUI.Config  resolved config, exposed for inspection (SSOT is dadbod-ui.state)
 M.config = state.config()
 
+---@private
 local _drawer = nil
 
+---@private
 ---@return DadbodUI.Drawer
 local function drawer()
   if _drawer == nil then
