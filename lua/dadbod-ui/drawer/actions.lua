@@ -602,6 +602,10 @@ function Drawer:switch_buffer(target_name)
   local others = vim.tbl_filter(function(r)
     return r.key_name ~= current.key_name
   end, self.instance.dbs_list)
+  -- Sorted by their `group/name` label so the picker reads predictably.
+  table.sort(others, function(a, b)
+    return utils.display_name(a.name, a.group):lower() < utils.display_name(b.name, b.group):lower()
+  end)
   if #others == 0 then
     if target_name ~= nil then
       return false, 'no other connection to switch this buffer to'

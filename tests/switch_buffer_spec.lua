@@ -200,10 +200,9 @@ describe('switch_buffer', function()
 
     -- Prompt names the current db group-qualified.
     assert.is_truthy(captured.opts.prompt:match('ICRIS/qa'))
-    -- Every candidate renders as group/name.
+    -- Every candidate renders as group/name, sorted alphabetically by that label.
     local labels = vim.tbl_map(captured.opts.format_item, captured.items)
-    assert.is_true(vim.tbl_contains(labels, 'ICRIS/prod'))
-    assert.is_true(vim.tbl_contains(labels, 'NMCRIS/test'))
+    assert.same({ 'ICRIS/prod', 'NMCRIS/test' }, labels)
     assert.is_false(vim.tbl_contains(labels, 'prod')) -- never the bare name
   end)
 end)
