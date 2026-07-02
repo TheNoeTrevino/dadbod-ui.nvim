@@ -70,6 +70,7 @@
 ---@field schemas fun(name: string, cb: fun(schemas: string[]|nil, err: string|nil))
 ---@field tables fun(name: string, cb: fun(tables: string[]|nil, err: string|nil))
 ---@field introspect fun(name: string, cb: fun(data: DadbodUI.ApiIntrospection|nil, err: string|nil))
+---@field switch_buffer fun(name?: string): boolean, string|nil
 ---@field query fun(name: string, sql: string, cb: DadbodUI.ApiResultCallback)
 ---@field query_sync fun(name: string, sql: string): string[]|nil, string|nil
 ---@field execute fun(name: string, sql: string): boolean, string|nil
@@ -334,6 +335,24 @@ function M.tables(name, cb)
 end
 
 -- Query ----------------------------------------------------------------------
+
+--- Switch the CURRENT query buffer to connection `name` without prompting -- the
+--- scriptable dual of `:DBUISwitchBuffer`. The current buffer must already be a
+--- dadbod-ui query buffer; its text, table/schema and bind-param context ride
+--- across to the new connection. With no `name`, falls back to the interactive
+--- picker (and returns true, as the pick is async). Returns `false, err` when the
+--- name is unknown, the current buffer is not a query buffer, or there is no
+--- other connection to switch to.
+---@param name? string
+---@return boolean ok
+---@return string|nil err
+function M.switch_buffer(name)
+  local ok, err = require('dadbod-ui').switch_buffer(name)
+  if name == nil then
+    return true
+  end
+  return ok == true, err
+end
 
 --- Run `sql` against `name` and return the raw, adapter-formatted output lines.
 --- Connects first if needed. Non-blocking: the query runs through the adapter's
