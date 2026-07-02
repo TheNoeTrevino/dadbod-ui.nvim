@@ -36,6 +36,8 @@
 ---@field execute_selection fun()
 ---@field explain_query fun(opts?: DadbodUI.ExplainOpts)
 ---@field explain_selection fun(opts?: DadbodUI.ExplainOpts)
+---@field export_query fun()
+---@field export_selection fun()
 ---@field cancel_query fun()
 ---@field get_conn_info fun(key_name: string): table
 ---@field find_buffer fun()
@@ -137,6 +139,19 @@ end
 ---@return nil
 function M.explain_selection(opts)
   drawer():query():explain_query(true, opts)
+end
+
+--- Export the current query buffer: run its SQL and write the results to a file,
+--- prompting for format + path. Backs `api.export_query`.
+---@return nil
+function M.export_query()
+  drawer():query():export_query(false)
+end
+
+--- Export the current visual selection to a file. Backs `api.export_selection`.
+---@return nil
+function M.export_selection()
+  drawer():query():export_query(true)
 end
 
 --- Cancel the running async query for the current query buffer. Backs

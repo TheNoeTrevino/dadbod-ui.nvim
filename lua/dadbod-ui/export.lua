@@ -53,6 +53,7 @@
 ---@field _dbout_progress fun(bufnr: integer): DadbodUI.ExportProgress|nil  test seam: default winbar progress backend
 ---@field default_path fun(source: string, fmt: string, dir?: string): string
 ---@field format_opts fun(cfg: table, fmt: string, scheme: string): table
+---@field export_prompt fun(info: { url: string, scheme: string, query: string, source?: string }, deps?: DadbodUI.ExportDeps)
 ---@field export_interactive fun(bufnr: integer, deps?: DadbodUI.ExportDeps, page_choice?: 'full'|'current')
 
 ---@type DadbodUI.ExportModule
@@ -487,17 +488,21 @@ local function export_config(deps)
   return type(cfg.export) == 'table' and cfg.export or {}
 end
 
---- Drive an export from a `.dbout` result buffer interactively: recover the query
---- + connection, pick the target format (the DBeaver-style list, filtered to what
---- the adapter supports), prompt for the output path, then `export`. The picker /
---- prompt / notifier are injectable (`deps.select`, `deps.input`, `deps.notify`)
---- so the flow is testable without a UI. `prefer_native` and per-format options
---- come from the `export` config block.
----@param bufnr integer
----@param deps? DadbodUI.ExportDeps  { select?, input?, config?, bridge?, run?, write?, notify? }
----@param page_choice? 'full'|'current'  which rows to export (DECISION-003); default 'full'
+--- Prompt for a target format + output path for `info` and export -- the shared
+--- interactive core. Both entry points resolve their own `info` and hand it here:
+--- the `.dbout` result buffer (`export_interactive`) and the query buffer
+--- (`db_ui`'s `explain`-style `export_query`). Picks the target format (the
+--- DBeaver-style list, filtered to what the adapter supports), prompts for the
+--- output path (guarding an existing file), then `export`s the query RESULTS.
+--- The picker / prompt / notifier / confirm are injectable (`deps.select`,
+--- `deps.input`, `deps.notify`, `deps.confirm`) so the flow is testable without a
+--- UI. `prefer_native` and per-format options come from the `export` config
+--- block. `info.source` (the output-filename base) defaults to a name derived from
+--- the query when absent. `deps.progress`, when set, animates a spinner.
+---@param info { url: string, scheme: string, query: string, source?: string }
+---@param deps? DadbodUI.ExportDeps  { select?, input?, confirm?, config?, bridge?, run?, write?, notify?, progress? }
 ---@return nil
-function M.export_interactive(bufnr, deps, page_choice)
+function M.export_prompt(info, deps)
   deps = deps or {}
   local select = deps.select or vim.ui.select
   local input = deps.input or vim.ui.input
@@ -508,24 +513,13 @@ function M.export_interactive(bufnr, deps, page_choice)
     return vim.fn.confirm(msg, '&Yes\n&No', 2) == 1
   end
   local adapters = require('dadbod-ui.export_adapters')
-
-  local info, err = M.resolve_buffer(bufnr)
-  if info == nil then
-    return notify.error(err)
-  end
   if not adapters.supports(info.scheme) then
     return notify.error(string.format('Export is not supported for the %s adapter.', info.scheme))
-  end
-  -- One export at a time: refuse a second while one is running (the spinner stays
-  -- visible on the result winbar meanwhile). Querying is not blocked.
-  local dbout_ok, dbout = pcall(require, 'dadbod-ui.dbout')
-  if deps.progress == nil and dbout_ok and dbout.export_in_progress() then
-    return notify.error('An export is already in progress. Please wait for it to finish.')
   end
 
   local cfg = export_config(deps)
   local prefer_native = cfg.prefer_native ~= false -- default true (DECISION-001)
-  local query = M.query_for(info, page_choice)
+  local source = (type(info.source) == 'string' and info.source ~= '') and info.source or derive_source(info.query)
 
   select(adapters.formats_for(info.scheme), {
     prompt = 'Export format:',
@@ -536,7 +530,7 @@ function M.export_interactive(bufnr, deps, page_choice)
     if fmt == nil then
       return
     end
-    local default = M.default_path(info.source, fmt, cfg.default_path)
+    local default = M.default_path(source, fmt, cfg.default_path)
     input({ prompt = 'Export to: ', default = default, completion = 'file' }, function(path)
       if path == nil or vim.trim(path) == '' then
         return
@@ -547,22 +541,51 @@ function M.export_interactive(bufnr, deps, page_choice)
       then
         return notify.info('Export cancelled.')
       end
-      -- Show the winbar export spinner on the source result buffer unless the
-      -- caller injected its own progress backend (specs pass none). Extend a copy
-      -- rather than mutating the caller-owned `deps`.
-      local call_deps = vim.tbl_extend('force', deps, { progress = deps.progress or M._dbout_progress(bufnr) })
       M.export({
         url = info.url,
         scheme = info.scheme,
         format = fmt,
-        query = query,
+        query = info.query,
         path = path,
-        source = info.source,
+        source = source,
         prefer_native = prefer_native,
         format_opts = M.format_opts(cfg, fmt, info.scheme),
-      }, call_deps)
+      }, deps)
     end)
   end)
+end
+
+--- Drive an export from a `.dbout` result buffer interactively: recover the query
+--- + connection from the result buffer, then hand off to `export_prompt`. Refuses
+--- a second export while one is already running (the spinner stays on the result
+--- winbar meanwhile). `page_choice` selects whole-query vs on-screen-page rows.
+---@param bufnr integer
+---@param deps? DadbodUI.ExportDeps  { select?, input?, config?, bridge?, run?, write?, notify? }
+---@param page_choice? 'full'|'current'  which rows to export (DECISION-003); default 'full'
+---@return nil
+function M.export_interactive(bufnr, deps, page_choice)
+  deps = deps or {}
+  local notify = deps.notify or require('dadbod-ui.notifications')
+  local info, err = M.resolve_buffer(bufnr)
+  if info == nil then
+    return notify.error(err)
+  end
+  -- One export at a time: refuse a second while one is running (the spinner stays
+  -- visible on the result winbar meanwhile). Querying is not blocked.
+  local dbout_ok, dbout = pcall(require, 'dadbod-ui.dbout')
+  if deps.progress == nil and dbout_ok and dbout.export_in_progress() then
+    return notify.error('An export is already in progress. Please wait for it to finish.')
+  end
+  -- Show the winbar export spinner on THIS result buffer unless the caller injected
+  -- its own progress backend (specs pass none). Extend a copy rather than mutating
+  -- the caller-owned `deps`.
+  local call_deps = vim.tbl_extend('force', deps, { progress = deps.progress or M._dbout_progress(bufnr) })
+  M.export_prompt({
+    url = info.url,
+    scheme = info.scheme,
+    query = M.query_for(info, page_choice),
+    source = info.source,
+  }, call_deps)
 end
 
 return M
