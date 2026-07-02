@@ -82,4 +82,31 @@ describe('config', function()
     assert.equals('<Leader>X', c.mappings.results.export.key)
     assert.is_true(vim.tbl_contains(config.mapping_order.results, 'export'))
   end)
+
+  it('freezes the resolved config against stray new fields', function()
+    local c = config.resolve()
+    assert.has_error(function()
+      ---@diagnostic disable-next-line: inject-field
+      c.wnwidth = 80 -- a typo'd option must not silently land on the shared config
+    end)
+  end)
+
+  it('freezes nested config tables too', function()
+    local c = config.resolve()
+    assert.has_error(function()
+      ---@diagnostic disable-next-line: inject-field
+      c.export.new_format = {}
+    end)
+  end)
+
+  it('leaves reads, iteration and deepcopy working through the freeze', function()
+    local c = config.resolve()
+    assert.equals(200, c.page_size) -- index
+    assert.same({ 'new_query', 'buffers', 'saved_queries', 'schemas', 'procedures' }, c.drawer_sections) -- pairs
+    -- deepcopy of a (non-empty) frozen subtable yields a mutable copy, not a crash
+    local copy = vim.deepcopy(c.export)
+    assert.equals(',', copy.csv.delimiter)
+    copy.csv.delimiter = ';' -- the copy must be writable
+    assert.equals(';', copy.csv.delimiter)
+  end)
 end)
