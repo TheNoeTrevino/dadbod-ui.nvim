@@ -160,6 +160,7 @@
 ---@field name string
 ---@field group string
 ---@field key_name string
+---@field save_name string  group-qualified identifier ({group}_{name} when grouped); names the save folder + tmp buffers
 ---@field scheme string  raw adapter scheme
 ---@field db_name string
 ---@field save_path string
@@ -197,7 +198,9 @@
 
 --- Public connection summary (connections_list()).
 ---@class DadbodUI.ConnectionInfo
----@field name string
+---@field name string  display name (not unique across groups)
+---@field group string  group name ('' when ungrouped)
+---@field key_name string  unique key ({group}_{name}_{source} when grouped, else {name}_{source})
 ---@field url string
 ---@field is_connected boolean
 ---@field source DadbodUI.Source
