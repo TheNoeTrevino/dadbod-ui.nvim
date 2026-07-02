@@ -65,6 +65,34 @@ describe('bind_params.detect', function()
     local lines = { "SELECT 'line one :a", "line two :b' AS s, id = :c" }
     assert.same({ ':c' }, bind.detect(lines, DEFAULT))
   end)
+
+  it('does not let an apostrophe in a double-quoted identifier flip string state', function()
+    -- Regression: the lexer used to track only '...' literals, so the apostrophe
+    -- in "customer's" opened a bogus string and swallowed the trailing :id.
+    assert.same({ ':id' }, bind.detect({ [[SELECT "customer's", :id FROM t]] }, DEFAULT))
+  end)
+
+  it('ignores a placeholder inside a double-quoted identifier', function()
+    assert.same({ ':real' }, bind.detect({ [[SELECT "col :nope" , :real FROM t]] }, DEFAULT))
+  end)
+
+  it('honors a "" escape inside a double-quoted identifier', function()
+    assert.same({ ':id' }, bind.detect({ [[SELECT "a""b" , :id FROM t]] }, DEFAULT))
+  end)
+
+  it('does not let a quote in a dollar-quoted body flip string state', function()
+    -- Regression: a stray ' inside $$...$$ used to open a string and hide :id.
+    assert.same({ ':id' }, bind.detect({ "SELECT $$ don't :skip $$, :id FROM t" }, DEFAULT))
+  end)
+
+  it('ignores a placeholder inside a tagged dollar-quoted body', function()
+    assert.same({ ':real' }, bind.detect({ 'SELECT $tag$ :skip $tag$, :real' }, DEFAULT))
+  end)
+
+  it('ignores a placeholder in a multi-line dollar-quoted body', function()
+    local lines = { 'SELECT $$ start :a', 'still :b inside $$, :real' }
+    assert.same({ ':real' }, bind.detect(lines, DEFAULT))
+  end)
 end)
 
 describe('bind_params.quote', function()
@@ -147,5 +175,15 @@ describe('bind_params.substitute', function()
     local lines = { "note = 'first :x", "second :x' AND id = :x" }
     local out = bind.substitute(lines, { [':x'] = '1' }, DEFAULT)
     assert.same({ "note = 'first :x", "second :x' AND id = 1" }, out)
+  end)
+
+  it('substitutes after a double-quoted identifier containing an apostrophe', function()
+    local out = bind.substitute({ [[SELECT "customer's" WHERE id = :id]] }, { [':id'] = '9' }, DEFAULT)
+    assert.same({ [[SELECT "customer's" WHERE id = 9]] }, out)
+  end)
+
+  it('does not substitute inside a dollar-quoted body', function()
+    local out = bind.substitute({ 'SELECT $$ :skip $$, :id' }, { [':skip'] = 'x', [':id'] = '9' }, DEFAULT)
+    assert.same({ 'SELECT $$ :skip $$, 9' }, out)
   end)
 end)
