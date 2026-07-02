@@ -15,8 +15,15 @@
 --- DBeaver does these at the AST level / has oracle commented out -- so they are
 --- absent from the table and `paginate` no-ops for them.
 
+---@class DadbodUI.PaginatorModule
+---@field supports fun(scheme: string): boolean
+---@field paginate fun(scheme: string, sql: string, page: integer, page_size: integer): string|nil
+
+---@type DadbodUI.PaginatorModule
+---@diagnostic disable-next-line: missing-fields
 local M = {}
 
+---@private
 -- scheme -> append style. Keyed by BOTH the raw scheme (entry.scheme, e.g.
 -- `postgres`/`sqlite3`) and the canonical name, so a lookup works regardless of
 -- which the caller holds.
@@ -31,6 +38,7 @@ local styles = {
   mariadb = 'limit_comma',
 }
 
+---@private
 -- Words whose presence (case-insensitive, on a word boundary) means we must not
 -- inject a paging clause: an existing LIMIT/OFFSET/FETCH/TOP would double-page,
 -- and INTO/UPDATE/PROCEDURE mark statements that aren't plain row-returning
@@ -44,6 +52,7 @@ function M.supports(scheme)
   return styles[scheme] ~= nil
 end
 
+---@private
 --- Is `sql` a single plain SELECT with no existing paging clause? `sql` is the
 --- already trailing-`;`-stripped query. Rejects multi-statement input (an inner
 --- `;`) and anything not starting with SELECT, then bails on any guard word.

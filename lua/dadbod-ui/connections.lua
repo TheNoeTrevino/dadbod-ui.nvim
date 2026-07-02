@@ -7,9 +7,35 @@
 --- where `url` is resolved through dadbod and `key_name` namespaces the record
 --- by group so the same name can exist in different groups.
 
+---@alias DadbodUI.ConnectionsOnDup fun(name: string, source: string)
+---@alias DadbodUI.ConnectionsOnReadError fun(msg: string)
+
+---@class DadbodUI.ConnectionsModule
+---@field key_name fun(name: string, source: string, group: string|nil): string
+---@field record fun(name: string, url: string, source: string, group: string|nil): DadbodUI.ConnectionRecord
+---@field from_global fun(g_db: any, g_dbs: any): DadbodUI.ConnectionRecord[]
+---@field from_env fun(env: table<string, string>, config: DadbodUI.Config): DadbodUI.ConnectionRecord[]
+---@field from_dotenv fun(env: table<string, string>, config: DadbodUI.Config): DadbodUI.ConnectionRecord[]
+---@field from_file fun(entries: DadbodUI.FileConnection[]): DadbodUI.ConnectionRecord[]
+---@field dedup fun(records: DadbodUI.ConnectionRecord[], on_dup?: DadbodUI.ConnectionsOnDup): DadbodUI.ConnectionRecord[]
+---@field connections_path fun(save_location: string|nil): string|nil
+---@field read_file fun(path: string|nil, on_error?: DadbodUI.ConnectionsOnReadError): DadbodUI.FileConnection[]
+---@field write_file fun(path: string, list: DadbodUI.FileConnection[])
+---@field add_connection fun(list: DadbodUI.FileConnection[], name: string, url: string, group?: string): (DadbodUI.FileConnection[]|nil, string|nil)
+---@field duplicate_connection fun(list: DadbodUI.FileConnection[], new_name: string, new_url: string, group?: string): (DadbodUI.FileConnection[]|nil, string|nil)
+---@field delete_connection fun(list: DadbodUI.FileConnection[], name: string, url: string): DadbodUI.FileConnection[]
+---@field rename_connection fun(list: DadbodUI.FileConnection[], old_name: string, old_url: string, new_name: string, new_url: string): (DadbodUI.FileConnection[]|nil, string|nil)
+---@field set_group fun(list: DadbodUI.FileConnection[], name: string, url: string, group: string): (DadbodUI.FileConnection[]|nil, string|nil)
+---@field move_connection fun(list: DadbodUI.FileConnection[], name: string, url: string, direction: 'up'|'down'): (DadbodUI.FileConnection[]|nil, string|nil)
+---@field discover fun(config: DadbodUI.Config, inputs?: DadbodUI.DiscoverInputs): DadbodUI.ConnectionRecord[]
+
+---@private
 local bridge = require('dadbod-ui.bridge')
+---@private
 local utils = require('dadbod-ui.utils')
 
+---@type DadbodUI.ConnectionsModule
+---@diagnostic disable-next-line: missing-fields
 local M = {}
 
 --- Namespacing key: `name_source`, or `group_name_source` when grouped.
@@ -43,6 +69,7 @@ local function record(name, url, source, group)
 end
 M.record = record
 
+---@private
 -- A g:db / g:dbs value may be a plain url or a funcref returning one.
 ---@param value any
 ---@return string
@@ -56,6 +83,7 @@ local function resolve_var(value)
   error('invalid global variable database url type: ' .. type(value))
 end
 
+---@private
 ---@param url string
 ---@return string
 local function last_segment(url)
@@ -203,6 +231,7 @@ function M.write_file(path, list)
   vim.fn.writefile({ vim.json.encode(list) }, path)
 end
 
+---@private
 -- Two stored connections are "the same" when names match (case-insensitive) and
 -- their urls resolve equal -- mirrors the original delete/rename matching.
 ---@param conn DadbodUI.FileConnection
@@ -213,6 +242,7 @@ local function same_conn(conn, name, resolved_url)
   return conn.name:lower() == name:lower() and bridge.resolve(conn.url):lower() == resolved_url
 end
 
+---@private
 -- Two connections occupy the same "slot" when their names match
 -- (case-insensitive) AND they live in the same group -- the exact rule
 -- `key_name` enforces. So the same name is allowed in different groups
@@ -355,6 +385,7 @@ function M.set_group(list, name, url, group)
   return out, nil
 end
 
+---@private
 --- Reorder the connection matching (name, url) one slot up or down among its
 --- GROUP SIBLINGS -- the connections sharing its group (`''`/ungrouped is its
 --- own sibling set). The drawer collates a group's members under one header

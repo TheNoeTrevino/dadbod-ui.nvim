@@ -10,10 +10,21 @@
 --- forces the echo backend, `use_nvim_notify` opts into nvim-notify niceties
 --- (info-toast replacement). The title is always `[DBUI]`.
 
+---@class DadbodUI.NotificationsModule
+---@field info fun(msg: string|string[], opts?: DadbodUI.NotifyOpts)
+---@field warn fun(msg: string|string[], opts?: DadbodUI.NotifyOpts)
+---@field error fun(msg: string|string[], opts?: DadbodUI.NotifyOpts)
+---@field confirm fun(msg: string): boolean
+---@field get_last_msg fun(): string
+
+---@type DadbodUI.NotificationsModule
+---@diagnostic disable-next-line: missing-fields
 local M = {}
 
+---@private
 local TITLE = '[DBUI]'
 
+---@private
 ---@type table<DadbodUI.NotifyKind, integer>
 local LEVELS = {
   info = vim.log.levels.INFO,
@@ -21,6 +32,7 @@ local LEVELS = {
   error = vim.log.levels.ERROR,
 }
 
+---@private
 ---@type table<DadbodUI.NotifyKind, string>
 local ECHO_HL = {
   info = 'None',
@@ -28,9 +40,11 @@ local ECHO_HL = {
   error = 'ErrorMsg',
 }
 
+---@private
 -- Last message shown, exposed via get_last_msg() for the statusline/tests.
 local last_msg = ''
 
+---@private
 -- True when msg carries no content (mirrors the original's `empty(a:msg)` guard).
 ---@param msg string|string[]
 ---@return boolean
@@ -41,6 +55,7 @@ local function is_empty(msg)
   return type(msg) == 'table' and vim.tbl_isempty(msg)
 end
 
+---@private
 -- Flatten a string or string-list into a single newline-joined message.
 ---@param msg string|string[]
 ---@return string
@@ -51,6 +66,7 @@ local function to_text(msg)
   return tostring(msg)
 end
 
+---@private
 -- Build the opts table handed to vim.notify. nvim-notify reads `title` and,
 -- for info, an `id` so repeated info toasts replace one another.
 ---@param kind DadbodUI.NotifyKind
@@ -68,6 +84,7 @@ local function build_opts(kind, config, opts)
   return out
 end
 
+---@private
 -- Core dispatch: suppress disabled info, then route to echo or vim.notify.
 ---@param msg string|string[]
 ---@param kind DadbodUI.NotifyKind

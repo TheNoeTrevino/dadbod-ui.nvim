@@ -15,12 +15,25 @@
 --- goes through dadbod (via `bridge.command`) so the per-adapter argv stays
 --- correct.
 
+---@class DadbodUI.SchemasModule
+---@field results_parser fun(results: string[], delimiter: string, min_len: integer): any[]
+---@field get fun(scheme: string, config?: DadbodUI.Config): DadbodUI.SchemaAdapter
+---@field supports_schemes fun(scheme_info: DadbodUI.SchemaAdapter, parsed_url: DadbodUI.ParsedUrl): boolean
+---@field command_spec fun(conn: string, scheme_info: DadbodUI.SchemaAdapter, query: string): DadbodUI.CommandSpec
+---@field query fun(conn: string, scheme_info: DadbodUI.SchemaAdapter, query: string): string[]
+---@field result_lines fun(result: { code: integer, stdout: string, stderr: string }): string[]
+---@field normalize_table_list fun(scheme: string, raw: string[]): string[]
+
+---@private
 local bridge = require('dadbod-ui.bridge')
 
+---@type DadbodUI.SchemasModule
+---@diagnostic disable-next-line: missing-fields
 local M = {}
 
 -- Result parsing -------------------------------------------------------------
 
+---@private
 -- Mimic Vim's list slice `list[from:to]`: 0-based, both bounds inclusive,
 -- negative indices count from the end. `to` defaults to the last element (the
 -- `list[from:]` form). Operates on a Lua 1-based array.
@@ -46,12 +59,14 @@ local function vslice(list, from, to)
   return out
 end
 
+---@private
 ---@param value string
 ---@return boolean
 local function blank(value)
   return vim.trim(value) == ''
 end
 
+---@private
 -- Escape a value for embedding inside a single-quoted SQL string literal
 -- (postgres / sqlserver / oracle): double every single quote. Used by the
 -- routine-definition queries so a routine whose name/schema contains a quote is
@@ -62,6 +77,7 @@ local function sql_squote(s)
   return (s:gsub("'", "''"))
 end
 
+---@private
 -- Escape a value for embedding inside a backtick-quoted MySQL identifier: double
 -- every backtick. Used by `SHOW CREATE PROCEDURE/FUNCTION`.
 ---@param s string
@@ -70,6 +86,7 @@ local function my_backtick(s)
   return (s:gsub('`', '``'))
 end
 
+---@private
 -- Map a normalized routine kind ('procedure'|'function') to the SQL keyword used
 -- by the `SHOW CREATE`/`GET_DDL`-style definition builders (mysql, oracle).
 ---@param kind string
@@ -118,6 +135,7 @@ M.results_parser = results_parser
 
 -- Adapter definitions --------------------------------------------------------
 
+---@private
 local postgres_list_schema_query = [[
 SELECT nspname as schema_name
 FROM pg_catalog.pg_namespace
@@ -125,10 +143,13 @@ WHERE nspname !~ '^pg_temp_'
   and pg_catalog.has_schema_privilege(current_user, nspname, 'USAGE')
 order by nspname]]
 
+---@private
 local postgres_tables_query = 'SELECT table_schema, table_name FROM information_schema.tables ;'
+---@private
 local postgres_tables_and_views_query =
   'SELECT table_schema, table_name FROM information_schema.tables UNION ALL select schemaname, matviewname from pg_matviews;'
 
+---@private
 -- Stored procedures + functions. DBeaver lists routines from `pg_catalog.pg_proc`
 -- keyed by `prokind` (`p` procedure, `f` function, `a` aggregate, `w` window) and
 -- reads their DDL with `pg_get_functiondef(oid)` (see PostgreSchema.java /
@@ -146,6 +167,7 @@ WHERE p.prokind IN ('f', 'p')
   AND n.nspname !~ '^pg_'
 ORDER BY n.nspname, p.proname]]
 
+---@private
 -- The DDL for one routine: every overload of (schema, name) via
 -- `pg_get_functiondef`. Matching on name + namespace (rather than casting to
 -- `regproc`) sidesteps the overload-ambiguity error and prints each overload's
@@ -165,6 +187,7 @@ WHERE n.nspname = '%s' AND p.proname = '%s';]],
   )
 end
 
+---@private
 local postgres_foreign_key_query = [[
 SELECT ccu.table_name AS foreign_table_name, ccu.column_name AS foreign_column_name, ccu.table_schema as foreign_table_schema
 FROM
@@ -175,6 +198,7 @@ FROM
       ON ccu.constraint_name = tc.constraint_name
 WHERE constraint_type = 'FOREIGN KEY' and kcu.column_name = '{col_name}' LIMIT 1]]
 
+---@private
 ---@param config? DadbodUI.Config
 ---@return DadbodUI.SchemaAdapter
 local function postgresql(config)
@@ -201,6 +225,7 @@ local function postgresql(config)
   }
 end
 
+---@private
 local sqlserver_foreign_key_query = [[
 SELECT TOP 1 c2.table_name as foreign_table_name, kcu2.column_name as foreign_column_name, kcu2.table_schema as foreign_table_schema
 from   information_schema.table_constraints c
@@ -215,6 +240,7 @@ from   information_schema.table_constraints c
 where  c.constraint_type = 'FOREIGN KEY'
 and kcu.column_name = '{col_name}']]
 
+---@private
 ---@return DadbodUI.SchemaAdapter
 local function sqlserver()
   return {
@@ -247,11 +273,13 @@ local function sqlserver()
   }
 end
 
+---@private
 local mysql_foreign_key_query = [[
 SELECT referenced_table_name, referenced_column_name, referenced_table_schema
 from information_schema.key_column_usage
 where referenced_table_name is not null and column_name = '{col_name}' LIMIT 1]]
 
+---@private
 ---@return DadbodUI.SchemaAdapter
 local function mysql()
   return {
@@ -287,6 +315,7 @@ local function mysql()
   }
 end
 
+---@private
 -- Oracle wraps every query with SQL*Plus formatting (`SET linesize ...`) joined
 -- with `;\n`, ending in `;` -- the original builds this with `printf`, so the
 -- query takes the place of the trailing `%s`.
@@ -298,12 +327,14 @@ local oracle_arg_lines = {
   'COLUMN column_name FORMAT a25',
 }
 
+---@private
 ---@param query string
 ---@return string
 local function oracle_wrap(query)
   return table.concat(oracle_arg_lines, ';\n') .. ';\n' .. query .. ';'
 end
 
+---@private
 ---@param config? DadbodUI.Config
 ---@return DadbodUI.SchemaAdapter
 local function oracle(config)
@@ -401,6 +432,7 @@ SELECT /*csv*/ O.owner, O.object_name, LOWER(O.object_type)
   }
 end
 
+---@private
 ---@return DadbodUI.SchemaAdapter
 local function bigquery()
   local region = vim.g.db_adapter_bigquery_region or 'region-us'
@@ -417,6 +449,7 @@ local function bigquery()
   }
 end
 
+---@private
 -- sqlite has no information_schema, so resolve a column's foreign table globally
 -- via the `pragma_foreign_key_list` table-valued function joined over
 -- `sqlite_master` -- this matches the `{col_name}`-only interface the other
@@ -430,6 +463,7 @@ JOIN pragma_foreign_key_list(m.name) fkl
 WHERE m.type = 'table' AND fkl."from" = '{col_name}'
 LIMIT 1]]
 
+---@private
 -- Divergence from the original: vim-dadbod-ui has no sqlite schema entry at all,
 -- so it supports neither the foreign-key jump nor cell/header navigation in
 -- sqlite result buffers. We add the dbout-only fields below (deliberately NO
@@ -450,6 +484,7 @@ local function sqlite()
   }
 end
 
+---@private
 ---@return DadbodUI.SchemaAdapter
 local function clickhouse()
   return {
@@ -466,6 +501,7 @@ local function clickhouse()
   }
 end
 
+---@private
 -- scheme -> builder. Postgres aliases share one builder. sqlite's entry carries
 -- ONLY dbout-navigation metadata (no schemes_query), so it keeps the tables-only
 -- drawer path while still supporting the foreign-key jump + cell/header nav --
@@ -561,7 +597,7 @@ end
 --- final newline) dropped. Only ONE trailing blank is dropped -- matching
 --- systemlist exactly -- because adapters with a fixed-tail slice (e.g.
 --- sqlserver's `[0:-3]`) are calibrated to that framing.
----@param result vim.SystemCompleted
+---@param result { code: integer, stdout: string, stderr: string }
 ---@return string[]
 function M.result_lines(result)
   if result == nil or result.code ~= 0 then

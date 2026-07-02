@@ -13,18 +13,34 @@
 --- tables-only path uses dadbod's `tables` adapter call. Each path re-renders
 --- once its data lands, so a large database never freezes the UI.
 
+---@alias DadbodUI.Connector fun(url: string): string
+---@alias DadbodUI.ConnectOnResult fun(ok: boolean, conn: string)
+---@alias DadbodUI.AsyncConnector fun(url: string, on_result: DadbodUI.ConnectOnResult)
+---@alias DadbodUI.IntrospectOpts { config: DadbodUI.Config, connector: DadbodUI.Connector, async_connector?: DadbodUI.AsyncConnector, render: fun(), repaint?: fun(key_name: string, frame: string) }
+
+---@class DadbodUI.IntrospectModule
+---@field new fun(opts: DadbodUI.IntrospectOpts): DadbodUI.Introspect
+---@field Introspect DadbodUI.Introspect
+
+---@private
 local bridge = require('dadbod-ui.bridge')
+---@private
 local schemas = require('dadbod-ui.schemas')
+---@private
 local spinner = require('dadbod-ui.spinner')
+---@private
 local spinners = require('dadbod-ui.spinners')
+---@private
 local state = require('dadbod-ui.state')
 
+---@type DadbodUI.IntrospectModule
+---@diagnostic disable-next-line: missing-fields
 local M = {}
 
 ---@class DadbodUI.Introspect
 ---@field config DadbodUI.Config
 ---@field connector fun(url: string): string  synchronous connect backend (injectable for specs)
----@field async_connector fun(url: string, on_result: fun(ok: boolean, conn: string)): nil  non-blocking connect backend (injectable for specs)
+---@field async_connector DadbodUI.AsyncConnector  non-blocking connect backend (injectable for specs)
 ---@field render fun(): nil  re-render callback (the drawer's render)
 ---@field repaint fun(key_name: string, frame: string): nil  single-line db-node repaint (the drawer's repaint_db_node); animates the loading spinner without a full render
 local Introspect = {}
@@ -35,7 +51,7 @@ Introspect.__index = Introspect
 --- (connecting and saved-query refresh never render). `repaint` drives the
 --- per-frame loading animation on a single db node (defaults to a no-op so a
 --- controller built without it -- e.g. the query controller -- never crashes).
----@param opts { config: DadbodUI.Config, connector: fun(url: string): string, async_connector?: fun(url: string, on_result: fun(ok: boolean, conn: string)): nil, render: fun(): nil, repaint?: fun(key_name: string, frame: string): nil }
+---@param opts DadbodUI.IntrospectOpts
 ---@return DadbodUI.Introspect
 function M.new(opts)
   return setmetatable({

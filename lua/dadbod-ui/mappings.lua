@@ -14,6 +14,17 @@
 --- explicit `binds` list of `{ mode, lhs }` (used for binding; `key` still drives
 --- the help display).
 
+---@alias DadbodUI.MappingHandler fun(mode: string)
+
+---@class DadbodUI.MappingsModule
+---@field is_disabled fun(entry?: DadbodUI.Mapping): boolean
+---@field binds fun(entry?: DadbodUI.Mapping): { mode: string, lhs: string }[]
+---@field display_key fun(entry: DadbodUI.Mapping): string
+---@field apply fun(group: table<string, DadbodUI.Mapping>, order: string[], handlers: table<string, DadbodUI.MappingHandler>, opts: table)
+---@field help_lines fun(config: DadbodUI.Config): string[]
+
+---@type DadbodUI.MappingsModule
+---@diagnostic disable-next-line: missing-fields
 local M = {}
 
 --- An action is disabled when it is missing or its key is the `'none'` sentinel.

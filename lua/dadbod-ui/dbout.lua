@@ -19,15 +19,63 @@ local spinner = require('dadbod-ui.spinner')
 local spinners = require('dadbod-ui.spinners')
 local utils = require('dadbod-ui.utils')
 
+---@class DadbodUI.DboutModule
+--- lifecycle / wiring
+---@field attach fun(drawer: DadbodUI.Drawer)
+---@field setup_buffer fun(bufnr: integer)
+--- execution context (armed by the query controller, claimed by the DB hooks)
+---@field arm_origin fun(origin: DadbodUI.QueryOrigin)
+---@field disarm_origin fun()
+---@field set_pending fun(state: DadbodUI.PageState)
+---@field _on_pre fun(output_file: string)  DBExecutePre half, exported for the bridge subscription
+---@field _on_post fun(output_file: string)  DBExecutePost half, exported for the bridge subscription
+---@field _show fun(output_file: string)  loading-spinner half of _on_pre; test seam
+---@field _hide fun(output_file: string)  loading-spinner half of _on_post; test seam
+--- result summary (pure halves, exported for unit tests)
+---@field _footer_rows fun(lines: string[]): integer|nil
+---@field _data_rows fun(lines: string[]): integer|nil
+---@field _count_rows fun(lines: string[]): integer|nil
+---@field _summary_text fun(runtime: number|nil, exit_status: integer|nil, rows: integer|nil): string
+--- export progress overlay
+---@field export_in_progress fun(): boolean
+---@field export_start fun(buf: integer, fmt: string): integer
+---@field export_stop fun(buf: integer, token: integer)
+--- pagination
+---@field next_page fun()
+---@field prev_page fun()
+---@field _step_page fun(delta: integer)
+---@field _page_segment fun(state: DadbodUI.PageState|nil, rows: integer|nil): string|nil
+---@field _nav_segment fun(state: DadbodUI.PageState|nil, prev_key: string, next_key: string): string|nil
+---@field _nav_keys fun(config: DadbodUI.Config): { prev: string, next: string }
+---@field _winbar_text fun(page: DadbodUI.PageState|nil, summary: string|nil, rows: integer|nil, nav_keys?: { prev: string, next: string }): string
+--- drawer Query results section
+---@field save_dbout fun(file: string)
+---@field sort_dbout fun(a: string, b: string): boolean
+--- folding + cell/foreign-key navigation
+---@field foldexpr_for fun(lines: table<integer, string>, lnum: integer): string|integer
+---@field foldexpr fun(lnum: integer): string|integer
+---@field cell_range fun(line: string, col0: integer): { from: integer, to: integer }
+---@field parse_header fun(column_line: string, underline: string): string[]
+---@field foreign_select fun(template: string, fschema: string, ftable: string, fcolumn: string, raw_value: string): string
+---@field jump_to_foreign_table fun()
+---@field get_cell_value fun()
+---@field yank_header fun()
+---@field toggle_layout fun()
+
+---@type DadbodUI.DboutModule
+---@diagnostic disable-next-line: missing-fields
 local M = {}
 
+---@private
 -- The drawer this module re-renders through; set on attach.
 ---@type DadbodUI.Drawer|nil
 local attached = nil
 
+---@private
 -- True once the session autocmds / event subscriptions are registered.
 local registered = false
 
+---@private
 -- Extmark namespace for the ghost text trailing the executed line in the query
 -- buffer (cleared before each repaint). The result-buffer summary is rendered as
 -- a `winbar`, not an extmark -- see set_winbar for why.
@@ -44,8 +92,10 @@ local NS_QUERY = vim.api.nvim_create_namespace('dadbod_ui_query_time_query')
 ---@class DadbodUI.PendingContext
 ---@field origin? DadbodUI.QueryOrigin
 ---@field page? DadbodUI.PageState
+---@private
 ---@type DadbodUI.PendingContext|nil
 local pending = nil
+---@private
 ---@type table<string, DadbodUI.PendingContext>
 local by_file = {}
 
@@ -54,17 +104,21 @@ local by_file = {}
 -- They are kept apart so neither clobbers the other on repaint: query events
 -- update the base, the export updates the overlay, and `render_winbar` re-composes
 -- both.
+---@private
 ---@type table<integer, string>
 local winbar_base = {}
 -- The single in-flight export (only one at a time -- the interactive entry point
 -- refuses to start a second). GLOBAL, not per-buffer, and painted on every visible
 -- `.dbout` window, so the spinner stays put as you keep querying. nil when idle.
+---@private
 ---@type { fmt: string, frame: string, token: integer }|nil
 local export_active = nil
+---@private
 -- Monotonic id handed back by `export_start`; `export_stop` only clears when its
 -- token matches, so a stale stop can't wipe a newer export.
 local export_token = 0
 
+---@private
 --- Merge `value` into the pending context under `field`, creating it on first arm.
 ---@param field 'origin'|'page'
 ---@param value DadbodUI.QueryOrigin|DadbodUI.PageState
@@ -74,6 +128,7 @@ local function arm(field, value)
   pending[field] = value
 end
 
+---@private
 --- Claim the pending context onto `output_file` and clear it. Runs from
 --- DBExecutePre, synchronously while the `DB` command is still on the stack, so
 --- the context can't be clobbered before it is keyed to its result file.
@@ -102,6 +157,7 @@ function M.disarm_origin()
   pending = nil
 end
 
+---@private
 --- The effective config: the attached drawer's, or the session singleton's when a
 --- dbout buffer is touched before the drawer ever opened.
 ---@return DadbodUI.Config
@@ -112,6 +168,7 @@ local function current_config()
   return require('dadbod-ui.state').get().config
 end
 
+---@private
 --- The result-buffer spinner line for `frame` (the `dots12` braille glyph).
 ---@param frame string
 ---@return string
@@ -160,6 +217,7 @@ end
 -- free -- it stores `runtime` (float seconds) and `exit_status` on the result
 -- buffer's `b:db` -- so we never run our own timer.
 
+---@private
 --- A line made only of table-drawing characters with at least one dash: the
 --- column rule under a header (`---+---`, `+------+`).
 ---@param line string
@@ -251,6 +309,7 @@ function M._summary_text(runtime, exit_status, rows)
   return text
 end
 
+---@private
 --- Register a one-shot teardown: run `fn` the next time any of `events` fires on
 --- `buf`, in a fresh per-buffer augroup (`name` + bufnr) so a repaint replaces
 --- rather than stacks the cleanup. Used to drop the winbar / ghost text.
@@ -264,6 +323,7 @@ local function clear_on(buf, name, events, fn)
   vim.api.nvim_create_autocmd(events, { group = group, buffer = buf, once = true, callback = fn })
 end
 
+---@private
 --- Pin `winbar` (a fully-formed statusline-syntax string from `_winbar_text`) to
 --- the top of the result window. We deliberately avoid a `virt_lines_above`
 --- extmark on the first line: Neovim cannot draw a virtual line above a buffer's
@@ -282,6 +342,7 @@ local function set_winbar(buf, winbar)
   end
 end
 
+---@private
 --- Wrap a plain segment `text` in a padded, highlighted winbar block. `%` in the
 --- text is doubled so engine output can't inject statusline control codes; the
 --- surrounding spaces give the block its tab-like padding.
@@ -292,6 +353,7 @@ local function winbar_block(group, text)
   return string.format('%%#%s# %s ', group, (text:gsub('%%', '%%%%')))
 end
 
+---@private
 --- The right-aligned export-progress overlay: `%=` (push right) then a padded
 --- "Exporting to <FMT> <spinner>" block. Global (there is only one export), so it
 --- is the same on every result window. '' when no export is in flight.
@@ -306,6 +368,7 @@ local function export_overlay()
   return '%=' .. winbar_block('DadbodUIWinbarExport', text)
 end
 
+---@private
 --- Re-compose and apply `buf`'s result winbar from its two parts: the per-buffer
 --- query-time / pagination base and the global export overlay. Called whenever
 --- either changes (a query event, an export start/stop, or a spinner tick).
@@ -315,6 +378,7 @@ local function render_winbar(buf)
   set_winbar(buf, (winbar_base[buf] or '') .. export_overlay())
 end
 
+---@private
 --- Repaint the export overlay on EVERY window currently showing a `.dbout` result,
 --- so the spinner follows the user onto each new query result while the export
 --- runs (and is removed everywhere when it finishes).
@@ -332,6 +396,7 @@ local function render_export_everywhere()
   end
 end
 
+---@private
 --- Set the query-time / pagination part of `buf`'s winbar and repaint (preserving
 --- any export overlay). The single entry point the query hooks use.
 ---@param buf integer
@@ -342,6 +407,7 @@ local function set_base(buf, base)
   render_winbar(buf)
 end
 
+---@private
 --- Arm the one-shot teardown that clears the window-local winbar when this result
 --- buffer leaves its window, so a stale summary can't linger over whatever is
 --- shown there next. Armed once per buffer (first paint from `_on_pre`); the
@@ -403,6 +469,7 @@ function M.export_stop(buf, token) -- luacheck: ignore buf
   render_export_everywhere()
 end
 
+---@private
 --- Trail the summary as ghost text at the end of the executed line in the query
 --- buffer, and clear it on the next edit (so stale timing never lingers over a
 --- query the user has since changed).
@@ -428,12 +495,14 @@ local function render_ghost(origin, text)
   end)
 end
 
+---@private
 -- The summary segment shown while a query is in flight. Static (the buffer's own
 -- spinner carries the animation) so the winbar itself never flickers; `_on_post`
 -- swaps it for the finished summary in place, with the page/nav segments held
 -- fixed throughout.
 local RUNNING_SEGMENT = '⏳ running query…'
 
+---@private
 --- Whether the result winbar should be shown for this execution: either the
 --- time/row summary is enabled, or the result is paginated (the page/nav bar
 --- shows regardless of `query_time`).
@@ -909,6 +978,7 @@ function M.foreign_select(template, fschema, ftable, fcolumn, raw_value)
   return string.format(template, fschema, ftable, fcolumn, bind_params.quote(raw_value))
 end
 
+---@private
 --- The separator (column-underline) line number for the result block under the
 --- cursor: scan up from the cursor for a line matching the adapter's
 --- `cell_line_pattern`, falling back to its fixed `cell_line_number`. Port of
@@ -931,6 +1001,7 @@ local function cell_line_number(scheme_info)
   return fallback
 end
 
+---@private
 --- The dbout buffer's connection url + adapter metadata, or nil (with a notified
 --- error) when the buffer has no `b:db` or its scheme is unsupported for `action`.
 ---@param action string  user-facing verb for the error message

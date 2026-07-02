@@ -21,8 +21,16 @@ local bind_params = require('dadbod-ui.bind_params')
 local introspect = require('dadbod-ui.introspect')
 local utils = require('dadbod-ui.utils')
 
+---@class DadbodUI.QueryModule
+---@field connection_winbar fun(entry: DadbodUI.ConnectionEntry): string
+---@field new fun(drawer: DadbodUI.Drawer): DadbodUI.Query
+---@field Query DadbodUI.Query  the class table, exported for the static `write_contract`
+
+---@type DadbodUI.QueryModule
+---@diagnostic disable-next-line: missing-fields
 local M = {}
 
+---@private
 --- Replace every literal occurrence of `key` in `s` with `val`. Uses a function
 --- replacement so `%` in `val` (and Lua pattern magic generally) stays literal;
 --- `key` is escaped so `{...}` placeholders match as plain text.
@@ -432,6 +440,7 @@ function Query:get_lines(is_visual)
   return vim.fn.getregion(from, to, { type = regtype, exclusive = false })
 end
 
+---@private
 --- Reduce a raw `vim.cmd` error from dadbod to its user-facing message: strip
 --- the Lua/`nvim_exec2`/`Vim(echoerr):` wrappers, leaving e.g. `DB: Query
 --- already running for this tab`.
@@ -442,6 +451,7 @@ local function clean_execute_error(err)
   return s:match('Vim%b():(.+)$') or s:match('DB:.+$') or s
 end
 
+---@private
 --- The buffer's stored bind params (`b:dbui_bind_params`) as a table. Reads
 --- defensively: the drawer's rename passthrough copies the raw buffer var, which
 --- is `''` (not a dict) when the source buffer never had any -- so anything
@@ -453,6 +463,7 @@ local function stored_params(bufnr)
   return type(raw) == 'table' and raw or {}
 end
 
+---@private
 --- Prompt sequentially for every name in `names` not already in `known`,
 --- accumulating into a fresh copy. `on_done` receives the merged values, or nil
 --- the moment the user aborts any prompt -- so a cancelled run neither executes

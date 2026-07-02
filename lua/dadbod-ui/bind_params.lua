@@ -29,6 +29,13 @@
 ---     already-quoted literal -- the original neither escaped quotes nor knew
 ---     about NULL or non-integer numbers.
 
+---@class DadbodUI.BindParamsModule
+---@field quote fun(val: string): string
+---@field detect fun(lines: string[], pattern: string): string[]
+---@field substitute fun(lines: string[], values: table<string, string>, pattern: string): string[]
+
+---@type DadbodUI.BindParamsModule
+---@diagnostic disable-next-line: missing-fields
 local M = {}
 
 --- Quote a raw bind value for inlining into SQL. Bare (unquoted) when the value
@@ -57,6 +64,7 @@ function M.quote(val)
   return "'" .. val:gsub("'", "''") .. "'"
 end
 
+---@private
 --- Per-line byte masks over `lines`: `masks[i][j]` (1-based) is true when byte
 --- `j` of line `i` lies inside a single-quoted SQL string literal or a comment,
 --- where a placeholder must NOT be detected or substituted. A small SQL lexer
@@ -128,6 +136,7 @@ end
 
 ---@alias DadbodUI.BindOccurrence { name: string, s: integer, e: integer }
 
+---@private
 --- Build a per-line occurrence finder bound to `pattern`. The returned function
 --- finds every placeholder in `line`, left to right, skipping any that sits in a
 --- masked span (string literal or comment, per `mask`) or is immediately
