@@ -7,6 +7,8 @@ M.connections_list()	dadbod-ui.txt	/*M.connections_list()*
 M.defaults	dadbod-ui.txt	/*M.defaults*
 M.execute_query()	dadbod-ui.txt	/*M.execute_query()*
 M.execute_selection()	dadbod-ui.txt	/*M.execute_selection()*
+M.explain_query()	dadbod-ui.txt	/*M.explain_query()*
+M.explain_selection()	dadbod-ui.txt	/*M.explain_selection()*
 M.find_buffer()	dadbod-ui.txt	/*M.find_buffer()*
 M.get_conn_info()	dadbod-ui.txt	/*M.get_conn_info()*
 M.open()	dadbod-ui.txt	/*M.open()*
