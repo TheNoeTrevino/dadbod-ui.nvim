@@ -1,20 +1,20 @@
----@mod dadbod-ui.query  Query buffers: open, set the b:dbui_* contract, execute
----
---- Faithful port of vim-dadbod-ui's `autoload/db_ui/query.vim`. A `Query` is
---- created over the drawer and owns the SQL buffers: opening a `New query` or a
---- table-helper buffer, setting the buffer-local contract verbatim
---- (`b:dbui_db_key_name`, `b:db`, `b:dbui_table_name`, `b:dbui_schema_name`),
---- and executing on save through the bridge's async `:DB` path. Bind parameters
---- (M9) are detected on execute, prompted for, persisted in `b:dbui_bind_params`,
---- and substituted before the SQL reaches the engine; the in-buffer loading
---- symbol and result tracking live in `dadbod-ui.dbout`.
----
---- Connecting and refreshing saved queries go through an injected
---- `dadbod-ui.introspect` controller (an acyclic leaf), not back through the
---- drawer. The one drawer back-ref is `drawer:render()` -- the drawer owns the
---- tree, so a buffer change that should refresh it asks the drawer to redraw.
---- (The drawer in turn reaches back into the query controller for `open_buffer`,
---- e.g. when renaming a buffer file.)
+-- Query buffers: open, set the b:dbui_* contract, execute
+--
+-- Faithful port of vim-dadbod-ui's `autoload/db_ui/query.vim`. A `Query` is
+-- created over the drawer and owns the SQL buffers: opening a `New query` or a
+-- table-helper buffer, setting the buffer-local contract verbatim
+-- (`b:dbui_db_key_name`, `b:db`, `b:dbui_table_name`, `b:dbui_schema_name`),
+-- and executing on save through the bridge's async `:DB` path. Bind parameters
+-- (M9) are detected on execute, prompted for, persisted in `b:dbui_bind_params`,
+-- and substituted before the SQL reaches the engine; the in-buffer loading
+-- symbol and result tracking live in `dadbod-ui.dbout`.
+--
+-- Connecting and refreshing saved queries go through an injected
+-- `dadbod-ui.introspect` controller (an acyclic leaf), not back through the
+-- drawer. The one drawer back-ref is `drawer:render()` -- the drawer owns the
+-- tree, so a buffer change that should refresh it asks the drawer to redraw.
+-- (The drawer in turn reaches back into the query controller for `open_buffer`,
+-- e.g. when renaming a buffer file.)
 
 local bridge = require('dadbod-ui.bridge')
 local bind_params = require('dadbod-ui.bind_params')
@@ -29,6 +29,11 @@ local utils = require('dadbod-ui.utils')
 ---@type DadbodUI.QueryModule
 ---@diagnostic disable-next-line: missing-fields
 local M = {}
+
+---@private
+-- Monotonic suffix for generated buffer names, so two buffers created within the
+-- same second don't collide on the second-precision timestamp.
+local name_seq = 0
 
 ---@private
 --- Replace every literal occurrence of `key` in `s` with `val`. Uses a function
@@ -142,7 +147,8 @@ end
 ---@param opts { label: string, table?: string, schema?: string, filetype: string }
 ---@return string
 function Query:generate_buffer_name(entry, opts)
-  local time = vim.fn.strftime('%Y-%m-%d-%H-%M-%S')
+  name_seq = name_seq + 1
+  local time = vim.fn.strftime('%Y-%m-%d-%H-%M-%S') .. '-' .. name_seq
   local suffix = 'query'
   if opts.table ~= nil and opts.table ~= '' then
     suffix = string.format('%s-%s', opts.table, opts.label)

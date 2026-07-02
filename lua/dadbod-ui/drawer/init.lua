@@ -1,25 +1,25 @@
----@mod dadbod-ui.drawer  The tree UI (window + content render + interaction)
----
---- A scratch buffer whose lines are built from a `content[]` array where line N
---- maps to a node. The cursor line indexes `content` to find the node and its
---- action.
----
---- The Drawer class is split across this directory: this file owns the window
---- lifecycle, controller accessors, render orchestration, statusline and
---- mappings; `drawer/content.lua` (the pure Node[] builders) and
---- `drawer/actions.lua` (the cursor/interaction verbs) are method mixins merged
---- into the class below; `drawer/paint.lua` is the buffer-touching render half.
----
---- Domain logic is delegated to two acyclic leaf controllers, built lazily and
---- injected with the drawer's backends + a render callback:
----   * `dadbod-ui.introspect` -- connect + schema/table introspection
----     (`self:introspect()`), also owns `load_saved_queries`.
----   * `dadbod-ui.connections_controller` -- interactive connections.json CRUD
----     (`self:connections()`).
---- Neither requires `drawer` or `query`, so `state` stays the dependency sink.
---- The drawer owns the query controller (`self:query()`, lazy require) and
---- reaches into it for `open_buffer`/`focus_window`; the query controller's one
---- back-ref to the drawer is `drawer:render()`.
+-- The tree UI (window + content render + interaction)
+--
+-- A scratch buffer whose lines are built from a `content[]` array where line N
+-- maps to a node. The cursor line indexes `content` to find the node and its
+-- action.
+--
+-- The Drawer class is split across this directory: this file owns the window
+-- lifecycle, controller accessors, render orchestration, statusline and
+-- mappings; `drawer/content.lua` (the pure Node[] builders) and
+-- `drawer/actions.lua` (the cursor/interaction verbs) are method mixins merged
+-- into the class below; `drawer/paint.lua` is the buffer-touching render half.
+--
+-- Domain logic is delegated to two acyclic leaf controllers, built lazily and
+-- injected with the drawer's backends + a render callback:
+--   * `dadbod-ui.introspect` -- connect + schema/table introspection
+--     (`self:introspect()`), also owns `load_saved_queries`.
+--   * `dadbod-ui.connections_controller` -- interactive connections.json CRUD
+--     (`self:connections()`).
+-- Neither requires `drawer` or `query`, so `state` stays the dependency sink.
+-- The drawer owns the query controller (`self:query()`, lazy require) and
+-- reaches into it for `open_buffer`/`focus_window`; the query controller's one
+-- back-ref to the drawer is `drawer:render()`.
 
 local icons_mod = require('dadbod-ui.icons')
 local bridge = require('dadbod-ui.bridge')
@@ -222,7 +222,9 @@ function Drawer:close()
     entry.loading = false
   end
   if self:is_open() then
-    vim.api.nvim_win_close(self.winid, true)
+    -- pcall: closing the drawer when it is the only window raises E444; there is
+    -- nothing to fall back to, so degrade gracefully rather than crash the caller.
+    pcall(vim.api.nvim_win_close, self.winid, true)
   end
   self.winid = nil
   self.bufnr = nil
