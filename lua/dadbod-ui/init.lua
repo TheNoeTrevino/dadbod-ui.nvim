@@ -34,6 +34,8 @@
 ---@field connections_list fun(): DadbodUI.ConnectionInfo[]
 ---@field execute_query fun()
 ---@field execute_selection fun()
+---@field explain_query fun(opts?: DadbodUI.ExplainOpts)
+---@field explain_selection fun(opts?: DadbodUI.ExplainOpts)
 ---@field cancel_query fun()
 ---@field get_conn_info fun(key_name: string): table
 ---@field find_buffer fun()
@@ -119,6 +121,22 @@ end
 ---@return nil
 function M.execute_selection()
   drawer():query():execute_query(true)
+end
+
+--- Explain the current query buffer: wrap its SQL in the adapter's EXPLAIN syntax
+--- and run the plan into the `.dbout` window. `opts.analyze` selects EXPLAIN
+--- ANALYZE (which runs the query). Backs `api.explain_query`.
+---@param opts? DadbodUI.ExplainOpts
+---@return nil
+function M.explain_query(opts)
+  drawer():query():explain_query(false, opts)
+end
+
+--- Explain the current visual selection. Backs `api.explain_selection`.
+---@param opts? DadbodUI.ExplainOpts
+---@return nil
+function M.explain_selection(opts)
+  drawer():query():explain_query(true, opts)
 end
 
 --- Cancel the running async query for the current query buffer. Backs

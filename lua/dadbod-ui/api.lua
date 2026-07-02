@@ -21,8 +21,8 @@
 --- `require('dadbod-ui.api').list()` (its `key_name` also resolves, to
 --- disambiguate a name reused across groups).
 ---
---- The data-returning verbs (`connect`, `query`, `schemas`, `tables`,
---- `introspect`) are asynchronous and take a `cb(result, err)` callback,
+--- The data-returning verbs (`connect`, `query`, `explain`, `schemas`,
+--- `tables`, `introspect`) are asynchronous and take a `cb(result, err)` callback,
 --- mirroring the engine bridge they sit on; `err` is a string on failure and
 --- `result` is nil. `query_sync` is the blocking dual for scripts. Query results
 --- are the raw, adapter-formatted output lines (`string[]`) -- exactly what the
@@ -100,6 +100,11 @@
 ---@field query fun(name: string, sql: string, cb: DadbodUI.ApiResultCallback)
 ---@field query_sync fun(name: string, sql: string): string[]|nil, string|nil
 ---@field execute fun(name: string, sql: string): boolean, string|nil
+---@field explain fun(name: string, sql: string, opts?: DadbodUI.ExplainOpts|DadbodUI.ApiResultCallback, cb?: DadbodUI.ApiResultCallback)
+---@field explain_sync fun(name: string, sql: string, opts?: DadbodUI.ExplainOpts): string[]|nil, string|nil
+---@field explain_execute fun(name: string, sql: string, opts?: DadbodUI.ExplainOpts): boolean, string|nil
+---@field explain_query fun(opts?: DadbodUI.ExplainOpts)
+---@field explain_selection fun(opts?: DadbodUI.ExplainOpts)
 ---@field export fun(spec: DadbodUI.ApiExportSpec): boolean, string|nil
 ---@field export_result fun(page_choice?: 'full'|'current')
 ---@field on fun(event: DadbodUI.EventName, cb: fun(event: DadbodUI.HookEvent)): DadbodUI.EventHandle|nil, string|nil
@@ -260,6 +265,24 @@ local function ensure_connected(entry, cb)
       cb(false, entry.conn_error ~= nil and entry.conn_error ~= '' and entry.conn_error or 'connection failed')
     end
   end)
+end
+
+--- Wrap `sql` in `name`'s adapter EXPLAIN syntax, resolving the connection for
+--- its scheme first. Returns `nil, err` for an unknown connection (same message
+--- as every other verb) or an adapter that has no explain support -- an early,
+--- user-facing error the explain verbs surface before touching the engine.
+---@private
+---@param name string
+---@param sql string
+---@param opts? DadbodUI.ExplainOpts
+---@return string|nil explain_sql
+---@return string|nil err
+local function explain_sql(name, sql, opts)
+  local entry = resolve(name)
+  if entry == nil then
+    return nil, 'no connection named ' .. tostring(name)
+  end
+  return require('dadbod-ui.explain').wrap(entry.scheme, sql, opts)
 end
 
 -- Drawer ---------------------------------------------------------------------
@@ -727,6 +750,85 @@ function M.execute(name, sql)
   end
   bridge.execute(entry.conn, sql)
   return true
+end
+
+-- Explain --------------------------------------------------------------------
+
+--- Run `sql`'s EXPLAIN plan against `name` and return the raw, adapter-formatted
+--- output lines -- the explain dual of `query`, wrapping `sql` in the adapter's
+--- EXPLAIN syntax and running it headlessly (no result window). Pass
+--- `{ analyze = true }` for `EXPLAIN ANALYZE`, which RUNS the query for real
+--- timings (side effects for writes) -- adapters without an executing form
+--- reject it. `opts` may be omitted, passing the callback in its place.
+--- Reports an unknown name or an adapter without explain support through `cb`.
+---@param name string
+---@param sql string
+---@param opts? DadbodUI.ExplainOpts|DadbodUI.ApiResultCallback
+---@param cb? DadbodUI.ApiResultCallback
+function M.explain(name, sql, opts, cb)
+  if type(opts) == 'function' then
+    opts, cb = nil, opts
+  end
+  cb = cb or function() end
+  local explained, err = explain_sql(name, sql, opts)
+  if explained == nil then
+    return cb(nil, err)
+  end
+  M.query(name, explained, cb)
+end
+
+--- Blocking dual of `explain` for scripts and tests: wraps `sql` in `name`'s
+--- EXPLAIN syntax and runs it (blocking), returning the raw output lines.
+--- Returns `nil, err` for an unknown name or an adapter without explain support.
+---@param name string
+---@param sql string
+---@param opts? DadbodUI.ExplainOpts
+---@return string[]|nil lines
+---@return string|nil err
+function M.explain_sync(name, sql, opts)
+  local explained, err = explain_sql(name, sql, opts)
+  if explained == nil then
+    return nil, err
+  end
+  return M.query_sync(name, explained)
+end
+
+--- Execute `sql`'s EXPLAIN plan against `name` through dadbod's `:DB`, opening
+--- the `.dbout` result window -- the UI dual of `explain`. Returns `false, err`
+--- for an unknown name, an adapter without explain support, or a connect
+--- failure.
+---@param name string
+---@param sql string
+---@param opts? DadbodUI.ExplainOpts
+---@return boolean ok
+---@return string|nil err
+function M.explain_execute(name, sql, opts)
+  local explained, err = explain_sql(name, sql, opts)
+  if explained == nil then
+    return false, err
+  end
+  return M.execute(name, explained)
+end
+
+--- Explain the CURRENT query buffer's SQL and open the plan in the `.dbout`
+--- window -- the explain dual of `execute_query`, operating on the focused buffer
+--- rather than a name+sql pair. Reuses the buffer's connection and bind-param
+--- context (placeholders are prompted, then the substituted query is wrapped in
+--- the adapter's EXPLAIN syntax). Pass `{ analyze = true }` for `EXPLAIN ANALYZE`
+--- (which RUNS the query). An unsupported adapter / analyze form, or a
+--- non-query buffer, surfaces as a notification. The Lua equivalent of an
+--- explain-query mapping.
+---@param opts? DadbodUI.ExplainOpts
+function M.explain_query(opts)
+  require('dadbod-ui').explain_query(opts)
+end
+
+--- Explain the current VISUAL SELECTION and open the plan in the `.dbout` window
+--- -- the explain dual of `execute_selection`. Same connection/bind-param reuse
+--- and `opts.analyze` behavior as `explain_query`.
+---@param opts? DadbodUI.ExplainOpts
+function M.explain_selection(opts)
+  require('dadbod-ui').explain_selection(opts)
 end
 
 -- Export ---------------------------------------------------------------------
