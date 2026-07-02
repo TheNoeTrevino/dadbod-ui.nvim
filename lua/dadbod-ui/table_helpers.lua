@@ -1,12 +1,12 @@
----@mod dadbod-ui.table_helpers  Per-adapter table-helper templates (data)
----
---- Faithful port of vim-dadbod-ui's `autoload/db_ui/table_helpers.vim`. Each
---- adapter maps a helper name (`List`, `Columns`, `Indexes`, ...) to a SQL
---- template containing placeholders (`{table}`, `{schema}`, `{optional_schema}`,
---- ...). M6 only needs the helper *names* -- they are rendered as the children of
---- an expanded table -- so this milestone ports the data verbatim; placeholder
---- substitution and execution land in M8. The templates are copied exactly so
---- that later work has nothing to re-derive.
+-- Per-adapter table-helper templates (data)
+--
+-- Faithful port of vim-dadbod-ui's `autoload/db_ui/table_helpers.vim`. Each
+-- adapter maps a helper name (`List`, `Columns`, `Indexes`, ...) to a SQL
+-- template containing placeholders (`{table}`, `{schema}`, `{optional_schema}`,
+-- ...). M6 only needs the helper *names* -- they are rendered as the children of
+-- an expanded table -- so this milestone ports the data verbatim; placeholder
+-- substitution and execution land in M8. The templates are copied exactly so
+-- that later work has nothing to re-derive.
 
 ---@class DadbodUI.TableHelpersModule
 ---@field get fun(scheme: string, config?: DadbodUI.Config): table<string, string>

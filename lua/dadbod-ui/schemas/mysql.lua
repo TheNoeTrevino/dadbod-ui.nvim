@@ -1,4 +1,4 @@
----@mod dadbod-ui.schemas.mysql  MySQL / MariaDB schema/table introspection
+-- MySQL / MariaDB schema/table introspection
 
 ---@private
 local parse = require('dadbod-ui.schemas.parse')

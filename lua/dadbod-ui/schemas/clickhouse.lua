@@ -1,4 +1,4 @@
----@mod dadbod-ui.schemas.clickhouse  ClickHouse schema/table introspection
+-- ClickHouse schema/table introspection
 
 ---@private
 local parse = require('dadbod-ui.schemas.parse')

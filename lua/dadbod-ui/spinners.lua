@@ -1,4 +1,4 @@
----@mod dadbod-ui.spinners  Spinner frame catalog (data)
+-- Spinner frame catalog (data)
 --
 -- Spinners adapted from: https://github.com/sindresorhus/cli-spinners
 --

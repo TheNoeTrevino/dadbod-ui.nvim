@@ -1,8 +1,8 @@
----@mod dadbod-ui.utils  Small shared helpers (port of `autoload/db_ui/utils.vim`)
----
---- Leaf module with no sibling dependencies, so both the drawer and query
---- controllers can `require` it directly without re-introducing their lazy
---- drawer<->query cycle.
+-- Small shared helpers (port of `autoload/db_ui/utils.vim`)
+--
+-- Leaf module with no sibling dependencies, so both the drawer and query
+-- controllers can `require` it directly without re-introducing their lazy
+-- drawer<->query cycle.
 
 ---@class DadbodUI.UtilsModule
 ---@field slug fun(str: string): string
