@@ -61,6 +61,58 @@ describe('drawer: window', function()
   end)
 end)
 
+describe('drawer: open failure', function()
+  local d
+  before_each(function()
+    require('helper').clean_ui()
+  end)
+  after_each(function()
+    if d then
+      d:close()
+      d = nil
+    end
+  end)
+
+  it('does not clobber the user buffer when the split cannot open', function()
+    d = make_drawer({ dev = 'postgres://h/dev' })
+    -- A real user buffer with content in the focused (non-drawer) window.
+    vim.cmd('enew')
+    local user_win = vim.api.nvim_get_current_win()
+    local user_buf = vim.api.nvim_get_current_buf()
+    vim.api.nvim_buf_set_lines(user_buf, 0, -1, false, { 'important', 'user', 'data' })
+
+    local notify = require('dadbod-ui.notifications')
+    local msg
+    local saved_err = notify.error
+    notify.error = function(m)
+      msg = m
+    end
+    -- Simulate E36 ("not enough room") by forcing the split command to fail.
+    local real_cmd = vim.cmd
+    vim.cmd = function(c)
+      if type(c) == 'string' and c:find('new') then
+        error('Vim(vertical):E36: Not enough room')
+      end
+      return real_cmd(c)
+    end
+    local ok = pcall(function()
+      d:open()
+    end)
+    vim.cmd = real_cmd
+    notify.error = saved_err
+
+    assert.is_true(ok) -- no error bubbled to the caller
+    assert.is_false(d:is_open())
+    assert.is_not_nil(msg) -- notified the failure
+    -- The user's window/buffer is untouched: same win, same buf, still a normal
+    -- buffer with its original lines (not converted to a wiped nofile scratch).
+    assert.equals(user_win, vim.api.nvim_get_current_win())
+    assert.equals(user_buf, vim.api.nvim_get_current_buf())
+    assert.equals('', vim.bo[user_buf].buftype)
+    assert.same({ 'important', 'user', 'data' }, vim.api.nvim_buf_get_lines(user_buf, 0, -1, false))
+  end)
+end)
+
 describe('drawer: render', function()
   local d
   after_each(function()
