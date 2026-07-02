@@ -110,6 +110,13 @@ describe('schemas: normalize_table_list', function()
     assert.same({ 'users', 'posts' }, schemas.normalize_table_list('mysql', raw))
   end)
 
+  it('does not drop a real table whose name merely contains Tables_in_', function()
+    -- regression: an unanchored 'Tables_in_' match dropped any table NAMED that
+    -- way too, not just the header line dadbod prepends.
+    local raw = { 'Tables_in_app', 'my_Tables_in_archive', 'users' }
+    assert.same({ 'my_Tables_in_archive', 'users' }, schemas.normalize_table_list('mysql', raw))
+  end)
+
   it('returns the list unchanged for other adapters', function()
     assert.same({ 'users' }, schemas.normalize_table_list('postgres', { 'users' }))
   end)

@@ -38,11 +38,13 @@ return function(config)
     ---@param _kind string
     ---@return string
     routine_definition = function(schema, name, _kind)
-      return string.format(
-        "SELECT OBJECT_DEFINITION(OBJECT_ID('%s.%s'))",
-        parse.sql_squote(schema),
-        parse.sql_squote(name)
-      )
+      -- Bracket-quote each part (`[schema].[name]`) so a schema/routine name
+      -- containing a space or a dot still resolves -- unquoted, `OBJECT_ID`
+      -- would parse the dot as the schema separator and return NULL, silently
+      -- yielding an empty definition. `sql_squote` then escapes the whole
+      -- bracket-quoted literal for the outer single-quoted string.
+      local qualified = string.format('[%s].[%s]', parse.sql_bracket(schema), parse.sql_bracket(name))
+      return string.format("SELECT OBJECT_DEFINITION(OBJECT_ID('%s'))", parse.sql_squote(qualified))
     end,
     foreign_key_query = sqlserver_foreign_key_query,
     select_foreign_key_query = 'select * from %s.%s where %s = %s',

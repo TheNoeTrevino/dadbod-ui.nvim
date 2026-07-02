@@ -126,6 +126,7 @@
 ---@field schemes_query? string       SQL listing schema names
 ---@field schemes_tables_query? string  SQL listing (schema, table) pairs
 ---@field procedures_query? string     SQL listing (schema, routine_name, kind) rows; kind is 'procedure'|'function'. Absent => the adapter has no stored procedures (e.g. sqlite): a clean no-op.
+---@field tables_procedures_query? string  same shape as `procedures_query`, scoped to the connected database -- used on the tables-only path (e.g. mysql url naming a database) so routines from other schemas don't leak in. Falls back to `procedures_query` when absent.
 ---@field routine_definition? fun(schema: string, name: string, kind: string): string  SQL that renders one routine's DDL/source (identifiers escaped)
 ---@field parse_results? fun(results: string[], min_len: integer): any[]
 ---@field default_scheme? string
