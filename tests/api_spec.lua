@@ -14,6 +14,26 @@ local function seed(g_dbs, overrides)
   state.get() -- force discovery now
 end
 
+describe('api: surface', function()
+  it('exposes a Lua function for every user command', function()
+    -- Each :DBUI* command must have an api equivalent so everything is scriptable.
+    for _, fn in ipairs({
+      'open', -- :DBUI
+      'toggle', -- :DBUIToggle
+      'close', -- :DBUIClose
+      'add_connection', -- :DBUIAddConnection
+      'find_buffer', -- :DBUIFindBuffer
+      'switch_buffer', -- :DBUISwitchBuffer
+      'rename_buffer', -- :DBUIRenameBuffer
+      'last_query_info', -- :DBUILastQueryInfo
+      'cancel_query', -- :DBUICancelQuery
+      'export_result', -- :DBUIExportResult
+    }) do
+      assert.equals('function', type(api[fn]), 'missing api.' .. fn)
+    end
+  end)
+end)
+
 describe('api: resolution and error paths', function()
   after_each(function()
     vim.g.dbs = nil
