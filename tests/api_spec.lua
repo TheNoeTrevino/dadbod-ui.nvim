@@ -187,6 +187,19 @@ describe('api: grouped connections (name reused across groups)', function()
     assert.is_nil(rows)
     assert.is_truthy(err and err:match('no connection named marketing/prod'))
   end)
+
+  it('switch_buffer resolves group/name before reaching the drawer', function()
+    vim.cmd('enew') -- not a query buffer
+    -- A resolvable group/name gets past name resolution (then fails on the buffer).
+    local ok1, err1 = api.switch_buffer('billing/prod')
+    assert.is_false(ok1)
+    assert.is_truthy(err1 and err1:match('not a dadbod%-ui query buffer'))
+    -- An unresolvable one fails at resolution.
+    local ok2, err2 = api.switch_buffer('marketing/prod')
+    assert.is_false(ok2)
+    assert.is_truthy(err2 and err2:match('no connection named marketing/prod'))
+    vim.cmd('silent! %bwipeout!')
+  end)
 end)
 
 describe('api: sqlite end-to-end (guarded)', function()
