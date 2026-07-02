@@ -81,3 +81,39 @@ describe('spinner: start/stop lifecycle', function()
     assert.same({ spinners.dots12[1] }, b)
   end)
 end)
+
+describe('spinner: stale scheduled tick guard', function()
+  local frames = spinners.dots
+
+  after_each(function()
+    spinner.stop('a')
+  end)
+
+  it('a scheduled tick already queued before stop does not fire afterwards', function()
+    -- Reproduces the race where a tick enqueued via vim.schedule runs after
+    -- stop(): its on_tick would repaint the spinner over freshly loaded results.
+    local ticks = 0
+    spinner.start('a', frames, function()
+      ticks = ticks + 1
+    end)
+    local scheduled = spinner._timers['a'].scheduled -- the stop-guarded callback
+    assert.equals(1, ticks) -- synchronous first paint
+    spinner.stop('a')
+    scheduled() -- the stale tick fires post-stop; it must bail
+    assert.equals(1, ticks)
+  end)
+
+  it('a scheduled tick from a replaced start does not fire for the old spinner', function()
+    local ticks = 0
+    spinner.start('a', frames, function() end)
+    local stale = spinner._timers['a'].scheduled
+    spinner.start('a', frames, function()
+      ticks = ticks + 1
+    end) -- replaces; new registration
+    local fresh_first = ticks -- new start painted once synchronously
+    stale() -- the previous start's queued tick must not run against the new one
+    assert.equals(fresh_first, ticks)
+    spinner._timers['a'].scheduled() -- the current registration's tick still works
+    assert.equals(fresh_first + 1, ticks)
+  end)
+end)
