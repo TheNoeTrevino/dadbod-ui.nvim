@@ -8,6 +8,7 @@
 ---@class DadbodUI.StateModule
 ---@field new fun(config: DadbodUI.Config): DadbodUI.Instance
 ---@field is_connected fun(entry: DadbodUI.ConnectionEntry): boolean
+---@field disconnect fun(entry: DadbodUI.ConnectionEntry)
 ---@field Instance DadbodUI.Instance
 ---@field setup fun(opts?: table): DadbodUI.Config
 ---@field config fun(): DadbodUI.Config
@@ -244,6 +245,19 @@ end
 ---@return boolean
 function M.is_connected(entry)
   return entry.conn ~= nil and entry.conn ~= ''
+end
+
+--- Drop the live connection handle for `entry`, so `is_connected` reports false
+--- and the next connect/query re-probes. The inverse of the introspect controller's
+--- connect (`_apply_connect` sets `entry.conn`); this resets it to the pristine,
+--- never-attempted state (`conn = nil`, no error). Introspected tables/schemas are
+--- left intact -- this forgets the live handle, not the cached metadata. dadbod may
+--- still hold a pooled connection of its own; this only clears dadbod-ui's view.
+---@param entry DadbodUI.ConnectionEntry
+---@return nil
+function M.disconnect(entry)
+  entry.conn = nil
+  entry.conn_error = ''
 end
 
 --- List connections with their connection state.
