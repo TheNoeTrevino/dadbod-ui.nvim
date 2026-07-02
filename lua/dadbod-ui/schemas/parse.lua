@@ -62,6 +62,19 @@ function P.my_backtick(s)
 end
 
 ---@private
+-- Escape a value for embedding inside a `[bracket]`-quoted SQL Server
+-- identifier: double every closing bracket (the only delimiter char that can
+-- appear inside one, since `[` needs no escaping in this quoting style). Used
+-- to build a bracket-quoted `schema.name` for `OBJECT_ID('[schema].[name]')` so
+-- a schema/routine name containing a space or dot resolves instead of coming
+-- back NULL.
+---@param s string
+---@return string
+function P.sql_bracket(s)
+  return (s:gsub(']', ']]'))
+end
+
+---@private
 -- Map a normalized routine kind ('procedure'|'function') to the SQL keyword used
 -- by the `SHOW CREATE`/`GET_DDL`-style definition builders (mysql, oracle).
 ---@param kind string

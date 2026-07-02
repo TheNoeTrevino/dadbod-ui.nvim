@@ -24,6 +24,14 @@ return function(config)
       .. "WHERE routine_type IN ('PROCEDURE', 'FUNCTION') "
       .. "AND routine_schema NOT IN ('sys', 'mysql', 'information_schema', 'performance_schema') "
       .. 'ORDER BY routine_schema, routine_name',
+    -- The tables-only path (a mysql url naming a database in its path -- see
+    -- `supports_schemes`) has no schema browsing, so its Procedures node must be
+    -- scoped to the connected database only: the global `procedures_query` above
+    -- lists routines from EVERY schema on the server, which would otherwise all
+    -- flatten into this one db's Procedures node.
+    tables_procedures_query = 'SELECT routine_schema, routine_name, LOWER(routine_type) FROM information_schema.routines '
+      .. "WHERE routine_type IN ('PROCEDURE', 'FUNCTION') AND routine_schema = DATABASE() "
+      .. 'ORDER BY routine_name',
     ---@param schema string
     ---@param name string
     ---@param kind string

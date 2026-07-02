@@ -66,6 +66,29 @@ describe('routines: adapter metadata', function()
     -- backticks in an identifier are doubled
     assert.is_truthy(my.routine_definition('a`b', 'c', 'procedure'):find('`a``b`', 1, true))
   end)
+
+  it('builds a bracket-quoted sqlserver OBJECT_ID so a dotted/spaced name still resolves', function()
+    -- regression: OBJECT_ID('schema.name') built without brackets returns NULL
+    -- (a NULL definition) for a schema/routine containing a space or a dot.
+    local ss = schemas.get('sqlserver')
+    assert.equals(
+      "SELECT OBJECT_DEFINITION(OBJECT_ID('[dbo].[do_thing]'))",
+      ss.routine_definition('dbo', 'do_thing', 'procedure')
+    )
+    -- a ']' inside a part is doubled to stay a valid bracket identifier
+    assert.is_truthy(ss.routine_definition('my schema', 'a]b', 'function'):find('[my schema].[a]]b]', 1, true))
+    -- a "'" is still escaped for the outer single-quoted string literal
+    assert.is_truthy(ss.routine_definition("o'reilly", 'x', 'procedure'):find("o''reilly", 1, true))
+  end)
+
+  it('scopes mysql routines to the connected database on the tables-only path', function()
+    -- regression: the tables-only path (mysql url naming a database) used the
+    -- global procedures_query and so listed routines from EVERY schema on the
+    -- server, flattening them all into this one db's Procedures node.
+    local my = schemas.get('mysql')
+    assert.is_string(my.tables_procedures_query)
+    assert.is_truthy(my.tables_procedures_query:find('routine_schema = DATABASE()', 1, true))
+  end)
 end)
 
 describe('routines: result parsing', function()
@@ -168,6 +191,29 @@ describe('routines: concurrent populate', function()
   local function completed(stdout)
     return { code = 0, stdout = stdout, stderr = '' }
   end
+
+  it('uses the database-scoped routines query on the tables-only path (mysql-with-db)', function()
+    -- regression: populate_tables used the global procedures_query, leaking
+    -- routines from every schema into this one db's Procedures node.
+    d = make_drawer({ app = 'mysql://h/app' })
+    local entry = entry_named(d, 'app')
+    entry.conn = 'mysql://h/app' -- pretend connected
+    local seen_query
+    bridge.run_many = function(specs, on_done)
+      assert.equals(1, #specs)
+      seen_query = specs[1].stdin -- mysql feeds the query on stdin
+      on_done({ completed('routine_schema\troutine_name\troutine_type\napp\tdo_thing\tprocedure\n') })
+    end
+    local real_adapter_call = bridge.adapter_call
+    bridge.adapter_call = function()
+      return {}
+    end
+    d:introspect():populate_tables(entry)
+    bridge.adapter_call = real_adapter_call
+    local my = schemas.get('mysql')
+    assert.equals(my.tables_procedures_query, seen_query)
+    assert.equals(1, #entry.routines.flat)
+  end)
 
   it('fans schemas + tables + routines out together and folds them in', function()
     d = make_drawer({ dev = 'postgres://h/dev' })
