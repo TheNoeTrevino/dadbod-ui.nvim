@@ -602,6 +602,10 @@ function Drawer:switch_buffer(target_name)
   local others = vim.tbl_filter(function(r)
     return r.key_name ~= current.key_name
   end, self.instance.dbs_list)
+  -- Sorted by their `group/name` label so the picker reads predictably.
+  table.sort(others, function(a, b)
+    return utils.display_name(a.name, a.group):lower() < utils.display_name(b.name, b.group):lower()
+  end)
   if #others == 0 then
     if target_name ~= nil then
       return false, 'no other connection to switch this buffer to'
@@ -676,11 +680,13 @@ function Drawer:switch_buffer(target_name)
   end
 
   self:query().select(others, {
-    prompt = string.format('Switch buffer from %s to db:', current.name),
+    -- Label candidates (and the current db) as `group/name` so a name reused
+    -- across groups is unambiguous in the picker -- see issue #58.
+    prompt = string.format('Switch buffer from %s to db:', utils.display_name(current.name, current.group)),
     ---@param r DadbodUI.ConnectionRecord
     ---@return string
     format_item = function(r)
-      return r.name
+      return utils.display_name(r.name, r.group)
     end,
   }, function(choice)
     if choice == nil then

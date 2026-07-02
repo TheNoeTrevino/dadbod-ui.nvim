@@ -171,4 +171,38 @@ describe('switch_buffer', function()
     assert.is_false(ok)
     assert.is_truthy(err and err:match('not a dadbod%-ui query buffer'))
   end)
+
+  it('labels the picker and prompt with group/name (issue #58)', function()
+    -- Two groups, a name (qa) that only makes sense with its group shown.
+    local cfg = config.resolve({ save_location = '/tmp/dbui_switch', show_help = false })
+    local instance = state.new(cfg):populate({
+      env = {},
+      g_dbs = {},
+      file_entries = {
+        { name = 'qa', url = 'sqlite:/tmp/icris_qa.db', group = 'ICRIS' },
+        { name = 'prod', url = 'sqlite:/tmp/icris_prod.db', group = 'ICRIS' },
+        { name = 'test', url = 'sqlite:/tmp/nmcris_test.db', group = 'NMCRIS' },
+      },
+    })
+    d = drawer_mod.new(instance)
+    d.connector = function(url)
+      return url
+    end
+    d:open()
+    local qa = instance.dbs['ICRIS_qa_file']
+    d:query():open({ type = 'query', key_name = qa.key_name }, 'edit')
+
+    local captured
+    d:query().select = function(items, opts, _)
+      captured = { items = items, opts = opts }
+    end
+    d:switch_buffer()
+
+    -- Prompt names the current db group-qualified.
+    assert.is_truthy(captured.opts.prompt:match('ICRIS/qa'))
+    -- Every candidate renders as group/name, sorted alphabetically by that label.
+    local labels = vim.tbl_map(captured.opts.format_item, captured.items)
+    assert.same({ 'ICRIS/prod', 'NMCRIS/test' }, labels)
+    assert.is_false(vim.tbl_contains(labels, 'prod')) -- never the bare name
+  end)
 end)
