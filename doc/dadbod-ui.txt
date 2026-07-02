@@ -1,0 +1,237 @@
+dadbod-ui  Lua port of vim-dadbod-ui
+
+Public entry point / facade. Session state lives in `dadbod-ui.state` (the
+single source of truth); the dadbod engine boundary lives in
+`dadbod-ui.bridge`. Sibling modules are required lazily so startup cost stays
+near zero and the dependency graph stays acyclic.
+
+------------------------------------------------------------------------------
+Class ~
+{DadbodUI.InitModule}
+Fields ~
+{bridge} `(DadbodUI.BridgeModule)`  the vim-dadbod boundary
+{config} `(DadbodUI.Config)`  resolved config, exposed for inspection (SSOT is dadbod-ui.state)
+{setup} `(fun(opts?: table): table)`
+{open} `(fun(mods?: string))`
+{toggle} `(fun())`
+{close} `(fun())`
+{add_connection} `(fun())`
+{connections_list} `(fun(): DadbodUI.ConnectionInfo[])`
+{execute_query} `(fun())`
+{execute_selection} `(fun())`
+{cancel_query} `(fun())`
+{get_conn_info} `(fun(key_name: string): table)`
+{find_buffer} `(fun())`
+{rename_buffer} `(fun())`
+{print_last_query_info} `(fun())`
+{statusline} `(fun(opts?: DadbodUI.StatuslineOpts): string)`
+{reset} `(fun())`
+
+------------------------------------------------------------------------------
+                                      `M`
+Type ~
+`(DadbodUI.InitModule)`
+
+------------------------------------------------------------------------------
+                                                                      *dadbod-ui.bridge*
+                                   `dadbod-ui.bridge`
+The vim-dadbod boundary (see `lua/dadbod-ui/bridge.lua`).
+
+------------------------------------------------------------------------------
+                                                                      *dadbod-ui.config*
+                                   `dadbod-ui.config`
+Type ~
+`(DadbodUI.Config)`  resolved config, exposed for inspection (SSOT is dadbod-ui.state)
+
+------------------------------------------------------------------------------
+                                                                     *dadbod-ui.setup()*
+                               `dadbod-ui.setup`({opts})
+Configure the plugin: resolve options and drop the cached instance/drawer so
+the new config takes effect.
+Parameters ~
+{opts} `(optional)` `(table)`
+Return ~
+`(table)`
+
+------------------------------------------------------------------------------
+                                                                      *dadbod-ui.open()*
+                                `dadbod-ui.open`({mods})
+Open the drawer (accepts command modifiers, e.g. `:tab`).
+Parameters ~
+{mods} `(optional)` `(string)`
+
+------------------------------------------------------------------------------
+                                                                    *dadbod-ui.toggle()*
+                                  `dadbod-ui.toggle`()
+Toggle the drawer open/closed.
+
+------------------------------------------------------------------------------
+                                                                     *dadbod-ui.close()*
+                                  `dadbod-ui.close`()
+Close the drawer.
+
+------------------------------------------------------------------------------
+                                                            *dadbod-ui.add_connection()*
+                              `dadbod-ui.add_connection`()
+Add a connection interactively (prompts for url + name), independent of
+whether the drawer is open. Backs `:DBUIAddConnection`.
+
+------------------------------------------------------------------------------
+                                                          *dadbod-ui.connections_list()*
+                             `dadbod-ui.connections_list`()
+All discovered connections with their connection state.
+Return ~
+`(DadbodUI.ConnectionInfo[])`
+
+------------------------------------------------------------------------------
+                                                             *dadbod-ui.execute_query()*
+                              `dadbod-ui.execute_query`()
+Execute the current query buffer through dadbod (the whole buffer).
+Return ~
+`(nil)`
+
+------------------------------------------------------------------------------
+                                                         *dadbod-ui.execute_selection()*
+                            `dadbod-ui.execute_selection`()
+Execute the current visual selection through dadbod.
+Return ~
+`(nil)`
+
+------------------------------------------------------------------------------
+                                                              *dadbod-ui.cancel_query()*
+                               `dadbod-ui.cancel_query`()
+Cancel the running async query for the current query buffer. Backs
+`:DBUICancelQuery` and the `cancel` query mapping; fires the `on_cancel_query`
+/ `on_cancel_query_post` hooks around the cancel.
+Return ~
+`(nil)`
+
+------------------------------------------------------------------------------
+                                                             *dadbod-ui.get_conn_info()*
+                         `dadbod-ui.get_conn_info`({key_name})
+Connection info for `key_name`, mirroring the original `db_ui#get_conn_info`.
+Backs the `db_ui#get_conn_info` autoload shim that third-party integrations
+(e.g. vim-dadbod-completion) call. Returns the resolved url, the live
+connection handle (empty when not yet connected), the known tables/schemas,
+the scheme, and a 0/1 connected flag. `{}` for an unknown key.
+Parameters ~
+{key_name} `(string)`
+Return ~
+`(table)`
+
+------------------------------------------------------------------------------
+                                                               *dadbod-ui.find_buffer()*
+                               `dadbod-ui.find_buffer`()
+Jump to (or adopt) the query buffer for the current db context. Backs
+`:DBUIFindBuffer`: a buffer already carrying the `b:dbui_*` contract is
+revealed in the drawer; a bare buffer resolves/connects a db and adopts it.
+Return ~
+`(nil)`
+
+------------------------------------------------------------------------------
+                                                             *dadbod-ui.rename_buffer()*
+                              `dadbod-ui.rename_buffer`()
+Rename the current query buffer's on-disk file (and move its buffer tracking).
+Backs `:DBUIRenameBuffer`; delegates to the drawer's rename path for the buffer
+under the cursor / in focus.
+Return ~
+`(nil)`
+
+------------------------------------------------------------------------------
+                                                     *dadbod-ui.print_last_query_info()*
+                          `dadbod-ui.print_last_query_info`()
+Echo the last executed query and its runtime. Backs `:DBUILastQueryInfo`.
+Mirrors the original `db_ui#print_last_query_info`.
+Return ~
+`(nil)`
+
+------------------------------------------------------------------------------
+                                                                *dadbod-ui.statusline()*
+                             `dadbod-ui.statusline`({opts})
+Connection/table info for the current query buffer, or the last query's
+runtime for a `.dbout` result buffer -- a drop-in for the original
+`db_ui#statusline()`, safe to embed in a `statusline`/`winbar` expression.
+Reads the `b:dbui_*` contract; never opens the drawer window. Delegates to
+`Drawer:statusline` (which holds the query controller for the dbout runtime).
+Parameters ~
+{opts} `(optional)` `(DadbodUI.StatuslineOpts)`
+Return ~
+`(string)`
+
+------------------------------------------------------------------------------
+                                                                     *dadbod-ui.reset()*
+                                  `dadbod-ui.reset`()
+Reset session state (drops the cached instance and drawer). For tests/cleanup.
+
+
+==============================================================================
+------------------------------------------------------------------------------
+dadbod-ui.config  Defaults and option resolution
+
+The canonical option surface is the `setup()` table (snake_case keys). For a
+smooth migration we also read the legacy `g:db_ui_*` globals: precedence is
+defaults < legacy globals < `setup()` opts.
+
+------------------------------------------------------------------------------
+Class ~
+{DadbodUI.ConfigModule}
+Fields ~
+{defaults} `(DadbodUI.Config)`
+{mapping_sections} `({ group: string, title: string }[])`
+{mapping_order} `(table<string, string[]>)`
+{resolve} `(fun(opts?: table): DadbodUI.Config)`
+
+------------------------------------------------------------------------------
+                                      `M`
+Type ~
+`(DadbodUI.ConfigModule)`
+
+------------------------------------------------------------------------------
+                                                                    *dadbod-ui.defaults*
+                                  `dadbod-ui.defaults`
+Built-in defaults. Keys mirror the original `g:db_ui_*` options with the
+`db_ui_` prefix dropped. Booleans are real Lua booleans (the legacy globals
+use 0/1 and are coerced on read).
+Type ~
+`(DadbodUI.Config)`
+
+------------------------------------------------------------------------------
+                                                                      *coerce()*
+                          `coerce`({default}, {value})
+Parameters ~
+{default} `(any)`
+{value} `(any)`
+Return ~
+`(any)`
+
+------------------------------------------------------------------------------
+                                                               *legacy_global()*
+                       `legacy_global`({key}, {default})
+Parameters ~
+{key} `(string)`
+{default} `(any)`
+Return ~
+`(any)`
+
+------------------------------------------------------------------------------
+                                                                      *freeze()*
+                                 `freeze`({t})
+T
+Parameters ~
+{t} `(T)`
+Return ~
+`(T)`
+
+------------------------------------------------------------------------------
+                                                                   *dadbod-ui.resolve()*
+                              `dadbod-ui.resolve`({opts})
+Resolve effective config: defaults < legacy `g:db_ui_*` globals < `opts`. The
+returned table is frozen (see `freeze`): it is the session's shared config, so
+accidental writes to it raise rather than silently corrupting every reader.
+Parameters ~
+{opts} `(optional)` `(table)`  partial config overrides
+Return ~
+`(DadbodUI.Config)`
+
+
+ vim:tw=78:ts=8:noet:ft=help:norl:
