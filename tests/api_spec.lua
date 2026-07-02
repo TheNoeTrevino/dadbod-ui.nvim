@@ -32,6 +32,24 @@ describe('api: surface', function()
       assert.equals('function', type(api[fn]), 'missing api.' .. fn)
     end
   end)
+
+  it('exposes the scripting verbs (CRUD, lifecycle, events, buffers)', function()
+    for _, fn in ipairs({
+      'remove',
+      'rename',
+      'duplicate',
+      'set_group',
+      'move',
+      'disconnect',
+      'reveal',
+      'refresh',
+      'open_query',
+      'on',
+      'off',
+    }) do
+      assert.equals('function', type(api[fn]), 'missing api.' .. fn)
+    end
+  end)
 end)
 
 describe('api: resolution and error paths', function()
@@ -199,6 +217,171 @@ describe('api: grouped connections (name reused across groups)', function()
     assert.is_false(ok2)
     assert.is_truthy(err2 and err2:match('no connection named marketing/prod'))
     vim.cmd('silent! %bwipeout!')
+  end)
+end)
+
+describe('api: connection mutation (store CRUD)', function()
+  local dir
+  before_each(function()
+    dir = vim.fn.tempname()
+    vim.fn.mkdir(dir, 'p')
+    require('dadbod-ui.connections').write_file(dir .. '/connections.json', {
+      { name = 'prod', url = 'postgres://h/analytics', group = 'analytics' },
+      { name = 'prod', url = 'postgres://h/billing', group = 'billing' },
+      { name = 'stage', url = 'postgres://h/stage' },
+    })
+    vim.g.dbs = nil
+    state.setup({ save_location = dir, show_help = false })
+    state.get()
+  end)
+  after_each(function()
+    state.reset()
+    if dir then
+      vim.fn.delete(dir, 'rf')
+      dir = nil
+    end
+  end)
+
+  it('remove deletes only the addressed clone, leaving siblings', function()
+    local ok, err = api.remove('analytics/prod')
+    assert.is_true(ok, err)
+    assert.is_nil(api.info('analytics/prod'))
+    assert.is_truthy(api.info('billing/prod')) -- the other group survives
+    assert.is_truthy(api.info('stage'))
+  end)
+
+  it('rename changes the name, keeping the group and resolving anew', function()
+    local ok, err = api.rename('stage', 'staging')
+    assert.is_true(ok, err)
+    assert.is_nil(api.info('stage'))
+    assert.is_truthy(api.info('staging'))
+  end)
+
+  it('rename rejects a same-group collision', function()
+    -- Renaming billing/prod to a name already used inside billing would merge.
+    api.add({ name = 'other', url = 'postgres://h/o', group = 'billing' })
+    local ok, err = api.rename('billing/prod', 'other')
+    assert.is_false(ok)
+    assert.is_truthy(err and err:lower():find('already exists'))
+  end)
+
+  it('duplicate clones into another group', function()
+    local ok, err = api.duplicate('stage', 'stage', 'archive')
+    assert.is_true(ok, err)
+    assert.is_truthy(api.info('archive/stage'))
+    assert.is_truthy(api.info('stage')) -- original still there
+  end)
+
+  it('set_group moves a connection and ungroups with an empty string', function()
+    local ok1, err1 = api.set_group('stage', 'envs')
+    assert.is_true(ok1, err1)
+    assert.is_truthy(api.info('envs/stage'))
+    local ok2, err2 = api.set_group('envs/stage', '')
+    assert.is_true(ok2, err2)
+    assert.is_truthy(api.info('stage')) -- back to ungrouped
+  end)
+
+  it('move reorders siblings and rejects a bad direction', function()
+    -- Give the ungrouped block a second member so a move stays within it.
+    api.add({ name = 'dev', url = 'postgres://h/dev' })
+    local ok, err = api.move('stage', 'down')
+    assert.is_true(ok, err)
+    local bad, berr = api.move('stage', 'sideways')
+    assert.is_false(bad)
+    assert.is_truthy(berr and berr:find('up'))
+  end)
+
+  it('mutations reject a non-file connection', function()
+    vim.g.dbs = { glob = 'postgres://h/glob' }
+    state.get():repopulate()
+    local ok, err = api.remove('glob')
+    assert.is_false(ok)
+    assert.is_truthy(err and err:find('connections.json'))
+    vim.g.dbs = nil
+  end)
+
+  it('mutations report an unknown name', function()
+    local ok, err = api.rename('nope', 'x')
+    assert.is_false(ok)
+    assert.is_truthy(err and err:match('no connection named nope'))
+  end)
+end)
+
+describe('api: disconnect', function()
+  after_each(function()
+    vim.g.dbs = nil
+    state.reset()
+  end)
+
+  it('drops the live handle so is_connected flips to false', function()
+    seed({ dev = 'postgres://h/dev' })
+    -- Simulate a live connection without a real server.
+    local entry = state.get().dbs['dev_g:dbs']
+    entry.conn = 'postgres://h/dev'
+    assert.is_true(api.is_connected('dev'))
+    local ok, err = api.disconnect('dev')
+    assert.is_true(ok, err)
+    assert.is_false(api.is_connected('dev'))
+  end)
+
+  it('errors for an unknown name', function()
+    seed({ dev = 'postgres://h/dev' })
+    local ok, err = api.disconnect('nope')
+    assert.is_false(ok)
+    assert.is_truthy(err and err:match('no connection named nope'))
+  end)
+end)
+
+describe('api: open_query', function()
+  before_each(function()
+    -- open_query drives the init drawer singleton; drop its cache so it rebinds to
+    -- the freshly seeded instance rather than a stale one from an earlier test.
+    require('dadbod-ui').reset()
+  end)
+  after_each(function()
+    vim.g.dbs = nil
+    require('dadbod-ui').reset()
+    vim.cmd('silent! %bwipeout!')
+  end)
+
+  it('opens a query buffer carrying the connection contract', function()
+    seed({ dev = 'sqlite:/tmp/dev.db' })
+    local ok, err = api.open_query('dev')
+    assert.is_true(ok, err)
+    assert.equals('dev_g:dbs', vim.b.dbui_db_key_name)
+  end)
+
+  it('errors for an unknown name', function()
+    seed({ dev = 'sqlite:/tmp/dev.db' })
+    local ok, err = api.open_query('nope')
+    assert.is_false(ok)
+    assert.is_truthy(err and err:match('no connection named nope'))
+  end)
+end)
+
+describe('api: events (on/off)', function()
+  after_each(function()
+    require('dadbod-ui').reset()
+  end)
+
+  it('on returns a handle and off removes it', function()
+    local h, err = api.on('on_connect_post', function() end)
+    assert.is_truthy(h, err)
+    assert.is_true(api.off(h))
+    assert.is_false(api.off(h))
+  end)
+
+  it('on rejects an unknown event name', function()
+    local h, err = api.on('on_nope', function() end)
+    assert.is_nil(h)
+    assert.is_truthy(err and err:find('unknown event'))
+  end)
+
+  it('reset clears registered listeners', function()
+    api.on('on_connect', function() end)
+    assert.is_true(require('dadbod-ui.events').has('on_connect'))
+    require('dadbod-ui').reset()
+    assert.is_false(require('dadbod-ui.events').has('on_connect'))
   end)
 end)
 

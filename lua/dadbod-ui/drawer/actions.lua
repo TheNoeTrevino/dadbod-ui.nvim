@@ -565,6 +565,43 @@ function Drawer:reveal_buffer(entry)
   vim.cmd('wincmd p')
 end
 
+--- Open the drawer, expand the connection `key_name` (introspecting it lazily,
+--- exactly as clicking its node would), and place the cursor on it. The scriptable
+--- "show me this database" verb behind `dadbod-ui.api.reveal`. Best-effort: a no-op
+--- for an unknown key. Returns focus to the drawer window (unlike `reveal_buffer`,
+--- which is called from a query buffer and hands focus back).
+---@param key_name string
+---@return nil
+function Drawer:reveal_db(key_name)
+  local entry = self.instance.dbs[key_name]
+  if entry == nil then
+    return
+  end
+  self:open()
+  if entry.expanded then
+    self:render()
+  else
+    -- Mark expanded and run the SAME lazy introspection the toggle path fires.
+    entry.expanded = true
+    self:introspect():expand_db(entry)
+  end
+  self:focus_db(key_name)
+end
+
+--- Re-introspect the connection `key_name`: reload its saved queries and re-scan
+--- schemas/tables from the live database (connecting first if needed), re-rendering
+--- the drawer when open. Backs `dadbod-ui.api.refresh`. Reuses the expand path, so
+--- an already-connected db just repopulates. A no-op for an unknown key.
+---@param key_name string
+---@return nil
+function Drawer:refresh_db(key_name)
+  local entry = self.instance.dbs[key_name]
+  if entry == nil then
+    return
+  end
+  self:introspect():expand_db(entry)
+end
+
 --- Switch the current query buffer from its connection to another one
 --- (`:DBUISwitchBuffer`) -- the "oops, wrong connection" verb. Unlike
 --- `find_buffer`, which only ASSIGNS a bare buffer and no-ops on an

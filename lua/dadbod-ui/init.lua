@@ -38,6 +38,9 @@
 ---@field get_conn_info fun(key_name: string): table
 ---@field find_buffer fun()
 ---@field switch_buffer fun(name?: string): boolean|nil, string|nil
+---@field open_query fun(key_name: string, edit_action?: string)
+---@field reveal fun(key_name: string)
+---@field refresh fun(key_name: string)
 ---@field rename_buffer fun()
 ---@field print_last_query_info fun()
 ---@field statusline fun(opts?: DadbodUI.StatuslineOpts): string
@@ -169,6 +172,36 @@ function M.switch_buffer(name)
   return drawer():switch_buffer(name)
 end
 
+--- Open a fresh scratch query buffer bound to the connection `key_name` -- the
+--- programmatic equivalent of the drawer's "New query" node. `edit_action` is the
+--- open command (`'edit'` default, or a split like `'vertical botright split'`).
+--- Delegates to the query controller's open path with a synthetic `query` item.
+---@param key_name string
+---@param edit_action? string
+---@return nil
+function M.open_query(key_name, edit_action)
+  -- A minimal `query` node is all the open path reads (type + key_name); the other
+  -- Node fields are drawer-render concerns the query controller ignores here.
+  ---@diagnostic disable-next-line: missing-fields
+  drawer():query():open({ type = 'query', key_name = key_name }, edit_action or 'edit')
+end
+
+--- Open the drawer, expand the connection `key_name` (introspecting it), and put
+--- the cursor on it. Backs `dadbod-ui.api.reveal`.
+---@param key_name string
+---@return nil
+function M.reveal(key_name)
+  drawer():reveal_db(key_name)
+end
+
+--- Re-introspect the connection `key_name` (reload saved queries + re-scan
+--- schemas/tables), re-rendering the drawer when open. Backs `dadbod-ui.api.refresh`.
+---@param key_name string
+---@return nil
+function M.refresh(key_name)
+  drawer():refresh_db(key_name)
+end
+
 --- Rename the current query buffer's on-disk file (and move its buffer tracking).
 --- Backs `:DBUIRenameBuffer`; delegates to the drawer's rename path for the buffer
 --- under the cursor / in focus.
@@ -205,9 +238,11 @@ function M.statusline(opts)
   return drawer():statusline(opts)
 end
 
---- Reset session state (drops the cached instance and drawer). For tests/cleanup.
+--- Reset session state (drops the cached instance and drawer, clears runtime event
+--- listeners). For tests/cleanup.
 function M.reset()
   state.reset()
+  require('dadbod-ui.events').clear()
   _drawer = nil
 end
 

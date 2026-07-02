@@ -20,32 +20,34 @@
 ---@class DadbodUI.HooksModule
 ---@field run fun(config: DadbodUI.Config, name: string, event: DadbodUI.HookEvent): any
 ---@field transform fun(config: DadbodUI.Config, name: string, event: DadbodUI.HookEvent): string|nil
+---@field has fun(config: DadbodUI.Config, name: string): boolean
 
 ---@type DadbodUI.HooksModule
 ---@diagnostic disable-next-line: missing-fields
 local M = {}
 
---- Invoke the hook named `name` (if configured) with `event`, isolated under
---- `pcall`. Returns the hook's return value on success, or nil when there is no
---- such hook or it threw (the error is notified, never propagated).
+--- Invoke the hook named `name` with `event`, then fan the same event out to any
+--- runtime listeners registered via `dadbod-ui.api.on` (see `dadbod-ui.events`).
+--- The config hook (if any) runs first, isolated under `pcall`; its return value
+--- is what `run` returns (so `transform` still sees only the config hook -- bus
+--- listeners are observers and cannot rewrite the url). A missing config hook is a
+--- clean no-op that still emits to the bus, so `api.on` works with no `setup{}` hook.
 ---@param config DadbodUI.Config
 ---@param name string  a key of `config.hooks` (e.g. 'on_connect')
 ---@param event DadbodUI.HookEvent
----@return any  the hook's return value, or nil (no hook / error)
+---@return any  the config hook's return value, or nil (no hook / error)
 function M.run(config, name, event)
+  local result = nil
   local hooks = config.hooks
-  if type(hooks) ~= 'table' then
-    return nil
+  if type(hooks) == 'table' and type(hooks[name]) == 'function' then
+    local ok, ret = pcall(hooks[name], event)
+    if ok then
+      result = ret
+    else
+      require('dadbod-ui.notifications').error(string.format('Error in %s hook: %s', name, tostring(ret)))
+    end
   end
-  local hook = hooks[name]
-  if type(hook) ~= 'function' then
-    return nil
-  end
-  local ok, result = pcall(hook, event)
-  if not ok then
-    require('dadbod-ui.notifications').error(string.format('Error in %s hook: %s', name, tostring(result)))
-    return nil
-  end
+  require('dadbod-ui.events').emit(name, event)
   return result
 end
 
@@ -62,6 +64,20 @@ function M.transform(config, name, event)
     return result
   end
   return nil
+end
+
+--- Whether anyone is listening for `name` -- either a `config.hooks` function OR a
+--- runtime `api.on` listener. Fire sites that do extra work only to feed a hook
+--- (e.g. the lazy result read for `on_execute_query_post`) guard on this so they
+--- pay nothing when nobody is watching.
+---@param config DadbodUI.Config
+---@param name string
+---@return boolean
+function M.has(config, name)
+  if type(config.hooks) == 'table' and type(config.hooks[name]) == 'function' then
+    return true
+  end
+  return require('dadbod-ui.events').has(name)
 end
 
 return M
