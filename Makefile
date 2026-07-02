@@ -4,10 +4,9 @@ DADBOD  := $(DEPS)/vim-dadbod
 
 .PHONY: test test-integration test-integration-record deps clean fmt fmt-check install-hooks
 
-## Run the plenary-busted spec suite (headless).
-test: deps
-	nvim --headless --noplugin -u tests/minimal_init.lua \
-		-c "PlenaryBustedDirectory tests/ { minimal_init = 'tests/minimal_init.lua', sequential = true }"
+## Run the spec suite (lazy.minit + mini.test, one Neovim process).
+test:
+	./scripts/test
 
 ## Run the export integration suite against real databases in Docker, comparing
 ## output to committed goldens. Needs docker + the psql/mysql/sqlite3 clients.

@@ -17,6 +17,7 @@ describe('Query:get_lines visual branch', function()
   local buf
 
   before_each(function()
+    require('helper').clean_ui()
     buf = vim.api.nvim_create_buf(true, false)
     vim.api.nvim_set_current_buf(buf)
     vim.api.nvim_buf_set_lines(buf, 0, -1, false, { 'first line', 'second line', 'third line' })

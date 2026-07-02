@@ -1,15 +1,23 @@
 local config = require('dadbod-ui.config')
 
 describe('config', function()
+  -- Sentinel so a global that was ORIGINALLY unset is restored to nil rather than
+  -- left set. Storing a bare nil in `saved` wouldn't create the key, so after_each
+  -- would skip it and the global would leak across specs (harmless under plenary's
+  -- per-file nvim, but the mini.test runner shares one process).
+  local UNSET = {}
   local saved = {}
   local function set_global(name, value)
-    saved[name] = vim.g[name]
+    if saved[name] == nil then
+      local current = vim.g[name]
+      saved[name] = current == nil and UNSET or current
+    end
     vim.g[name] = value
   end
 
   after_each(function()
     for name, value in pairs(saved) do
-      vim.g[name] = value
+      vim.g[name] = value ~= UNSET and value or nil
     end
     saved = {}
   end)
