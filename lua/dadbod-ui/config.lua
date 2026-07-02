@@ -236,7 +236,52 @@ local function legacy_global(key, default)
   return coerce(default, vim.g['db_ui_' .. key])
 end
 
---- Resolve effective config: defaults < legacy `g:db_ui_*` globals < `opts`.
+---@private
+-- Deep copy `t` as plain (unfrozen) tables, dropping any read-only metatable.
+-- Backs the `__deepcopy` metamethod below so `vim.deepcopy(frozen)` yields a
+-- mutable working copy (what e.g. `dadbod-ui.icons` wants) instead of tripping
+-- the read-only guard.
+local function plain_copy(t)
+  if type(t) ~= 'table' then
+    return t
+  end
+  local out = {}
+  for k, v in pairs(t) do
+    out[k] = plain_copy(v)
+  end
+  return out
+end
+
+---@private
+-- Make `t` read-only in place, recursively: a write that ADDS a key (a typo or
+-- a stray new field) at any depth raises. Kept in place -- values stay in the
+-- table itself -- so reads, `pairs`/`ipairs` and `vim.tbl_*` keep working with
+-- zero overhead; only a write traps. A `__deepcopy` metamethod keeps
+-- `vim.deepcopy` working (returning an unfrozen copy). Lua's `__newindex` fires
+-- only for ABSENT keys, so overwriting an existing field is not caught -- but
+-- the resolved config is the shared SSOT (handed out by reference and read on
+-- hot paths) and no module writes it, so this guards the realistic mistake
+-- (adding / mis-spelling an option) without a proxy's enumeration cost.
+---@generic T
+---@param t T
+---@return T
+local function freeze(t)
+  for _, v in pairs(t) do
+    if type(v) == 'table' then
+      freeze(v)
+    end
+  end
+  return setmetatable(t, {
+    __newindex = function(_, key)
+      error(string.format("dadbod-ui: config is read-only (attempt to set '%s')", tostring(key)), 2)
+    end,
+    __deepcopy = plain_copy,
+  })
+end
+
+--- Resolve effective config: defaults < legacy `g:db_ui_*` globals < `opts`. The
+--- returned table is frozen (see `freeze`): it is the session's shared config, so
+--- accidental writes to it raise rather than silently corrupting every reader.
 ---@param opts? table  partial config overrides
 ---@return DadbodUI.Config
 function M.resolve(opts)
@@ -247,7 +292,7 @@ function M.resolve(opts)
       out[key] = legacy
     end
   end
-  return vim.tbl_deep_extend('force', out, opts or {})
+  return freeze(vim.tbl_deep_extend('force', out, opts or {}))
 end
 
 return M
