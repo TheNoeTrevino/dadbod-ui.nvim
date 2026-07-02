@@ -126,6 +126,34 @@ describe('bridge: concurrent introspection (fan-out / WaitGroup)', function()
   end)
 end)
 
+describe('bridge: connect_async', function()
+  -- Regression: `vim.system`'s completion callback runs in a fast event context
+  -- (|api-fast|). The failure branch used to call adapter_call/fn.match there,
+  -- and adapter_call -> resolve -> is_available reads `vim.o.runtimepath`, which
+  -- raises E5560 in a fast context. Drive the REAL probe at an unreachable
+  -- postgres so it exits non-zero (connection refused, NOT an auth error, and no
+  -- user in the url) -> the error branch. Before the fix this never called back
+  -- (the E5560 killed the callback); now it must resolve with ok=false.
+  it('reports probe failure without a fast-context error', function()
+    if vim.fn.executable('psql') ~= 1 then
+      pending('psql not installed')
+      return
+    end
+    local ok, conn, done
+    bridge.connect_async('postgres://localhost:1/nope?connect_timeout=1', function(o, c)
+      ok, conn, done = o, c, true
+    end)
+    assert.is_true(
+      vim.wait(6000, function()
+        return done
+      end, 25),
+      'expected connect_async to call back (fast-context error would prevent it)'
+    )
+    assert.is_false(ok)
+    assert.is_string(conn)
+  end)
+end)
+
 describe('bridge: async execution', function()
   local has_sqlite = vim.fn.executable('sqlite3') == 1
   local dir, db_path
