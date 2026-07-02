@@ -1,3 +1,21 @@
+---@toc_entry Commands
+---@tag dadbod-ui-commands
+---@text
+--- # Commands ~
+---
+--- dadbod-ui.nvim provides the following user commands:
+---
+--- `:DBUI`                          Open the drawer
+--- `:DBUIToggle`                    Toggle the drawer open/closed
+--- `:DBUIClose`                     Close the drawer
+--- `:DBUIAddConnection`             Add a connection interactively
+--- `:DBUIFindBuffer`                Find/assign the query buffer for this db
+--- `:DBUIRenameBuffer`              Rename the current query buffer
+--- `:DBUILastQueryInfo`             Echo the last query and its runtime
+--- `:DBUICancelQuery`               Cancel the running query for this buffer
+--- `:DBUIExportResult [full|current]`  Export the current result to a file
+---
+
 -- Boot file: define user commands. Modules are required lazily inside the
 -- callbacks so loading this plugin costs ~nothing until a command is run.
 

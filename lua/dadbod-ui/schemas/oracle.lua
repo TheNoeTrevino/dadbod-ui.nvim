@@ -1,4 +1,4 @@
----@mod dadbod-ui.schemas.oracle  Oracle schema/table introspection
+-- Oracle schema/table introspection
 
 ---@private
 local parse = require('dadbod-ui.schemas.parse')

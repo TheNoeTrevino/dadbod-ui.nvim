@@ -1,4 +1,4 @@
----@mod dadbod-ui.schemas.sqlite  SQLite dbout-navigation metadata (tables-only path)
+-- SQLite dbout-navigation metadata (tables-only path)
 
 ---@private
 local parse = require('dadbod-ui.schemas.parse')

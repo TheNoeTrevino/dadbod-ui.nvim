@@ -1,12 +1,12 @@
----@mod dadbod-ui.dbout.cells  Folding + cell / foreign-key navigation
----
---- We diverge from the original's `ftplugin/dbout.vim` + `db_ui#dbout#*`: instead
---- of a VimL ftplugin we own the whole `.dbout` lifecycle here, wiring folding +
---- maps from a single `FileType dbout` autocmd in `attach`. The per-scheme dbout
---- metadata (`cell_line_number`/`cell_line_pattern`/`foreign_key_query`/…) lives
---- on the schema adapters in `dadbod-ui.schemas`. The foreign-key jump's
---- introspection lookup and the jump itself both go through `bridge` (the engine
---- boundary); this module never touches `:DB`/`db#` directly.
+-- Folding + cell / foreign-key navigation
+--
+-- We diverge from the original's `ftplugin/dbout.vim` + `db_ui#dbout#*`: instead
+-- of a VimL ftplugin we own the whole `.dbout` lifecycle here, wiring folding +
+-- maps from a single `FileType dbout` autocmd in `attach`. The per-scheme dbout
+-- metadata (`cell_line_number`/`cell_line_pattern`/`foreign_key_query`/…) lives
+-- on the schema adapters in `dadbod-ui.schemas`. The foreign-key jump's
+-- introspection lookup and the jump itself both go through `bridge` (the engine
+-- boundary); this module never touches `:DB`/`db#` directly.
 
 local bridge = require('dadbod-ui.bridge')
 local bind_params = require('dadbod-ui.bind_params')

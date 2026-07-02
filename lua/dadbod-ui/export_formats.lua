@@ -1,17 +1,17 @@
----@mod dadbod-ui.export_formats  Pure result formatters over the canonical export data
----
---- Turns a `DadbodUI.ExportData` (faithful, string-typed rows parsed from a CLI's
---- delimited output -- see `dadbod-ui.export_extract`) into a serialized document
---- in a target format. Every function here is PURE: `(data, opts) -> string`, no
---- Neovim buffers and no database, so the whole module is exhaustively unit-tested
---- against the fixtures in `specs/native-export.md` §5.
----
---- These are reimplementations (not copies) of DBeaver's stream exporters
---- (`DataExporterCSV/JSON/MarkdownTable/HTML/XML`), pared down to the options that
---- matter for a terminal workflow.
----
---- SQL NULL is the module sentinel `M.NULL`, never a Lua nil -- Lua arrays cannot
---- hold nil holes, and we must distinguish a real NULL from an empty string.
+-- Pure result formatters over the canonical export data
+--
+-- Turns a `DadbodUI.ExportData` (faithful, string-typed rows parsed from a CLI's
+-- delimited output -- see `dadbod-ui.export_extract`) into a serialized document
+-- in a target format. Every function here is PURE: `(data, opts) -> string`, no
+-- Neovim buffers and no database, so the whole module is exhaustively unit-tested
+-- against the fixtures in `specs/native-export.md` §5.
+--
+-- These are reimplementations (not copies) of DBeaver's stream exporters
+-- (`DataExporterCSV/JSON/MarkdownTable/HTML/XML`), pared down to the options that
+-- matter for a terminal workflow.
+--
+-- SQL NULL is the module sentinel `M.NULL`, never a Lua nil -- Lua arrays cannot
+-- hold nil holes, and we must distinguish a real NULL from an empty string.
 
 ---@class DadbodUI.ExportFormatsModule
 ---@field NULL table  the SQL-NULL sentinel carried in `ExportData` rows

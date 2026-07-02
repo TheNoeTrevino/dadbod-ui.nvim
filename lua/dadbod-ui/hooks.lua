@@ -1,21 +1,21 @@
----@mod dadbod-ui.hooks  User-configurable lifecycle hooks
----
---- A tiny, dependency-injectable dispatch layer for the user hooks declared in
---- `config.hooks` (see `DadbodUI.Hooks`). Each hook is an optional function the
---- user supplies in `setup{}`; we call it at a well-defined point in the connect
---- / execute / cancel lifecycle with a typed event.
----
---- Two guarantees make this safe to sprinkle through the hot paths:
----   * **Isolation** -- every hook runs under `pcall`. A throwing hook is caught,
----     surfaced through `dadbod-ui.notifications` (respecting the notification
----     config), and swallowed, so it can never abort a connect / execute / cancel.
----   * **Transform** -- `on_connect` may rewrite the connection url. `run` returns
----     the hook's value verbatim; `transform` narrows it to a string (so a nil /
----     non-string return means "leave the url unchanged"), which the connect path
----     uses to swap a `$password` placeholder for a real secret before connecting.
----
---- Leaf module: it requires nothing from the project at load time and lazy-requires
---- `notifications` only on the error path, so the acyclic graph is preserved.
+-- User-configurable lifecycle hooks
+--
+-- A tiny, dependency-injectable dispatch layer for the user hooks declared in
+-- `config.hooks` (see `DadbodUI.Hooks`). Each hook is an optional function the
+-- user supplies in `setup{}`; we call it at a well-defined point in the connect
+-- / execute / cancel lifecycle with a typed event.
+--
+-- Two guarantees make this safe to sprinkle through the hot paths:
+--   * **Isolation** -- every hook runs under `pcall`. A throwing hook is caught,
+--     surfaced through `dadbod-ui.notifications` (respecting the notification
+--     config), and swallowed, so it can never abort a connect / execute / cancel.
+--   * **Transform** -- `on_connect` may rewrite the connection url. `run` returns
+--     the hook's value verbatim; `transform` narrows it to a string (so a nil /
+--     non-string return means "leave the url unchanged"), which the connect path
+--     uses to swap a `$password` placeholder for a real secret before connecting.
+--
+-- Leaf module: it requires nothing from the project at load time and lazy-requires
+-- `notifications` only on the error path, so the acyclic graph is preserved.
 
 ---@class DadbodUI.HooksModule
 ---@field run fun(config: DadbodUI.Config, name: string, event: DadbodUI.HookEvent): any

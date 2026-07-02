@@ -1,8 +1,14 @@
----@mod dadbod-ui.config  Defaults and option resolution
+---@toc_entry Configuration
+---@tag dadbod-ui-configuration
+---@text
+--- # Configuration ~
 ---
---- The canonical option surface is the `setup()` table (snake_case keys). For a
---- smooth migration we also read the legacy `g:db_ui_*` globals: precedence is
---- defaults < legacy globals < `setup()` opts.
+--- Options are passed to |dadbod-ui.setup()| as a table with snake_case keys
+--- (the field surface is |DadbodUI.Config|). For a smooth migration from
+--- vim-dadbod-ui the legacy `g:db_ui_*` globals are also read; precedence is
+--- defaults < legacy `g:db_ui_*` globals < `setup()` opts. Every option has a
+--- sensible default, so `setup()` is optional. See `M.defaults` in
+--- `lua/dadbod-ui/config.lua` for the full default table.
 
 ---@class DadbodUI.ConfigModule
 ---@field defaults DadbodUI.Config
@@ -10,6 +16,7 @@
 ---@field mapping_order table<string, string[]>
 ---@field resolve fun(opts?: table): DadbodUI.Config
 
+---@private
 ---@type DadbodUI.ConfigModule
 ---@diagnostic disable-next-line: missing-fields
 local M = {}

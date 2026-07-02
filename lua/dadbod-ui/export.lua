@@ -1,20 +1,20 @@
----@mod dadbod-ui.export  Orchestrate native CLI result export
----
---- The impure half of native export (`specs/native-export.md` §9 module 4): it
---- reads the query + connection off a `.dbout` result buffer, re-runs that query
---- through the adapter CLI in an export mode (native passthrough when the CLI can
---- emit the target format directly, else the canonical delimited extractor), and
---- writes the result to a file -- either verbatim (native) or via a pure Lua
---- formatter over the parsed `ExportData`.
----
---- Export runs the CLI directly through `vim.system` (DECISION-002): it does NOT
---- go through dadbod's `:DB` async job, so it never collides with a running query
---- and keeps the faithful delimited output rather than the aligned `.dbout` text.
----
---- The collaborators (the engine bridge, the process runner, the file writer, the
---- notifier) are injectable via the `deps` table so the whole flow is unit-tested
---- without a database -- the default seams call `bridge` / `vim.system` /
---- `writefile` / `notifications`.
+-- Orchestrate native CLI result export
+--
+-- The impure half of native export (`specs/native-export.md` §9 module 4): it
+-- reads the query + connection off a `.dbout` result buffer, re-runs that query
+-- through the adapter CLI in an export mode (native passthrough when the CLI can
+-- emit the target format directly, else the canonical delimited extractor), and
+-- writes the result to a file -- either verbatim (native) or via a pure Lua
+-- formatter over the parsed `ExportData`.
+--
+-- Export runs the CLI directly through `vim.system` (DECISION-002): it does NOT
+-- go through dadbod's `:DB` async job, so it never collides with a running query
+-- and keeps the faithful delimited output rather than the aligned `.dbout` text.
+--
+-- The collaborators (the engine bridge, the process runner, the file writer, the
+-- notifier) are injectable via the `deps` table so the whole flow is unit-tested
+-- without a database -- the default seams call `bridge` / `vim.system` /
+-- `writefile` / `notifications`.
 
 ---@alias DadbodUI.ExportRunOnDone fun(result: DadbodUI.SystemCompleted)
 ---@alias DadbodUI.ExportTransformCallback fun(ok: boolean, content: string?, rows: integer?, err: string?)

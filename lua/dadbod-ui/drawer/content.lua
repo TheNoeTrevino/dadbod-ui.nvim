@@ -1,10 +1,10 @@
----@mod dadbod-ui.drawer.content  The pure tree builders (instance -> Node[])
----
---- A method mixin merged into `DadbodUI.Drawer` by `drawer/init.lua`: every
---- `render_*` builder plus `build_content` itself. Pure with respect to the
---- window -- these methods append nodes to `self.content` and never touch a
---- buffer (that is `drawer/paint.lua`), which is what keeps `build_content`
---- unit-testable without an open drawer.
+-- The pure tree builders (instance -> Node[])
+--
+-- A method mixin merged into `DadbodUI.Drawer` by `drawer/init.lua`: every
+-- `render_*` builder plus `build_content` itself. Pure with respect to the
+-- window -- these methods append nodes to `self.content` and never touch a
+-- buffer (that is `drawer/paint.lua`), which is what keeps `build_content`
+-- unit-testable without an open drawer.
 
 local spinners = require('dadbod-ui.spinners')
 local utils = require('dadbod-ui.utils')

@@ -1,18 +1,18 @@
----@mod dadbod-ui.mappings  The single source of truth for keybindings + help
----
---- Keys, descriptions and ordering live in `config.mappings` (overridable per
---- entry) and the `config.mapping_order` / `config.mapping_sections` constants
---- (fixed). Each owning module (`drawer`, `query`, `dbout`) supplies a table of
---- handlers keyed by the same action ids; `apply` binds them and `help_lines`
---- renders the floating help window from the very same data, so the two can
---- never drift.
----
---- An entry's `key` is a string, a list of strings (aliases), or the literal
---- `'none'` to disable the action -- a disabled action is neither bound nor
---- shown in help. `mode` (string or list, default `'n'`) is the mode(s) the
---- key(s) bind in. The rare action that needs different keys per mode carries an
---- explicit `binds` list of `{ mode, lhs }` (used for binding; `key` still drives
---- the help display).
+-- The single source of truth for keybindings + help
+--
+-- Keys, descriptions and ordering live in `config.mappings` (overridable per
+-- entry) and the `config.mapping_order` / `config.mapping_sections` constants
+-- (fixed). Each owning module (`drawer`, `query`, `dbout`) supplies a table of
+-- handlers keyed by the same action ids; `apply` binds them and `help_lines`
+-- renders the floating help window from the very same data, so the two can
+-- never drift.
+--
+-- An entry's `key` is a string, a list of strings (aliases), or the literal
+-- `'none'` to disable the action -- a disabled action is neither bound nor
+-- shown in help. `mode` (string or list, default `'n'`) is the mode(s) the
+-- key(s) bind in. The rare action that needs different keys per mode carries an
+-- explicit `binds` list of `{ mode, lhs }` (used for binding; `key` still drives
+-- the help display).
 
 ---@alias DadbodUI.MappingHandler fun(mode: string)
 

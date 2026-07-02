@@ -1,4 +1,4 @@
----@mod dadbod-ui.schemas.postgres  Postgres schema/table introspection
+-- Postgres schema/table introspection
 
 ---@private
 local parse = require('dadbod-ui.schemas.parse')

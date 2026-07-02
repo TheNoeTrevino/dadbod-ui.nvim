@@ -1,9 +1,9 @@
----@mod dadbod-ui.drawer.actions  Cursor/interaction verbs on the drawer tree
----
---- A method mixin merged into `DadbodUI.Drawer` by `drawer/init.lua`: the node
---- under the cursor is resolved via `get_current_item` and acted on -- toggles,
---- opens, the interactive connection CRUD dispatchers, buffer rename/delete,
---- find/reveal, and sibling/parent navigation.
+-- Cursor/interaction verbs on the drawer tree
+--
+-- A method mixin merged into `DadbodUI.Drawer` by `drawer/init.lua`: the node
+-- under the cursor is resolved via `get_current_item` and acted on -- toggles,
+-- opens, the interactive connection CRUD dispatchers, buffer rename/delete,
+-- find/reveal, and sibling/parent navigation.
 
 local bridge = require('dadbod-ui.bridge')
 local spinner = require('dadbod-ui.spinner')

@@ -1,17 +1,17 @@
----@mod dadbod-ui.spinner  Animated spinner timer registry
----
---- A leaf module: it knows nothing about buffers, the drawer, or the engine, and
---- requires nothing from the project (so it stays a sink-side leaf, like
---- `bind_params`). It owns a registry of NAMED timers so independent callers
---- (each result buffer, each loading db node) animate without stepping on each
---- other, and it animates whatever frame set the CALLER passes from the data
---- catalog `dadbod-ui.spinners` -- so different call sites pick different designs
---- (connections use `spinners.dots`; query results use `spinners.dots12`).
----
---- Callers drive a spinner with `start(key, frames, on_tick)` / `stop(key)`:
---- `on_tick` receives the current frame string immediately and then every
---- interval. The registry entry also carries the bare `tick` closure so specs can
---- advance a spinner deterministically (`_timers[key].tick()`) instead of sleeping.
+-- Animated spinner timer registry
+--
+-- A leaf module: it knows nothing about buffers, the drawer, or the engine, and
+-- requires nothing from the project (so it stays a sink-side leaf, like
+-- `bind_params`). It owns a registry of NAMED timers so independent callers
+-- (each result buffer, each loading db node) animate without stepping on each
+-- other, and it animates whatever frame set the CALLER passes from the data
+-- catalog `dadbod-ui.spinners` -- so different call sites pick different designs
+-- (connections use `spinners.dots`; query results use `spinners.dots12`).
+--
+-- Callers drive a spinner with `start(key, frames, on_tick)` / `stop(key)`:
+-- `on_tick` receives the current frame string immediately and then every
+-- interval. The registry entry also carries the bare `tick` closure so specs can
+-- advance a spinner deterministically (`_timers[key].tick()`) instead of sleeping.
 
 ---@alias DadbodUI.SpinnerOnTick fun(frame: string)
 

@@ -1,17 +1,17 @@
----@mod dadbod-ui.export_extract  Parse a CLI's delimited output into ExportData
----
---- The canonical extractor (`specs/native-export.md` §3): the database CLI is run
---- in a native delimited mode and its stdout is parsed here into a faithful
---- `DadbodUI.ExportData` (the first row is the header). PURE: string in, table out,
---- no Neovim/DB -- so the (fiddly) CSV/TSV parsing is exhaustively unit-tested.
----
----   * `from_csv` -- RFC-4180: quoted fields, embedded delimiters/CR/LF, doubled
----     quotes. Used for psql `--csv` and sqlite `-csv -header`. These CLIs render
----     SQL NULL as an empty field, indistinguishable from `''` (LIMITATION-001),
----     so an empty field parses to `''`, never the NULL sentinel.
----   * `from_tsv` -- mysql `--batch`: tab-separated with backslash escapes and a
----     literal `\N` for SQL NULL, so NULLs ARE recovered here (mapped to the
----     `export_formats.NULL` sentinel).
+-- Parse a CLI's delimited output into ExportData
+--
+-- The canonical extractor (`specs/native-export.md` §3): the database CLI is run
+-- in a native delimited mode and its stdout is parsed here into a faithful
+-- `DadbodUI.ExportData` (the first row is the header). PURE: string in, table out,
+-- no Neovim/DB -- so the (fiddly) CSV/TSV parsing is exhaustively unit-tested.
+--
+--   * `from_csv` -- RFC-4180: quoted fields, embedded delimiters/CR/LF, doubled
+--     quotes. Used for psql `--csv` and sqlite `-csv -header`. These CLIs render
+--     SQL NULL as an empty field, indistinguishable from `''` (LIMITATION-001),
+--     so an empty field parses to `''`, never the NULL sentinel.
+--   * `from_tsv` -- mysql `--batch`: tab-separated with backslash escapes and a
+--     literal `\N` for SQL NULL, so NULLs ARE recovered here (mapped to the
+--     `export_formats.NULL` sentinel).
 
 ---@class DadbodUI.ExportExtractModule
 ---@field from_csv fun(text: string, opts?: { delimiter?: string, quote?: string }): DadbodUI.ExportData
