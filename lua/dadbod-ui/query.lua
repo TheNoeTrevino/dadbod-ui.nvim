@@ -666,6 +666,61 @@ function Query:execute_query(is_visual)
   end)
 end
 
+--- Explain the current query buffer (or visual selection): wrap its SQL in the
+--- adapter's EXPLAIN syntax and run it into the `.dbout` window, the explain dual
+--- of `execute_query`. Reuses the same buffer read (`get_lines`), connection
+--- (`b:dbui_db_key_name`) and bind-parameter flow -- placeholders are prompted and
+--- substituted BEFORE wrapping, so the plan reflects the query you'd actually run.
+--- Explain output is never paginated. `opts.analyze` selects `EXPLAIN ANALYZE`
+--- (which RUNS the query). An adapter without explain support (or without an
+--- executing form, for `analyze`) surfaces `dadbod-ui.explain`'s user error as a
+--- notification and runs nothing. Backs `api.explain_query`/`explain_selection`.
+---@param is_visual? boolean
+---@param opts? DadbodUI.ExplainOpts
+---@return nil
+function Query:explain_query(is_visual, opts)
+  local notify = require('dadbod-ui.notifications')
+  local explain = require('dadbod-ui.explain')
+  local lines = self:get_lines(is_visual)
+  local entry = self.instance.dbs[vim.b.dbui_db_key_name]
+  if entry == nil then
+    return notify.error('Buffer not attached to any database')
+  end
+  local pattern = self.config.bind_param_pattern
+  local names = bind_params.detect(lines, pattern)
+
+  -- Wrap the (already param-substituted) SQL in the adapter's EXPLAIN syntax and
+  -- run it from a temp file. `explain.wrap` returns the user-facing error for an
+  -- unsupported adapter / analyze form -- surface it and run nothing.
+  local function explain_and_run(final_lines)
+    local wrapped, err = explain.wrap(entry.scheme, table.concat(final_lines, '\n'), opts)
+    if wrapped == nil then
+      return notify.error(err)
+    end
+    local ok, run_err = pcall(function()
+      self:run_from_file(vim.split(wrapped, '\n'), entry)
+    end)
+    if not ok then
+      return notify.error(clean_execute_error(run_err))
+    end
+    self.last_query = final_lines
+  end
+
+  if #names == 0 then
+    return explain_and_run(lines)
+  end
+
+  -- Capture the buffer now: an async prompt may resolve after focus has moved.
+  local bufnr = vim.api.nvim_get_current_buf()
+  prompt_params(self.input, names, stored_params(bufnr), function(values)
+    if values == nil then
+      return notify.info('Bind parameters cancelled. Query not explained.')
+    end
+    vim.b[bufnr].dbui_bind_params = values
+    explain_and_run(bind_params.substitute(lines, values, pattern))
+  end)
+end
+
 --- Cancel the running async query for the current query buffer (`:DBUICancelQuery`
 --- / the `cancel` query mapping), through `bridge.cancel`. Gated on
 --- `bridge.can_cancel()`: when dadbod exposes no async cancellation there is
