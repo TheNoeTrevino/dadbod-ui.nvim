@@ -171,8 +171,21 @@ function Drawer:open(mods)
     return self
   end
   local side = self.config.win_position == 'right' and 'botright' or 'topleft'
-  vim.cmd(string.format('silent! %s vertical %s %dnew', mods or '', side, self.config.winwidth))
-  self.winid = vim.api.nvim_get_current_win()
+  -- Open the split WITHOUT `silent!` and under pcall: a swallowed failure (e.g.
+  -- E36 "not enough room" on a narrow terminal) would leave us in the user's
+  -- ORIGINAL window/buffer, which we would then convert to a scratch drawer and
+  -- overwrite with render() -- destroying their buffer. Capture the pre-split
+  -- window/buffer and verify the split actually produced a *fresh* window before
+  -- mutating anything; on failure notify and bail without touching the user's UI.
+  local prev_win = vim.api.nvim_get_current_win()
+  local prev_buf = vim.api.nvim_get_current_buf()
+  local ok = pcall(vim.cmd, string.format('%s vertical %s %dnew', mods or '', side, self.config.winwidth))
+  local win = vim.api.nvim_get_current_win()
+  if not ok or win == prev_win or vim.api.nvim_get_current_buf() == prev_buf then
+    require('dadbod-ui.notifications').error('Could not open the DBUI drawer window (no room to split).')
+    return self
+  end
+  self.winid = win
   self.bufnr = vim.api.nvim_get_current_buf()
 
   local bo = vim.bo[self.bufnr]

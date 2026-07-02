@@ -17,6 +17,7 @@ local ctx = require('dadbod-ui.dbout.ctx')
 ---@field foldexpr_for fun(lines: table<integer, string>, lnum: integer): string|integer
 ---@field foldexpr fun(lnum: integer): string|integer
 ---@field cell_range fun(line: string, col0: integer): { from: integer, to: integer }
+---@field display_span_to_byte_span fun(line: string, from_col: integer, to_col: integer): { from: integer, to: integer }
 ---@field parse_header fun(column_line: string, underline: string): string[]
 ---@field foreign_select fun(template: string, fschema: string, ftable: string, fcolumn: string, raw_value: string): string
 ---@field jump_to_foreign_table fun()
@@ -71,13 +72,15 @@ function M.foldexpr(lnum)
   }, lnum)
 end
 
---- The byte-column span `[from, to]` (0-based, inclusive) of the cell under
---- `col0` (0-based), read off the separator line `line`: the contiguous run of
---- `-` table-rule characters bracketing the column. Pure column arithmetic, port
---- of `s:get_cell_range` (non-virtual path). Both column header and value lines
---- are sliced by this same span since result columns are monospace-aligned.
+--- The span `[from, to]` (0-based, inclusive) of the cell under `col0`, read off
+--- the separator (column-underline) line `line`: the contiguous run of `-`
+--- table-rule characters bracketing the column. Pure column arithmetic, port of
+--- `s:get_cell_range`. The separator line is pure ASCII, so its byte columns and
+--- display columns coincide -- callers pass the cursor's DISPLAY column and treat
+--- the result as a DISPLAY-column span, mapping it back to byte offsets on the
+--- (possibly multibyte) header/value lines via `display_span_to_byte_span`.
 ---@param line string  the separator (column-underline) line
----@param col0 integer  0-based cursor byte column
+---@param col0 integer  0-based cursor display column
 ---@return { from: integer, to: integer }
 function M.cell_range(line, col0)
   local DASH = '-'
@@ -98,6 +101,42 @@ function M.cell_range(line, col0)
     to = c
     c = c + 1
   end
+  return { from = from, to = to }
+end
+
+--- Map a DISPLAY-column span `[from_col, to_col]` (0-based, inclusive) -- as read
+--- off the ASCII separator line by `cell_range` -- to the BYTE span `[from, to]`
+--- (0-based, inclusive) on `line`, which may contain multibyte / double-width
+--- characters. psql/mysql pad columns by DISPLAY width, so a naive byte slice of
+--- a data/header line with the separator's byte offsets drifts once an earlier
+--- cell holds a wide character; walking `line` char-by-char and accumulating
+--- display width keeps every cell's boundary aligned. Aligned output never lets a
+--- character straddle a column boundary, so a character is in the span iff it
+--- starts within it. Returns an empty span (`to < from`) when nothing falls in
+--- range (e.g. the span sits past the end of a short line).
+---@param line string  the header/value line to slice (byte offsets)
+---@param from_col integer  0-based display column of the cell's left edge
+---@param to_col integer  0-based display column of the cell's right edge
+---@return { from: integer, to: integer }
+function M.display_span_to_byte_span(line, from_col, to_col)
+  local from, to
+  local byte = 0 -- 0-based byte offset of the current character
+  local col = 0 -- 0-based display column where the current character starts
+  local n = vim.fn.strchars(line)
+  for i = 0, n - 1 do
+    if col > to_col then
+      break -- every remaining character starts past the span; nothing left to set
+    end
+    local ch = vim.fn.strcharpart(line, i, 1)
+    if from == nil and col >= from_col then
+      from = byte
+    end
+    to = byte + #ch - 1
+    byte = byte + #ch
+    col = col + vim.fn.strdisplaywidth(ch)
+  end
+  from = from or #line -- span starts past the line end -> empty slice
+  to = to or from - 1
   return { from = from, to = to }
 end
 
@@ -195,6 +234,19 @@ local function resolve_scheme(action)
   return url, scheme_info
 end
 
+---@private
+--- The display-column span of the cell under the cursor, read off the ASCII
+--- separator line at `sep_line_nr`. The cursor's byte column on `data_line` is
+--- converted to a display column so the span lines up on multibyte rows. Shared
+--- by the FK jump and the cell-value selection.
+---@param sep_line_nr integer
+---@param data_line string  the line the cursor is on
+---@return { from: integer, to: integer }
+local function cursor_cell_span(sep_line_nr, data_line)
+  local cursor_col = vim.fn.strdisplaywidth(data_line:sub(1, vim.fn.col('.') - 1))
+  return M.cell_range(vim.fn.getline(sep_line_nr), cursor_col)
+end
+
 --- Jump from the foreign-key cell under the cursor to the row(s) it references.
 --- Resolves the foreign table with a synchronous introspection query and runs the
 --- resulting `SELECT`, both through `bridge`. Port of
@@ -211,9 +263,13 @@ function M.jump_to_foreign_table()
   end
 
   local sep_line_nr = cell_line_number(scheme_info)
-  local range = M.cell_range(vim.fn.getline(sep_line_nr), vim.fn.col('.') - 1)
-  local field_name = vim.trim(vim.fn.getline(sep_line_nr - 1):sub(range.from + 1, range.to + 1))
-  local field_value = vim.trim(vim.fn.getline('.'):sub(range.from + 1, range.to + 1))
+  local data_line = vim.fn.getline('.')
+  local header_line = vim.fn.getline(sep_line_nr - 1)
+  local span = cursor_cell_span(sep_line_nr, data_line)
+  local hrange = M.display_span_to_byte_span(header_line, span.from, span.to)
+  local vrange = M.display_span_to_byte_span(data_line, span.from, span.to)
+  local field_name = vim.trim(header_line:sub(hrange.from + 1, hrange.to + 1))
+  local field_value = vim.trim(data_line:sub(vrange.from + 1, vrange.to + 1))
 
   local fk_query = (scheme_info.foreign_key_query:gsub('{col_name}', function()
     return field_name
@@ -247,8 +303,10 @@ function M.get_cell_value()
     return
   end
   local sep_line_nr = cell_line_number(scheme_info)
-  local range = M.cell_range(vim.fn.getline(sep_line_nr), vim.fn.col('.') - 1)
-  local value = vim.fn.getline('.'):sub(range.from + 1, range.to + 1)
+  local data_line = vim.fn.getline('.')
+  local span = cursor_cell_span(sep_line_nr, data_line)
+  local range = M.display_span_to_byte_span(data_line, span.from, span.to)
+  local value = data_line:sub(range.from + 1, range.to + 1)
   local from = range.from + #(value:match('^%s*') or '')
   local to = range.to - #(value:match('%s*$') or '')
   if to < from then
@@ -257,7 +315,21 @@ function M.get_cell_value()
   local lnum = vim.fn.line('.')
   vim.api.nvim_win_set_cursor(0, { lnum, from })
   vim.cmd('normal! v')
-  vim.api.nvim_win_set_cursor(0, { lnum, to })
+  -- Under `set selection=exclusive` the char at the end cursor is left out of the
+  -- selection, shorting the cell by one; step past the value's last CHARACTER --
+  -- one byte is not enough when it is multibyte, since a mid-character column
+  -- keeps the cursor on it (query.lua's get_lines forces inclusive for the same
+  -- reason). Clamp + pcall so a cell ending at end-of-line can't raise.
+  local end_col = to
+  if vim.o.selection == 'exclusive' then
+    end_col = vim.fn.byteidx(data_line, vim.fn.charidx(data_line, to) + 1)
+    if end_col < 0 then
+      end_col = #data_line
+    end
+  end
+  if not pcall(vim.api.nvim_win_set_cursor, 0, { lnum, end_col }) then
+    vim.api.nvim_win_set_cursor(0, { lnum, to })
+  end
 end
 
 --- Yank the header row of the result block under the cursor as a CSV string into
@@ -305,12 +377,18 @@ function M.toggle_layout()
   vim.fn.writefile(vim.split(content, '\n'), tmp)
   local old_input = db.input
   -- b:db is dadbod's query dict; reassign the whole table so the swapped input
-  -- is visible to dadbod's reload, then restore it afterwards.
+  -- is visible to dadbod's reload, then restore it afterwards. The reload can
+  -- raise (e.g. "query already running for this tab"); pcall it so a failure
+  -- still restores the original input -- otherwise b:db.input stays pointed at
+  -- the flag-appended temp file and every retry appends the flag again.
   db.input = tmp
   vim.b.db = db
-  vim.cmd('normal R')
+  local ok, err = pcall(vim.cmd, 'normal R')
   db.input = old_input
   vim.b.db = db
+  if not ok then
+    return notify.error('Toggling layout failed: ' .. tostring(err))
+  end
   vim.b.db_ui_expanded_layout = 1
 end
 

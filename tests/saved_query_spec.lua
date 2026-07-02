@@ -134,4 +134,80 @@ describe('saved queries', function()
     assert.equals(1, vim.fn.filereadable(entry.save_path .. '/renamed.sql'))
     assert.is_true(has_line(d, 'renamed.sql'))
   end)
+
+  it('aborts the rename (keeping tracking + file) when rename() fails', function()
+    d = make_drawer(function(_, cb)
+      cb('renamed.sql')
+    end)
+    d:open()
+    local entry = entry_qa(d)
+    vim.fn.mkdir(entry.save_path, 'p')
+    local saved = entry.save_path .. '/orig.sql'
+    vim.fn.writefile({ 'select 1' }, saved)
+    d:load_saved_queries(entry)
+    entry.expanded = true
+    entry.saved_queries.expanded = true
+    d:render()
+
+    local ln = line_of(d, function(n)
+      return n.type == 'saved_query' and n.file_path == saved
+    end)
+    d:set_cursor(ln)
+
+    local notify = require('dadbod-ui.notifications')
+    local msg
+    local saved_err = notify.error
+    notify.error = function(m)
+      msg = m
+    end
+    local real_rename = vim.fn.rename
+    vim.fn.rename = function()
+      return -1 -- simulate a read-only dir / invalid target
+    end
+    d:rename_line()
+    vim.fn.rename = real_rename
+    notify.error = saved_err
+
+    assert.is_not_nil(msg) -- notified the failure
+    assert.equals(1, vim.fn.filereadable(saved)) -- original file still on disk
+    -- Tracking untouched: the file did NOT vanish from the drawer's list.
+    assert.is_true(vim.tbl_contains(entry.saved_queries.list, saved))
+    assert.equals(0, vim.fn.filereadable(entry.save_path .. '/renamed.sql'))
+  end)
+
+  it('refuses to clobber an existing file, keeping both files intact', function()
+    d = make_drawer(function(_, cb)
+      cb('taken.sql')
+    end)
+    d:open()
+    local entry = entry_qa(d)
+    vim.fn.mkdir(entry.save_path, 'p')
+    local saved = entry.save_path .. '/orig.sql'
+    local taken = entry.save_path .. '/taken.sql'
+    vim.fn.writefile({ 'select 1' }, saved)
+    vim.fn.writefile({ 'select 2' }, taken)
+    d:load_saved_queries(entry)
+    entry.expanded = true
+    entry.saved_queries.expanded = true
+    d:render()
+
+    local ln = line_of(d, function(n)
+      return n.type == 'saved_query' and n.file_path == saved
+    end)
+    d:set_cursor(ln)
+
+    local notify = require('dadbod-ui.notifications')
+    local msg
+    local saved_err = notify.error
+    notify.error = function(m)
+      msg = m
+    end
+    d:rename_line()
+    notify.error = saved_err
+
+    assert.is_not_nil(msg)
+    assert.equals(1, vim.fn.filereadable(saved)) -- original untouched
+    assert.same({ 'select 2' }, vim.fn.readfile(taken)) -- target NOT overwritten
+    assert.is_true(vim.tbl_contains(entry.saved_queries.list, saved))
+  end)
 end)

@@ -32,12 +32,9 @@ function Drawer:toggle_help()
   -- Built from `config.mappings` so the help window and the live keymaps can
   -- never drift; disabled (`key = 'none'`) actions are already filtered out.
   local lines = require('dadbod-ui.mappings').help_lines(self.config)
-  local max_len = 0
-  for _, line in ipairs(lines) do
-    if #line > max_len then
-      max_len = #line
-    end
-  end
+  local max_len = vim.iter(lines):fold(0, function(acc, line)
+    return math.max(acc, #line)
+  end)
 
   local width = math.min(max_len + 4, vim.o.columns - 4)
   local height = #lines
@@ -103,16 +100,31 @@ function Drawer:load_saved_queries(entry)
   return self:introspect():load_saved_queries(entry)
 end
 
+--- The window the cursor verbs should act through. The drawer buffer can be
+--- shown in more than one window (a user `<C-w>s`), and the sidebar mappings are
+--- buffer-local, so they fire from whichever window holds focus. Resolving to
+--- `self.winid` there would read/move the OTHER window's cursor; use the current
+--- window when it is showing the drawer buffer, else fall back to `self.winid`.
+---@return integer
+function Drawer:active_winid()
+  local cur = vim.api.nvim_get_current_win()
+  if self.bufnr ~= nil and vim.api.nvim_win_get_buf(cur) == self.bufnr then
+    return cur
+  end
+  return self.winid
+end
+
 ---@return integer
 function Drawer:current_line()
-  return vim.api.nvim_win_get_cursor(self.winid)[1]
+  return vim.api.nvim_win_get_cursor(self:active_winid())[1]
 end
 
 ---@param line integer
 function Drawer:set_cursor(line)
   line = math.max(1, math.min(line, #self.content))
-  local col = vim.api.nvim_win_get_cursor(self.winid)[2]
-  vim.api.nvim_win_set_cursor(self.winid, { line, col })
+  local winid = self:active_winid()
+  local col = vim.api.nvim_win_get_cursor(winid)[2]
+  vim.api.nvim_win_set_cursor(winid, { line, col })
 end
 
 --- The node under the cursor (or nil).
@@ -420,19 +432,38 @@ function Drawer:rename_buffer(buffer, key_name, is_saved_query)
       new = string.format('%s/%s', dir, new_name)
     else
       new = string.format('%s/%s-%s', dir, db_slug, new_name)
+    end
+    -- Refuse to silently clobber an existing file at the target path.
+    if utils.is_file(new) then
+      return notify.error('A query already exists with that name.')
+    end
+    -- rename() returns 0 on success; on failure (read-only dir, invalid name) bail
+    -- BEFORE mutating any tracking, or the file would vanish from the drawer while
+    -- still on disk. (tmp tracking is likewise only inserted after success.)
+    if vim.fn.rename(buffer, new) ~= 0 then
+      return notify.error('Could not rename the query file.')
+    end
+    if not is_saved then
       table.insert(entry.buffers.tmp, new)
     end
-    vim.fn.rename(buffer, new)
 
-    local bufnr = vim.fn.bufnr(buffer)
+    -- loaded_bufnr, not vim.fn.bufnr: the path is looked up exactly, never as a
+    -- name PATTERN (a `.` in the path would otherwise match any char).
+    local bufnr = utils.loaded_bufnr(buffer)
     local bufwin = bufnr > -1 and vim.fn.bufwinnr(bufnr) or -1
     local new_bufnr = -1
     if bufwin > -1 then
+      -- Navigate to the window actually showing the old buffer first: open_buffer
+      -- -> Query:focus_window picks the first dbui window, which could be a
+      -- DIFFERENT window's query buffer, and the rename would replace it.
+      vim.cmd(bufwin .. 'wincmd w')
       self:query():open_buffer(entry, new, 'edit')
       new_bufnr = vim.api.nvim_get_current_buf()
     elseif bufnr > -1 then
-      vim.cmd('badd ' .. vim.fn.fnameescape(new))
-      new_bufnr = vim.fn.bufnr(new)
+      -- bufadd() returns the buffer number for `new` directly (creating it if
+      -- needed), so we never round-trip through vim.fn.bufnr's pattern matching.
+      new_bufnr = vim.fn.bufadd(new)
+      vim.fn.setbufvar(new_bufnr, '&buflisted', 1)
       table.insert(entry.buffers.list, new)
     else
       local idx = vim.fn.index(entry.buffers.list, buffer)
@@ -543,6 +574,11 @@ end
 ---@return nil
 function Drawer:reveal_buffer(entry)
   local bufname = vim.api.nvim_buf_get_name(0)
+  -- Refuse an unnamed buffer: adopting it would insert '' into entry.buffers.list
+  -- and render a phantom empty node in the drawer.
+  if bufname == '' then
+    return require('dadbod-ui.notifications').error('Cannot assign an unnamed buffer; save it to a file first.')
+  end
   self:query():setup_buffer(entry, { existing_buffer = true }, bufname)
   -- Feed vim-dadbod-completion when it is installed, mirroring the original.
   if vim.fn.exists('*vim_dadbod_completion#fetch') == 1 then
@@ -785,7 +821,11 @@ function Drawer:goto_sibling(direction)
     local adjacent = self.content[adj]
     local on_edge = (is_up and adj == 1) or (is_down and adj == n)
     if adjacent.level == 0 and adjacent.label == '' then
-      return self:set_cursor(idx)
+      -- A top-level separator ends the scan: stop at the last same-level sibling
+      -- (`last_same`), never at `idx` -- which can be a deeper child we stepped
+      -- over. For prev/next `last_same` stays at the start line (no move), so the
+      -- "stops at level boundaries" contract holds for every direction.
+      return self:set_cursor(last_same)
     end
     if is_prev_or_next then
       if adjacent.level == level then
@@ -818,6 +858,11 @@ function Drawer:goto_node(direction)
     return
   end
   if direction == 'parent' then
+    -- A top-level node has no parent: the scan would run to idx 0 and
+    -- set_cursor(0) would clamp onto line 1 (the help comment). No-op instead.
+    if item.level == 0 then
+      return
+    end
     local idx = line
     while idx >= 1 do
       idx = idx - 1
