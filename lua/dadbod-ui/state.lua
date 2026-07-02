@@ -92,13 +92,15 @@ end
 ---@private
 --- Tmp-location query files belonging to `name`: a startup buffer is restored
 --- under a connection when its basename (or extension, for `db_ui.<name>` style
---- names) starts with `<name>-`. Port of the `old_buffers` filter in
---- `generate_new_db_entry`.
+--- names) starts with `<slug(name)>-`. The prefix must be the SLUG of the name
+--- (as `query.generate_buffer_name` and `drawer:get_buffer_name` both use), so a
+--- connection named e.g. "My DB" -- whose files are `mydb-...` -- still restores
+--- its tmp buffers. Port of the `old_buffers` filter in `generate_new_db_entry`.
 ---@param old_buffers string[]
 ---@param name string
 ---@return string[]
 local function buffers_for(old_buffers, name)
-  local prefix = '^' .. vim.pesc(name) .. '%-'
+  local prefix = '^' .. vim.pesc(utils.slug(name)) .. '%-'
   return vim.tbl_filter(function(path)
     local tail = vim.fs.basename(path)
     local ext = vim.fn.fnamemodify(path, ':e')
