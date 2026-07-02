@@ -52,13 +52,34 @@ describe('find_buffer', function()
     d = make_drawer({ qa = 'sqlite:/tmp/qa.db' })
     d:open()
     local entry = entry_named(d, 'qa')
-    -- A plain buffer with no dbui contract, focused in a non-drawer window.
+    -- A NAMED buffer with no dbui contract, focused in a non-drawer window.
+    -- (An unnamed buffer is refused -- see the dedicated spec below.)
     vim.cmd('wincmd p')
-    vim.cmd('enew')
+    vim.cmd('edit /tmp/dbui_find/adopt.sql')
     d:find_buffer()
     assert.equals(entry.key_name, vim.b.dbui_db_key_name)
     assert.equals(entry.conn, vim.b.db)
     assert.is_true(entry.buffers.expanded)
+  end)
+
+  it('refuses to adopt an unnamed buffer, never inserting a phantom node', function()
+    d = make_drawer({ qa = 'sqlite:/tmp/qa.db' })
+    d:open()
+    local entry = entry_named(d, 'qa')
+    local notify = require('dadbod-ui.notifications')
+    local msg
+    local saved = notify.error
+    notify.error = function(m)
+      msg = m
+    end
+    -- A bare, unnamed buffer in a non-drawer window.
+    vim.cmd('wincmd p')
+    vim.cmd('enew')
+    d:find_buffer()
+    notify.error = saved
+    assert.matches('unnamed buffer', msg)
+    assert.is_nil(vim.b.dbui_db_key_name)
+    assert.equals(0, #entry.buffers.list)
   end)
 
   it('reveals a buffer that already carries the contract and moves the cursor onto it', function()
@@ -83,7 +104,7 @@ describe('find_buffer', function()
       on_choice(items[2])
     end
     vim.cmd('wincmd p')
-    vim.cmd('enew')
+    vim.cmd('edit /tmp/dbui_find/adopt_multi.sql')
     d:find_buffer()
     assert.equals(2, #chosen)
     local picked = d.instance.dbs[chosen[2].key_name]
