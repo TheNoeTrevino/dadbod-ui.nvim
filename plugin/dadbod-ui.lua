@@ -10,6 +10,7 @@
 --- `:DBUIClose`                     Close the drawer
 --- `:DBUIAddConnection`             Add a connection interactively
 --- `:DBUIFindBuffer`                Find/assign the query buffer for this db
+--- `:DBUISwitchBuffer`              Switch this query buffer to another connection
 --- `:DBUIRenameBuffer`              Rename the current query buffer
 --- `:DBUILastQueryInfo`             Echo the last query and its runtime
 --- `:DBUICancelQuery`               Cancel the running query for this buffer
@@ -47,6 +48,10 @@ end, { nargs = 0, desc = 'Add a dadbod-ui connection' })
 command('DBUIFindBuffer', function()
   require('dadbod-ui').find_buffer()
 end, { nargs = 0, desc = 'Find/assign the dadbod-ui query buffer for this db context' })
+
+command('DBUISwitchBuffer', function()
+  require('dadbod-ui').switch_buffer()
+end, { nargs = 0, desc = 'Switch the current dadbod-ui query buffer to another connection' })
 
 command('DBUIRenameBuffer', function()
   require('dadbod-ui').rename_buffer()
