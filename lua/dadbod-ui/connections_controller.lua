@@ -1,13 +1,13 @@
----@mod dadbod-ui.connections_controller  Interactive connections.json CRUD
----
---- Wires the drawer's add/delete/rename/duplicate/group/move keys to the pure
---- CRUD transforms in
---- `dadbod-ui.connections`. Each flow prompts through an injectable `input`
---- (vim.ui.input by default, callback-shaped), routes user-facing messages
---- through the notifications layer, and on success writes connections.json,
---- re-discovers, and re-renders via the injected render callback. It operates on
---- the instance plus the pure transforms, so it requires neither `drawer` nor
---- `query` and keeps `state` the dependency sink.
+-- Interactive connections.json CRUD
+--
+-- Wires the drawer's add/delete/rename/duplicate/group/move keys to the pure
+-- CRUD transforms in
+-- `dadbod-ui.connections`. Each flow prompts through an injectable `input`
+-- (vim.ui.input by default, callback-shaped), routes user-facing messages
+-- through the notifications layer, and on success writes connections.json,
+-- re-discovers, and re-renders via the injected render callback. It operates on
+-- the instance plus the pure transforms, so it requires neither `drawer` nor
+-- `query` and keeps `state` the dependency sink.
 
 ---@alias DadbodUI.ConnectionsControllerOpts { instance: DadbodUI.Instance, input: DadbodUI.UiInput, confirm: DadbodUI.Confirm, render: fun() }
 

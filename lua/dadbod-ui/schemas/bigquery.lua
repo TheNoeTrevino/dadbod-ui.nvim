@@ -1,4 +1,4 @@
----@mod dadbod-ui.schemas.bigquery  BigQuery schema/table introspection
+-- BigQuery schema/table introspection
 
 ---@private
 local parse = require('dadbod-ui.schemas.parse')

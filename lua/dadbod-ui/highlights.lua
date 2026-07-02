@@ -1,15 +1,15 @@
----@mod dadbod-ui.highlights  Drawer extmark highlighting (pure ranges + groups)
----
---- The original (`syntax/dbui.vim`) rebuilds `syn match` regexes over the icon
---- glyphs at runtime -- escaping nerd-font characters into patterns and
---- re-deriving the tree the renderer already knows. We diverge: the drawer
---- already splits rendering into `build_content` (pure `Node[]`) and `paint` (the
---- only buffer-touching half), and every `Node` knows its `type`, `level`,
---- `icon`, `label`. So `highlights_for` computes the exact byte ranges to
---- highlight straight from the node + its painted line text -- pure, buffer-free,
---- and unit-testable -- and `paint` applies them as extmarks in a dedicated
---- namespace. Groups are defined once with `default = true` links so users can
---- override them.
+-- Drawer extmark highlighting (pure ranges + groups)
+--
+-- The original (`syntax/dbui.vim`) rebuilds `syn match` regexes over the icon
+-- glyphs at runtime -- escaping nerd-font characters into patterns and
+-- re-deriving the tree the renderer already knows. We diverge: the drawer
+-- already splits rendering into `build_content` (pure `Node[]`) and `paint` (the
+-- only buffer-touching half), and every `Node` knows its `type`, `level`,
+-- `icon`, `label`. So `highlights_for` computes the exact byte ranges to
+-- highlight straight from the node + its painted line text -- pure, buffer-free,
+-- and unit-testable -- and `paint` applies them as extmarks in a dedicated
+-- namespace. Groups are defined once with `default = true` links so users can
+-- override them.
 
 ---@class DadbodUI.HighlightsModule
 ---@field NS integer  extmark namespace, cleared and repainted on every render

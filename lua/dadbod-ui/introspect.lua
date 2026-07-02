@@ -1,17 +1,17 @@
----@mod dadbod-ui.introspect  Connect + schema/table introspection for a connection
----
---- Connects a connection (sync, as dadbod does) and introspects its
---- schemas/tables, folding the results into the connection `entry` and
---- re-rendering. It operates purely on the entry plus the adapter metadata in
---- `schemas`, so it never requires `drawer` or `query` -- the dependency graph
---- stays acyclic and `state` remains the sink. The drawer (and the query
---- controller) build one of these, injecting the connect backend and a render
---- callback.
----
---- Introspection is non-blocking: schema-supporting adapters fan their schema-
---- list and table-list queries out concurrently via `bridge.run_many`; the
---- tables-only path uses dadbod's `tables` adapter call. Each path re-renders
---- once its data lands, so a large database never freezes the UI.
+-- Connect + schema/table introspection for a connection
+--
+-- Connects a connection (sync, as dadbod does) and introspects its
+-- schemas/tables, folding the results into the connection `entry` and
+-- re-rendering. It operates purely on the entry plus the adapter metadata in
+-- `schemas`, so it never requires `drawer` or `query` -- the dependency graph
+-- stays acyclic and `state` remains the sink. The drawer (and the query
+-- controller) build one of these, injecting the connect backend and a render
+-- callback.
+--
+-- Introspection is non-blocking: schema-supporting adapters fan their schema-
+-- list and table-list queries out concurrently via `bridge.run_many`; the
+-- tables-only path uses dadbod's `tables` adapter call. Each path re-renders
+-- once its data lands, so a large database never freezes the UI.
 
 ---@alias DadbodUI.Connector fun(url: string): string
 ---@alias DadbodUI.ConnectOnResult fun(ok: boolean, conn: string)

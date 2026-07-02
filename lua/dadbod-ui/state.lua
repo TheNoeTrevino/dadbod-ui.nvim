@@ -1,9 +1,9 @@
----@mod dadbod-ui.state  Central instance: discovered connections and paths
----
---- Holds the discovered connection list and a map of per-connection entries
---- keyed by `key_name`. UI and schema state (tables, schemas, buffers, the live
---- connection handle) are layered on by later milestones; this milestone owns
---- identity, paths, and the public connection list.
+-- Central instance: discovered connections and paths
+--
+-- Holds the discovered connection list and a map of per-connection entries
+-- keyed by `key_name`. UI and schema state (tables, schemas, buffers, the live
+-- connection handle) are layered on by later milestones; this milestone owns
+-- identity, paths, and the public connection list.
 
 ---@class DadbodUI.StateModule
 ---@field new fun(config: DadbodUI.Config): DadbodUI.Instance

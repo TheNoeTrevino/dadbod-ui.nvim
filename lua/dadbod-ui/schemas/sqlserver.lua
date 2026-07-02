@@ -1,4 +1,4 @@
----@mod dadbod-ui.schemas.sqlserver  SQL Server schema/table introspection
+-- SQL Server schema/table introspection
 
 ---@private
 local parse = require('dadbod-ui.schemas.parse')

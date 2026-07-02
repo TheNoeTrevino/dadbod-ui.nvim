@@ -1,11 +1,11 @@
----@mod dadbod-ui.connections  Connection discovery and the connections.json store
----
---- Connections come from four sources, merged in precedence order
---- (dotenv → env → g:db/g:dbs → connections.json); the first occurrence of a
---- given (name, source, group) wins. Each is normalized into a record:
----   { name, url, source, group, key_name }
---- where `url` is resolved through dadbod and `key_name` namespaces the record
---- by group so the same name can exist in different groups.
+-- Connection discovery and the connections.json store
+--
+-- Connections come from four sources, merged in precedence order
+-- (dotenv → env → g:db/g:dbs → connections.json); the first occurrence of a
+-- given (name, source, group) wins. Each is normalized into a record:
+--   { name, url, source, group, key_name }
+-- where `url` is resolved through dadbod and `key_name` namespaces the record
+-- by group so the same name can exist in different groups.
 
 ---@alias DadbodUI.ConnectionsOnDup fun(name: string, source: string)
 ---@alias DadbodUI.ConnectionsOnReadError fun(msg: string)

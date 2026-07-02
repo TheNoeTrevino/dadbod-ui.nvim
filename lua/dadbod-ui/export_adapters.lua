@@ -1,15 +1,15 @@
----@mod dadbod-ui.export_adapters  Per-adapter export capability matrix (flags only)
----
---- The data half of native CLI export (`specs/native-export.md` §4 + Appendix A):
---- which adapters can export, which CLI flags select the canonical delimited
---- extractor, and which (adapter, format) pairs the CLI can emit natively for a
---- straight passthrough. This module knows FLAGS, not how to run them -- the
---- orchestrator (`dadbod-ui.export`) composes these onto `bridge.command(url)` and
---- runs `vim.system`. Mirrors `dadbod-ui.paginator`: a self-contained per-scheme
---- table gating support, keyed by both raw and canonical scheme names.
----
---- v1 adapters: postgres, mysql/mariadb, sqlite (DECISION-004). Others return
---- unsupported until their row is added.
+-- Per-adapter export capability matrix (flags only)
+--
+-- The data half of native CLI export (`specs/native-export.md` §4 + Appendix A):
+-- which adapters can export, which CLI flags select the canonical delimited
+-- extractor, and which (adapter, format) pairs the CLI can emit natively for a
+-- straight passthrough. This module knows FLAGS, not how to run them -- the
+-- orchestrator (`dadbod-ui.export`) composes these onto `bridge.command(url)` and
+-- runs `vim.system`. Mirrors `dadbod-ui.paginator`: a self-contained per-scheme
+-- table gating support, keyed by both raw and canonical scheme names.
+--
+-- v1 adapters: postgres, mysql/mariadb, sqlite (DECISION-004). Others return
+-- unsupported until their row is added.
 
 ---@class DadbodUI.ExportAdaptersModule
 ---@field supports fun(scheme: string): boolean

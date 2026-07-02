@@ -1,9 +1,27 @@
----@mod dadbod-ui  Lua port of vim-dadbod-ui
+---@tag dadbod-ui
+---@tag dadbod-ui.nvim
+---@toc_entry Introduction
+---@text
+--- # Introduction ~
 ---
---- Public entry point / facade. Session state lives in `dadbod-ui.state` (the
---- single source of truth); the dadbod engine boundary lives in
---- `dadbod-ui.bridge`. Sibling modules are required lazily so startup cost stays
---- near zero and the dependency graph stays acyclic.
+--- dadbod-ui.nvim is a Neovim-native (Lua) port of vim-dadbod-ui: a database UI
+--- drawer over tpope/vim-dadbod. It lists connections, browses schemas and
+--- tables, opens query buffers, and renders results -- all inside Neovim.
+---
+--- Session state lives in `dadbod-ui.state` (the single source of truth) and the
+--- vim-dadbod engine boundary lives in `dadbod-ui.bridge`. Sibling modules are
+--- required lazily so startup cost stays near zero and the dependency graph
+--- stays acyclic.
+---
+--- # Quick Start ~
+---                                                        *dadbod-ui-quickstart*
+---
+--- Setup is optional -- dadbod-ui works with sensible defaults: >lua
+---   require('dadbod-ui').setup()
+--- <
+--- Open the drawer with the `:DBUI` command, or from Lua: >lua
+---   require('dadbod-ui').open()
+--- <
 
 ---@class DadbodUI.InitModule
 ---@field bridge DadbodUI.BridgeModule  the vim-dadbod boundary
@@ -26,6 +44,7 @@
 
 local state = require('dadbod-ui.state')
 
+---@private
 ---@type DadbodUI.InitModule
 ---@diagnostic disable-next-line: missing-fields
 local M = {}

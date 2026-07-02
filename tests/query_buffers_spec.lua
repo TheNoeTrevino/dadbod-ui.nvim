@@ -45,6 +45,10 @@ describe('query buffers: open', function()
   local d
   local query_bufs = {}
 
+  before_each(function()
+    require('helper').clean_ui()
+  end)
+
   after_each(function()
     for _, b in ipairs(query_bufs) do
       pcall(vim.api.nvim_buf_delete, b, { force = true })

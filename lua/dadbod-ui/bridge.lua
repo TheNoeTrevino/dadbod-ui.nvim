@@ -1,30 +1,30 @@
----@mod dadbod-ui.bridge  Thin pass-through over vim-dadbod (the query engine)
----
---- This module is the ONLY place in the port that talks to vim-dadbod. Every
---- function is a thin wrapper over dadbod's vimscript API (`db#*`) and the `:DB`
---- command. The Lua port keeps dadbod as the engine and owns only the UI, so
---- this file is the engine boundary -- keep it small and faithful.
----
---- vim-dadbod exposes TWO execution paths and we mirror both:
----
----   * Synchronous  -> `systemlist()`. Blocks Neovim. Used for fast schema /
----                     table introspection that populates the drawer.
----   * Asynchronous -> `execute()` via `:DB`. Non-blocking: dadbod spawns a job,
----                     writes a `.dbout` file and fires the User autocmds
----                     `*DBExecutePre` / `*DBExecutePost`. Subscribe with
----                     `on_pre` / `on_post` to drive the in-buffer loading
----                     indicator and the result rendering.
----
---- Scheme resolution note: `db#url#parse` returns the RAW scheme (`postgres`,
---- not `postgresql`), but no adapter is ever dispatched on a raw scheme here.
---- `db#resolve` canonicalizes the scheme via `g:db_adapters` (e.g.
---- `postgres`->`postgresql`, `sqlite3`->`sqlite`) before dispatch, dadbod ships
---- the canonical adapter files (`postgresql.vim`, `sqlite.vim`), and every
---- adapter call in this module resolves the URL first. So no scheme-alias
---- globals (`g:db_adapter_<scheme>`) are needed -- and deliberately NOT setting
---- them keeps `db#adapter#schemes()` canonical: it enumerates `g:db_adapter_*`
---- keys, so aliases would inject phantom non-canonical entries (`postgres`,
---- `sqlite3`) alongside the real ones.
+-- Thin pass-through over vim-dadbod (the query engine)
+--
+-- This module is the ONLY place in the port that talks to vim-dadbod. Every
+-- function is a thin wrapper over dadbod's vimscript API (`db#*`) and the `:DB`
+-- command. The Lua port keeps dadbod as the engine and owns only the UI, so
+-- this file is the engine boundary -- keep it small and faithful.
+--
+-- vim-dadbod exposes TWO execution paths and we mirror both:
+--
+--   * Synchronous  -> `systemlist()`. Blocks Neovim. Used for fast schema /
+--                     table introspection that populates the drawer.
+--   * Asynchronous -> `execute()` via `:DB`. Non-blocking: dadbod spawns a job,
+--                     writes a `.dbout` file and fires the User autocmds
+--                     `*DBExecutePre` / `*DBExecutePost`. Subscribe with
+--                     `on_pre` / `on_post` to drive the in-buffer loading
+--                     indicator and the result rendering.
+--
+-- Scheme resolution note: `db#url#parse` returns the RAW scheme (`postgres`,
+-- not `postgresql`), but no adapter is ever dispatched on a raw scheme here.
+-- `db#resolve` canonicalizes the scheme via `g:db_adapters` (e.g.
+-- `postgres`->`postgresql`, `sqlite3`->`sqlite`) before dispatch, dadbod ships
+-- the canonical adapter files (`postgresql.vim`, `sqlite.vim`), and every
+-- adapter call in this module resolves the URL first. So no scheme-alias
+-- globals (`g:db_adapter_<scheme>`) are needed -- and deliberately NOT setting
+-- them keeps `db#adapter#schemes()` canonical: it enumerates `g:db_adapter_*`
+-- keys, so aliases would inject phantom non-canonical entries (`postgres`,
+-- `sqlite3`) alongside the real ones.
 
 ---@alias DadbodUI.SystemCompleted { code: integer, signal: integer, stdout?: string, stderr?: string }
 ---@alias DadbodUI.ConnectAsyncCallback fun(ok: boolean, conn: string)

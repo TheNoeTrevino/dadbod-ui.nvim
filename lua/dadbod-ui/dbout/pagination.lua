@@ -1,12 +1,12 @@
----@mod dadbod-ui.dbout.pagination  Result pagination: [ / ] page stepping
----
---- A paginated query runs page 1 with a LIMIT/OFFSET clause (see
---- `dadbod-ui.paginator`); the query controller stashes the page state via
---- `set_pending` (the shared pending-context channel, in `init`), `DBExecutePre`
---- claims it onto the result file, and `_on_post` tags the freshly loaded result
---- buffer with it (`b:dbui_page`) and contributes its segments to the result
---- winbar (see `winbar._winbar_text`). `[` / `]` then re-execute the stored SQL at
---- an adjusted offset.
+-- Result pagination: [ / ] page stepping
+--
+-- A paginated query runs page 1 with a LIMIT/OFFSET clause (see
+-- `dadbod-ui.paginator`); the query controller stashes the page state via
+-- `set_pending` (the shared pending-context channel, in `init`), `DBExecutePre`
+-- claims it onto the result file, and `_on_post` tags the freshly loaded result
+-- buffer with it (`b:dbui_page`) and contributes its segments to the result
+-- winbar (see `winbar._winbar_text`). `[` / `]` then re-execute the stored SQL at
+-- an adjusted offset.
 
 local bridge = require('dadbod-ui.bridge')
 local paginator = require('dadbod-ui.paginator')
