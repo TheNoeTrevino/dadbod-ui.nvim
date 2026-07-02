@@ -79,6 +79,21 @@ describe('state: populate', function()
     assert.is_true(vim.tbl_contains(inst.dbs['qa_g:dbs'].buffers.list, restored))
   end)
 
+  it('restores a tmp-location buffer for a connection whose name slugs (spaces stripped)', function()
+    local tmp = vim.fn.tempname()
+    vim.fn.mkdir(tmp, 'p')
+    -- "My DB" slugs to "MyDB"; generated buffers carry the SLUG prefix, so the
+    -- restore filter must match on the slug rather than the raw connection name.
+    local restored = tmp .. '/MyDB-query-2020-01-01-00-00-00.sql'
+    vim.fn.writefile({ 'select 1;' }, restored)
+    local inst = state.new(config.resolve({ save_location = '/tmp/dbui_test', tmp_query_location = tmp })):populate({
+      env = {},
+      g_dbs = { ['My DB'] = 'sqlite:/tmp/mydb.db' },
+      file_entries = {},
+    })
+    assert.is_true(vim.tbl_contains(inst.dbs['My DB_g:dbs'].buffers.list, restored))
+  end)
+
   it('connections_list reports name/url/source and not-connected', function()
     local inst = state.new(cfg):populate({
       env = {},
