@@ -39,6 +39,7 @@ Fields ~
 {cancel_query} `(fun())`
 {get_conn_info} `(fun(key_name: string): table)`
 {find_buffer} `(fun())`
+{switch_buffer} `(fun())`
 {rename_buffer} `(fun())`
 {print_last_query_info} `(fun())`
 {statusline} `(fun(opts?: DadbodUI.StatuslineOpts): string)`
@@ -137,6 +138,17 @@ Return ~
 Jump to (or adopt) the query buffer for the current db context. Backs
 `:DBUIFindBuffer`: a buffer already carrying the `b:dbui_*` contract is
 revealed in the drawer; a bare buffer resolves/connects a db and adopts it.
+Return ~
+`(nil)`
+
+------------------------------------------------------------------------------
+                                                             *M.switch_buffer()*
+                              `M.switch_buffer`()
+Switch the current query buffer's connection to another one. Backs
+`:DBUISwitchBuffer`: prompts for a different db, reassigns the buffer
+(rewriting `b:db`/`b:dbui_db_key_name`, the winbar and the execute-on-save
+autocmds) without touching the buffer text. A bare buffer falls back to the
+`find_buffer` assign path.
 Return ~
 `(nil)`
 
@@ -261,6 +273,7 @@ dadbod-ui.nvim provides the following user commands:
 `:DBUIClose`                     Close the drawer
 `:DBUIAddConnection`             Add a connection interactively
 `:DBUIFindBuffer`                Find/assign the query buffer for this db
+`:DBUISwitchBuffer`              Switch this query buffer to another connection
 `:DBUIRenameBuffer`              Rename the current query buffer
 `:DBUILastQueryInfo`             Echo the last query and its runtime
 `:DBUICancelQuery`               Cancel the running query for this buffer

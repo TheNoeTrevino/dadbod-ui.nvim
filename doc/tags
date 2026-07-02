@@ -16,6 +16,7 @@ M.reset()	dadbod-ui.txt	/*M.reset()*
 M.resolve()	dadbod-ui.txt	/*M.resolve()*
 M.setup()	dadbod-ui.txt	/*M.setup()*
 M.statusline()	dadbod-ui.txt	/*M.statusline()*
+M.switch_buffer()	dadbod-ui.txt	/*M.switch_buffer()*
 M.toggle()	dadbod-ui.txt	/*M.toggle()*
 coerce()	dadbod-ui.txt	/*coerce()*
 dadbod-ui	dadbod-ui.txt	/*dadbod-ui*
