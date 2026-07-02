@@ -13,14 +13,17 @@
 --   * Placeholders are matched with `vim.regex` against the user's Vim-regex
 --     `bind_param_pattern`, so a custom pattern (e.g. `\$\d\+`) Just Works
 --     without rebuilding a vimscript regex by string concatenation.
---   * A placeholder is ignored when it sits inside a single-quoted SQL string
---     literal (`'... :id ...'`) or a comment (`-- :id`, `/* :id */`) --
---     consistently for BOTH detection and substitution. A small lexer carries
---     string and block-comment state across lines, so multi-line literals and
---     `/* ... */` blocks mask correctly. The original filtered such names out of
---     prompting but would still substitute them if the same name appeared
---     unquoted elsewhere, handled only single-line single-quoted strings, and
---     never skipped comments.
+--   * A placeholder is ignored when it sits inside a quoted span -- a single-quoted
+--     string literal (`'... :id ...'`), a double-quoted identifier
+--     (`"... :id ..."`), or a Postgres dollar-quoted body (`$$ ... :id ... $$`) --
+--     or a comment (`-- :id`, `/* :id */`), consistently for BOTH detection and
+--     substitution. A small lexer carries string, identifier, dollar-quote and
+--     block-comment state across lines, so multi-line spans mask correctly. This
+--     also means an apostrophe inside `"customer's"` or a dollar-quoted body no
+--     longer flips string state and corrupts masking of the rest of the statement.
+--     The original filtered such names out of prompting but would still substitute
+--     them if the same name appeared unquoted elsewhere, tracked only single-line
+--     single-quoted strings, and never skipped comments.
 --   * The colon-prefix guard (so `value::text` casts are not seen as `:text`
 --     placeholders) is a single "preceding char is not `:`" check rather than a
 --     grouped capture, which keeps it pattern-agnostic.
@@ -65,19 +68,42 @@ function M.quote(val)
 end
 
 ---@private
+--- Detect a dollar-quote opener (Postgres `$tag$` / bare `$$`) at byte `i` of
+--- `line`. The tag is empty or a Postgres identifier (leading letter/underscore,
+--- then word chars) -- crucially NOT digits-only, so a `$1`-style bind parameter
+--- is never mistaken for a dollar quote. Returns the full delimiter text (e.g.
+--- `$$` or `$tag$`) or nil when there is no opener here.
+---@param line string
+---@param i integer
+---@return string|nil
+local function dollar_open(line, i)
+  return line:match('^%$%$', i) or line:match('^%$[%a_][%w_]*%$', i)
+end
+
+---@private
 --- Per-line byte masks over `lines`: `masks[i][j]` (1-based) is true when byte
---- `j` of line `i` lies inside a single-quoted SQL string literal or a comment,
---- where a placeholder must NOT be detected or substituted. A small SQL lexer
---- carries string and `/* */` block-comment state ACROSS lines (both can span
---- newlines), while `--` line comments end at the line. `''` escape pairs inside
---- a string are kept inside it. Computed over the whole statement at once so a
---- string/comment opened on one line correctly masks later lines.
+--- `j` of line `i` lies inside a quoted span or a comment, where a placeholder
+--- must NOT be detected or substituted. The lexer tracks FOUR quoting/commenting
+--- forms so a stray colon or apostrophe inside one cannot corrupt the state of
+--- the rest of the statement:
+---   * `'...'` single-quoted string literals (`''` escape pairs stay inside),
+---   * `"..."` double-quoted identifiers (`""` escape pairs stay inside) -- so an
+---     apostrophe in `"customer's"` does not open a string,
+---   * `$tag$...$tag$` dollar-quoted bodies (bare `$$` too) -- so quotes inside a
+---     Postgres function body do not flip string state,
+---   * `--` line comments and `/* ... */` block comments.
+--- String, double-quote, dollar-quote and block-comment state all carry ACROSS
+--- lines (they can span newlines); `--` line comments end at the line. Computed
+--- over the whole statement at once so a span opened on one line correctly masks
+--- later lines.
 ---@param lines string[]
 ---@return boolean[][]
 local function build_masks(lines)
   local masks = {}
   local in_str = false -- inside a '...' literal (carries across lines)
+  local in_dquote = false -- inside a "..." quoted identifier (carries across lines)
   local in_block = false -- inside a /* ... */ comment (carries across lines)
+  local dollar_tag = nil -- the open $tag$ delimiter while inside a dollar-quoted body
   for li, line in ipairs(lines) do
     local mask = {}
     local in_line_comment = false -- after -- to end of THIS line only
@@ -98,6 +124,19 @@ local function build_masks(lines)
         else
           i = i + 1
         end
+      elseif dollar_tag then
+        -- Inside a $tag$ body: mask until the matching close delimiter, which is
+        -- the literal opening tag repeated.
+        if line:sub(i, i + #dollar_tag - 1) == dollar_tag then
+          for k = i, i + #dollar_tag - 1 do
+            mask[k] = true
+          end
+          i = i + #dollar_tag
+          dollar_tag = nil
+        else
+          mask[i] = true
+          i = i + 1
+        end
       elseif in_str then
         mask[i] = true
         if c == "'" then
@@ -111,10 +150,35 @@ local function build_masks(lines)
         else
           i = i + 1
         end
+      elseif in_dquote then
+        mask[i] = true
+        if c == '"' then
+          if c2 == '"' then
+            mask[i + 1] = true -- doubled "" escape, still inside the identifier
+            i = i + 2
+          else
+            in_dquote = false
+            i = i + 1
+          end
+        else
+          i = i + 1
+        end
       elseif c == "'" then
         in_str = true
         mask[i] = true
         i = i + 1
+      elseif c == '"' then
+        in_dquote = true
+        mask[i] = true
+        i = i + 1
+      elseif c == '$' and dollar_open(line, i) then
+        local tag = dollar_open(line, i)
+        ---@cast tag string
+        dollar_tag = tag
+        for k = i, i + #tag - 1 do
+          mask[k] = true
+        end
+        i = i + #tag
       elseif c == '-' and c2 == '-' then
         in_line_comment = true
         mask[i] = true
