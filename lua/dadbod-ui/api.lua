@@ -73,11 +73,20 @@
 ---@field schemas fun(name: string, cb: fun(schemas: string[]|nil, err: string|nil))
 ---@field tables fun(name: string, cb: fun(tables: string[]|nil, err: string|nil))
 ---@field introspect fun(name: string, cb: fun(data: DadbodUI.ApiIntrospection|nil, err: string|nil))
+---@field add_connection fun()
 ---@field switch_buffer fun(name?: string): boolean, string|nil
+---@field find_buffer fun()
+---@field rename_buffer fun()
+---@field execute_query fun()
+---@field execute_selection fun()
+---@field cancel_query fun()
+---@field last_query_info fun()
 ---@field query fun(name: string, sql: string, cb: DadbodUI.ApiResultCallback)
 ---@field query_sync fun(name: string, sql: string): string[]|nil, string|nil
 ---@field execute fun(name: string, sql: string): boolean, string|nil
 ---@field export fun(spec: DadbodUI.ApiExportSpec): boolean, string|nil
+---@field export_result fun(page_choice?: 'full'|'current')
+---@field statusline fun(opts?: DadbodUI.StatuslineOpts): string
 
 local state = require('dadbod-ui.state')
 local bridge = require('dadbod-ui.bridge')
@@ -284,6 +293,12 @@ function M.connect(name, cb)
   ensure_connected(entry, cb)
 end
 
+--- Add a connection interactively (prompts for url + name) -- the Lua equivalent
+--- of `:DBUIAddConnection`. Use `add` to add one programmatically instead.
+function M.add_connection()
+  require('dadbod-ui').add_connection()
+end
+
 -- Introspection --------------------------------------------------------------
 
 --- Connect (if needed) and introspect `name`, returning its schemas, tables and
@@ -380,6 +395,42 @@ function M.switch_buffer(name)
     return true
   end
   return ok == true, err
+end
+
+--- Find/adopt the query buffer for the current db context -- the Lua equivalent
+--- of `:DBUIFindBuffer`. Operates on the current buffer.
+function M.find_buffer()
+  require('dadbod-ui').find_buffer()
+end
+
+--- Rename the current query buffer's on-disk file -- the Lua equivalent of
+--- `:DBUIRenameBuffer`. Operates on the current buffer.
+function M.rename_buffer()
+  require('dadbod-ui').rename_buffer()
+end
+
+--- Execute the whole current query buffer through dadbod, opening the `.dbout`
+--- result window -- the Lua equivalent of the `execute` mapping in normal mode.
+function M.execute_query()
+  require('dadbod-ui').execute_query()
+end
+
+--- Execute the current visual selection through dadbod -- the Lua equivalent of
+--- the `execute` mapping in visual mode.
+function M.execute_selection()
+  require('dadbod-ui').execute_selection()
+end
+
+--- Cancel the running async query for the current query buffer -- the Lua
+--- equivalent of `:DBUICancelQuery`.
+function M.cancel_query()
+  require('dadbod-ui').cancel_query()
+end
+
+--- Echo the last executed query and its runtime -- the Lua equivalent of
+--- `:DBUILastQueryInfo`.
+function M.last_query_info()
+  require('dadbod-ui').print_last_query_info()
 end
 
 --- Run `sql` against `name` and return the raw, adapter-formatted output lines.
@@ -484,6 +535,27 @@ function M.export(spec)
     format_opts = export.format_opts(cfg, spec.format, entry.scheme),
   })
   return true
+end
+
+--- Interactively export the CURRENT `.dbout` result buffer to a file (prompts for
+--- format + path) -- the Lua equivalent of `:DBUIExportResult`. `page_choice`
+--- 'current' exports only the on-screen page of a paginated result; 'full' (the
+--- default) exports the whole query. Use `export` for a headless, prompt-free
+--- export driven by a connection name + SQL.
+---@param page_choice? 'full'|'current'
+function M.export_result(page_choice)
+  require('dadbod-ui.export').export_interactive(vim.api.nvim_get_current_buf(), nil, page_choice)
+end
+
+-- Statusline -----------------------------------------------------------------
+
+--- Connection/table info for the current query buffer, or the last query's
+--- runtime for a `.dbout` buffer -- safe to embed in a `statusline`/`winbar`
+--- expression. Never opens the drawer. Mirrors the original `db_ui#statusline()`.
+---@param opts? DadbodUI.StatuslineOpts
+---@return string
+function M.statusline(opts)
+  return require('dadbod-ui').statusline(opts)
 end
 
 return M
