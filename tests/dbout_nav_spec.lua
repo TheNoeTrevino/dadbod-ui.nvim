@@ -49,6 +49,95 @@ describe('dbout.cell_range', function()
   end)
 end)
 
+describe('dbout.display_span_to_byte_span', function()
+  local cells = require('dadbod-ui.dbout.cells')
+
+  it('is a byte-identity for pure-ASCII lines', function()
+    local r = cells.display_span_to_byte_span(' id | name ', 5, 10)
+    assert.equals(5, r.from)
+    assert.equals(10, r.to)
+  end)
+
+  it('shifts byte offsets past a multibyte cell (é)', function()
+    -- ' héllo | 42 ': the id column occupies DISPLAY cols 8..11, but 'é' is a
+    -- 2-byte char, so those map to BYTE offsets 9..12 on the data line.
+    local line = ' héllo | 42 '
+    local r = cells.display_span_to_byte_span(line, 8, 11)
+    assert.equals(9, r.from)
+    assert.equals(12, r.to)
+    assert.equals('42', vim.trim(line:sub(r.from + 1, r.to + 1)))
+  end)
+
+  it('handles double-width (CJK) earlier cells', function()
+    -- ' 世 | 42 ': '世' spans display cols 1..2 (3 bytes); the id column at
+    -- display cols 5..8 maps to byte offsets 6..9.
+    local line = ' 世 | 42 '
+    local r = cells.display_span_to_byte_span(line, 5, 8)
+    assert.equals('42', vim.trim(line:sub(r.from + 1, r.to + 1)))
+    -- a boundary landing on the wide char still yields the whole char
+    local n = cells.display_span_to_byte_span(line, 0, 3)
+    assert.equals('世', vim.trim(line:sub(n.from + 1, n.to + 1)))
+  end)
+
+  it('returns an empty span past the end of a short line', function()
+    local r = cells.display_span_to_byte_span('ab', 5, 8)
+    assert.is_true(r.to < r.from)
+  end)
+end)
+
+describe('dbout cell extraction (multibyte alignment)', function()
+  local cells = require('dadbod-ui.dbout.cells')
+
+  -- Faithful psql-style block: an earlier cell holds multibyte text, so the
+  -- separator line (ASCII) and the header/data lines (multibyte) disagree on
+  -- byte offsets. This exercises the shared math behind get_cell_value's range
+  -- and jump_to_foreign_table's field_name/field_value extraction.
+  local header = ' name  | id '
+  local sep = '-------+----'
+  local data = ' héllo | 42 '
+
+  -- cursor byte column (0-based) of the '4' in the id cell
+  local cursor_byte = 10
+  local cursor_col = vim.fn.strdisplaywidth(data:sub(1, cursor_byte))
+  local span = cells.cell_range(sep, cursor_col)
+
+  it('extracts the exact later value despite an earlier é cell', function()
+    local r = cells.display_span_to_byte_span(data, span.from, span.to)
+    assert.equals('42', vim.trim(data:sub(r.from + 1, r.to + 1)))
+  end)
+
+  it('extracts the exact header name for the same cell', function()
+    local r = cells.display_span_to_byte_span(header, span.from, span.to)
+    assert.equals('id', vim.trim(header:sub(r.from + 1, r.to + 1)))
+  end)
+
+  it('yields the trimmed byte bounds get_cell_value selects', function()
+    -- mirror get_cell_value: map the display span to byte offsets, then trim the
+    -- surrounding padding to the byte offsets fed to nvim_win_set_cursor.
+    local r = cells.display_span_to_byte_span(data, span.from, span.to)
+    local value = data:sub(r.from + 1, r.to + 1)
+    local from = r.from + #(value:match('^%s*') or '')
+    local to = r.to - #(value:match('%s*$') or '')
+    -- the '4' and '2' sit at byte offsets 10 and 11 on the é-shifted data line
+    assert.equals(10, from)
+    assert.equals(11, to)
+    assert.equals('42', data:sub(from + 1, to + 1))
+  end)
+
+  it('extracts the exact later value with a double-width (CJK) earlier cell', function()
+    -- '世界' is width-4 / 6-byte; the id column's display span maps past it.
+    local cjk_header = ' 名   | id '
+    local cjk_sep = '------+----'
+    local cjk_data = ' 世界 | 99 '
+    local cur = vim.fn.strdisplaywidth(cjk_data:sub(1, (assert(cjk_data:find('9', 1, true)) - 1)))
+    local s = cells.cell_range(cjk_sep, cur)
+    local v = cells.display_span_to_byte_span(cjk_data, s.from, s.to)
+    assert.equals('99', vim.trim(cjk_data:sub(v.from + 1, v.to + 1)))
+    local h = cells.display_span_to_byte_span(cjk_header, s.from, s.to)
+    assert.equals('id', vim.trim(cjk_header:sub(h.from + 1, h.to + 1)))
+  end)
+end)
+
 describe('dbout.parse_header', function()
   it('extracts postgres columns', function()
     local cols = dbout.parse_header(' id | name ', '----+------')
