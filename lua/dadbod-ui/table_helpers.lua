@@ -1,12 +1,9 @@
 -- Per-adapter table-helper templates (data)
 --
--- Faithful port of vim-dadbod-ui's `autoload/db_ui/table_helpers.vim`. Each
--- adapter maps a helper name (`List`, `Columns`, `Indexes`, ...) to a SQL
+-- Each adapter maps a helper name (`List`, `Columns`, `Indexes`, ...) to a SQL
 -- template containing placeholders (`{table}`, `{schema}`, `{optional_schema}`,
 -- ...). M6 only needs the helper *names* -- they are rendered as the children of
--- an expanded table -- so this milestone ports the data verbatim; placeholder
--- substitution and execution land in M8. The templates are copied exactly so
--- that later work has nothing to re-derive.
+-- an expanded table -- while placeholder substitution and execution land in M8.
 
 ---@class DadbodUI.TableHelpersModule
 ---@field get fun(scheme: string, config?: DadbodUI.Config): table<string, string>
@@ -59,7 +56,7 @@ local mysql = {
 
 ---@private
 -- Oracle helpers share a common FROM/qualify fragment and are each wrapped with
--- SQL*Plus COLUMN formatting, exactly as the original builds them in a loop.
+-- SQL*Plus COLUMN formatting, built in a loop.
 local oracle_from = table.concat({
   'FROM all_constraints N',
   'JOIN all_cons_columns L',
@@ -258,9 +255,9 @@ local scheme_map = {
   sqlite = 'sqlite3',
 }
 
---- The helper map for `scheme`, merged with user overrides. Port of
---- `db_ui#table_helpers#get`: the adapter defaults are overlaid with
---- `config.table_helpers[scheme]` (and the aliased scheme), helpers set to the
+--- The helper map for `scheme`, merged with user overrides: the adapter defaults
+--- are overlaid with `config.table_helpers[scheme]` (and the aliased scheme),
+--- helpers set to the
 --- empty string are dropped, and an all-empty result falls back to a blank
 --- `List` so a table always renders at least one child.
 ---@param scheme string

@@ -16,10 +16,10 @@ return function(config)
   return {
     schemes_query = 'SELECT schema_name FROM information_schema.schemata',
     schemes_tables_query = 'SELECT table_schema, table_name FROM information_schema.tables',
-    -- DBeaver lists routines from `information_schema.ROUTINES` filtered to
-    -- `ROUTINE_TYPE IN ('PROCEDURE','FUNCTION')` and reads their DDL with
-    -- `SHOW CREATE PROCEDURE/FUNCTION` (MySQLCatalog.java / MySQLProcedure.java).
-    -- System schemas are excluded so the tree isn't flooded with server internals.
+    -- Routines come from `information_schema.ROUTINES` filtered to
+    -- `ROUTINE_TYPE IN ('PROCEDURE','FUNCTION')`, with their DDL read via
+    -- `SHOW CREATE PROCEDURE/FUNCTION`. System schemas are excluded so the tree
+    -- isn't flooded with server internals.
     procedures_query = 'SELECT routine_schema, routine_name, LOWER(routine_type) FROM information_schema.routines '
       .. "WHERE routine_type IN ('PROCEDURE', 'FUNCTION') "
       .. "AND routine_schema NOT IN ('sys', 'mysql', 'information_schema', 'performance_schema') "

@@ -7,7 +7,7 @@
 --- dadbod-ui from Lua. It is a thin FACADE: every function delegates into an
 --- internal module (`state`, `bridge`, `introspect`, `connections`, `export`)
 --- and holds no logic of its own -- the same single-responsibility rule the rest
---- of the port follows. Lifecycle (`setup`) stays on `require('dadbod-ui')`; this
+--- of the plugin follows. Lifecycle (`setup`) stays on `require('dadbod-ui')`; this
 --- module is for driving connections, introspection, queries and exports.
 ---
 --- The surface groups into: drawer control (`open`/`toggle`/`close`/`reveal`/
@@ -946,7 +946,7 @@ end
 
 --- [query-buf/dbout-buf] Connection/table info for the current query buffer, or the last query's
 --- runtime for a `.dbout` buffer -- safe to embed in a `statusline`/`winbar`
---- expression. Never opens the drawer. Mirrors the original `db_ui#statusline()`.
+--- expression. Never opens the drawer. Provides `db_ui#statusline()` semantics.
 ---@param opts? DadbodUI.StatuslineOpts
 ---@return string
 function M.statusline(opts)

@@ -4,9 +4,8 @@
 --- # Configuration ~
 ---
 --- Options are passed to |dadbod-ui.setup()| as a table with snake_case keys
---- (the field surface is |DadbodUI.Config|). For a smooth migration from
---- vim-dadbod-ui the legacy `g:db_ui_*` globals are also read; precedence is
---- defaults < legacy `g:db_ui_*` globals < `setup()` opts. Every option has a
+--- (the field surface is |DadbodUI.Config|). The `g:db_ui_*` globals are also
+--- read; precedence is defaults < `g:db_ui_*` globals < `setup()` opts. Every option has a
 --- sensible default, so `setup()` is optional. See `M.defaults` in
 --- `lua/dadbod-ui/config.lua` for the full default table.
 
@@ -21,9 +20,9 @@
 ---@diagnostic disable-next-line: missing-fields
 local M = {}
 
---- Built-in defaults. Keys mirror the original `g:db_ui_*` options with the
---- `db_ui_` prefix dropped. Booleans are real Lua booleans (the legacy globals
---- use 0/1 and are coerced on read).
+--- Built-in defaults. Keys mirror the `g:db_ui_*` options with the
+--- `db_ui_` prefix dropped. Booleans are real Lua booleans (the `g:db_ui_*`
+--- globals use 0/1 and are coerced on read).
 ---@type DadbodUI.Config
 M.defaults = {
   save_location = '~/.local/share/db_ui',
@@ -34,7 +33,7 @@ M.defaults = {
   -- table in the drawer. Named helpers render first, in this sequence, when
   -- present for the adapter (a name the adapter doesn't have is skipped, not
   -- shown blank); any present helper not named here falls back after those,
-  -- sorted alphabetically. Defaults to the original vim-dadbod-ui sequence.
+  -- sorted alphabetically. Defaults to the standard drawer help-key sequence.
   table_helpers_order = { 'List', 'Columns', 'Indexes', 'Primary Keys', 'Foreign Keys', 'References' },
   default_query = 'SELECT * from "{table}" LIMIT 200;',
   execute_on_save = false,
@@ -50,7 +49,7 @@ M.defaults = {
   -- Split direction dadbod opens the `.dbout` result window in. dadbod itself
   -- decides horizontal vs. vertical off the command modifiers on `:DB`/`%DB`
   -- (see bridge.lua's execute functions), so this only steers which modifier we
-  -- prefix. 'horizontal' matches the original/legacy behavior.
+  -- prefix. 'horizontal' is the default layout.
   result_layout = 'horizontal',
   show_help = true,
   show_database_icon = false,
@@ -286,7 +285,7 @@ local function freeze(t)
   })
 end
 
---- Resolve effective config: defaults < legacy `g:db_ui_*` globals < `opts`. The
+--- Resolve effective config: defaults < `g:db_ui_*` globals < `opts`. The
 --- returned table is frozen (see `freeze`): it is the session's shared config, so
 --- accidental writes to it raise rather than silently corrupting every reader.
 ---@param opts? table  partial config overrides

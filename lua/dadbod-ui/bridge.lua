@@ -1,9 +1,9 @@
 -- Thin pass-through over vim-dadbod (the query engine)
 --
--- This module is the ONLY place in the port that talks to vim-dadbod. Every
+-- This module is the ONLY place in the plugin that talks to vim-dadbod. Every
 -- function is a thin wrapper over dadbod's vimscript API (`db#*`) and the `:DB`
--- command. The Lua port keeps dadbod as the engine and owns only the UI, so
--- this file is the engine boundary -- keep it small and faithful.
+-- command. The plugin keeps dadbod as the engine and owns only the UI, so
+-- this file is the engine boundary -- keep it small and focused.
 --
 -- vim-dadbod exposes TWO execution paths and we mirror both:
 --
@@ -229,7 +229,8 @@ end
 --- `inputsecret` prompt + password caching behave identically -- blocking there
 --- is moot since the user is being prompted anyway. Any error building the probe
 --- (unknown adapter shape, etc.) also falls back to the blocking connect, so this
---- is never worse than the original, only faster in the common no-prompt case.
+--- is never worse than a plain blocking connect, only faster in the common
+--- no-prompt case.
 ---@param url string
 ---@param on_result fun(ok: boolean, conn: string)
 ---@return nil
@@ -557,8 +558,8 @@ function M.execute_lines(lines, url, quiet, vertical)
   M.execute_file(file, url, quiet, vertical)
 end
 
--- dadbod fires `doautocmd User {output}/DBExecute{Pre,Post}`; the original UI
--- matches these with the trailing-suffix pattern `*DBExecutePre|Post`.
+-- dadbod fires `doautocmd User {output}/DBExecute{Pre,Post}`; these are matched
+-- with the trailing-suffix pattern `*DBExecutePre|Post`.
 ---@private
 ---@param suffix string
 ---@param cb DadbodUI.ExecuteEventCallback

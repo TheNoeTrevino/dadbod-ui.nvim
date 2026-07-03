@@ -219,8 +219,7 @@ function Drawer:open(mods)
   bo.filetype = 'dbui'
   -- Signal that the drawer opened so users can hook it (`autocmd User DBUIOpened`).
   -- We fire only on a real open, not when `open()` focuses an already-open drawer
-  -- (the early return above) -- a divergence from the original, which re-fired the
-  -- event on every focus; a one-shot open event is the useful hook.
+  -- (the early return above), so this stays a one-shot open event.
   vim.api.nvim_exec_autocmds('User', { pattern = 'DBUIOpened' })
   return self
 end
@@ -308,7 +307,7 @@ end
 --- from the `b:dbui_*` contract, keeping only the requested, non-empty fields; a
 --- `.dbout` result buffer renders `Last query time: <t> sec.` when a runtime is
 --- known. Returns `''` for any other buffer, so it stays inert in unrelated
---- windows. Port of `db_ui#statusline`.
+--- windows.
 ---@param opts? DadbodUI.StatuslineOpts
 ---@return string
 function Drawer:statusline(opts)
@@ -420,8 +419,8 @@ function Drawer:setup_mappings()
   local group = self.config.mappings.sidebar
   local opts = { buffer = self.bufnr, nowait = true, silent = true }
 
-  -- The help toggle is always available (even when mappings are disabled),
-  -- matching the original -- though a `key = 'none'` still opts it out.
+  -- The help toggle is always available (even when mappings are disabled), though
+  -- a `key = 'none'` still opts it out.
   for _, b in ipairs(mappings.binds(group.help)) do
     vim.keymap.set(b.mode, b.lhs, handlers.help, opts)
   end
