@@ -511,6 +511,35 @@ local function prompt_params(input, names, known, on_done)
   step()
 end
 
+---@private
+--- Resolve bind-param values before falling back to prompting. Fires the
+--- `resolve_bind_params` config hook (if any) with the placeholder `names` and the
+--- already-`known` values; any string values it returns for those names are merged
+--- on top of `known` (the hook is authoritative for the keys it answers), so
+--- `prompt_params` only prompts for what is still missing. A missing / throwing
+--- hook is a clean no-op -- the flow degrades to plain prompting. Lets users source
+--- values from env / a vault / a fixed table instead of typing them.
+---@param config DadbodUI.Config
+---@param input DadbodUI.UiInput
+---@param names string[]  placeholder names in query order
+---@param known DadbodUI.BindParams  already-answered values
+---@param on_done fun(values: DadbodUI.BindParams|nil)
+---@return nil
+local function resolve_params(config, input, names, known, on_done)
+  local resolved = require('dadbod-ui.hooks').call(config, 'resolve_bind_params', names, known)
+  if type(resolved) == 'table' then
+    -- Copy so we never mutate the buffer's stored `b:dbui_bind_params` table, and
+    -- only pull string values for the actual placeholders (ignore stray keys).
+    known = vim.tbl_extend('keep', {}, known)
+    for _, name in ipairs(names) do
+      if type(resolved[name]) == 'string' then
+        known[name] = resolved[name]
+      end
+    end
+  end
+  prompt_params(input, names, known, on_done)
+end
+
 --- Run already-substituted `lines` through the engine via a temp file (see
 --- `bridge.execute_lines`). `entry` is captured before prompting so execution
 --- targets the right connection even if focus moved while an async prompt was open.
@@ -684,7 +713,7 @@ function Query:execute_query(is_visual, transform)
   if entry == nil then
     return notify.error('Buffer not attached to any database')
   end
-  prompt_params(self.input, names, stored_params(bufnr), function(values)
+  resolve_params(self.config, self.input, names, stored_params(bufnr), function(values)
     if values == nil then
       return notify.info('Bind parameters cancelled. Query not executed.')
     end
@@ -752,7 +781,7 @@ function Query:explain_query(is_visual, opts)
 
   -- Capture the buffer now: an async prompt may resolve after focus has moved.
   local bufnr = vim.api.nvim_get_current_buf()
-  prompt_params(self.input, names, stored_params(bufnr), function(values)
+  resolve_params(self.config, self.input, names, stored_params(bufnr), function(values)
     if values == nil then
       return notify.info('Bind parameters cancelled. Query not explained.')
     end
@@ -803,7 +832,7 @@ function Query:export_query(is_visual)
 
   -- Capture the buffer now: an async prompt may resolve after focus has moved.
   local bufnr = vim.api.nvim_get_current_buf()
-  prompt_params(self.input, names, stored_params(bufnr), function(values)
+  resolve_params(self.config, self.input, names, stored_params(bufnr), function(values)
     if values == nil then
       return notify.info('Bind parameters cancelled. Query not exported.')
     end

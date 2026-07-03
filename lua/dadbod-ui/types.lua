@@ -422,10 +422,12 @@
 ---@alias DadbodUI.HookEvent DadbodUI.ConnectEvent|DadbodUI.QueryEvent|DadbodUI.QueryResultEvent|DadbodUI.CancelEvent
 
 --- User-configurable lifecycle hooks (`config.hooks`). Every hook is optional; a
---- missing one is a clean no-op. `on_connect` is a transform: returning a string
---- rewrites the connection url before connecting (the password use case). The
---- rest are observers -- their return value is ignored. A throwing hook is caught
---- and notified, never aborting the underlying connect / execute / cancel.
+--- missing one is a clean no-op. Two hooks are transforms whose return value is
+--- consumed: `on_connect` rewrites the connection url before connecting (the
+--- password use case), and `resolve_bind_params` supplies bind-param values before
+--- prompting. The `on_*` lifecycle hooks are observers -- their return value is
+--- ignored. A throwing hook is caught and notified, never aborting the underlying
+--- connect / execute / cancel.
 ---@class DadbodUI.Hooks
 ---@field on_connect? fun(event: DadbodUI.ConnectEvent): string|nil  before connect; return a string to rewrite the url
 ---@field on_connect_post? fun(event: DadbodUI.ConnectEvent)  after connect (success/error on the event)
@@ -433,6 +435,7 @@
 ---@field on_execute_query_post? fun(event: DadbodUI.QueryResultEvent)  after the result lands (read/persist rows)
 ---@field on_cancel_query? fun(event: DadbodUI.CancelEvent)  before a running query is cancelled
 ---@field on_cancel_query_post? fun(event: DadbodUI.CancelEvent)  after a running query is cancelled
+---@field resolve_bind_params? fun(names: string[], known: DadbodUI.BindParams): table<string, string>|nil  supply bind-param values before prompting; return a name->value map (partial ok), nil/omitted prompts for all
 
 --- A single configurable keybinding. `key` is a string, a list of strings
 --- (aliases), or `'none'` to disable. `mode` (default `'n'`) is the mode(s) it
