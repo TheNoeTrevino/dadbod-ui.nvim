@@ -32,8 +32,8 @@
 ---@field close fun()
 ---@field add_connection fun()
 ---@field connections_list fun(): DadbodUI.ConnectionInfo[]
----@field execute_query fun()
----@field execute_selection fun()
+---@field execute_query fun(transform?: DadbodUI.SqlTransform)
+---@field execute_selection fun(transform?: DadbodUI.SqlTransform)
 ---@field explain_query fun(opts?: DadbodUI.ExplainOpts)
 ---@field explain_selection fun(opts?: DadbodUI.ExplainOpts)
 ---@field export_query fun()
@@ -113,16 +113,22 @@ function M.connections_list()
   return state.get():connections_list()
 end
 
---- Execute the current query buffer through dadbod (the whole buffer).
+--- Execute the current query buffer through dadbod (the whole buffer). An optional
+--- `transform` rewrites the runnable SQL before it is dispatched (see
+--- `DadbodUI.SqlTransform`); omitting it runs the buffer unchanged. Backs
+--- `api.execute_query`.
+---@param transform? DadbodUI.SqlTransform
 ---@return nil
-function M.execute_query()
-  drawer():query():execute_query(false)
+function M.execute_query(transform)
+  drawer():query():execute_query(false, transform)
 end
 
---- Execute the current visual selection through dadbod.
+--- Execute the current visual selection through dadbod. Takes the same optional
+--- `transform` as `execute_query`. Backs `api.execute_selection`.
+---@param transform? DadbodUI.SqlTransform
 ---@return nil
-function M.execute_selection()
-  drawer():query():execute_query(true)
+function M.execute_selection(transform)
+  drawer():query():execute_query(true, transform)
 end
 
 --- Explain the current query buffer: wrap its SQL in the adapter's EXPLAIN syntax
