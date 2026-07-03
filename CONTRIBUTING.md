@@ -81,6 +81,8 @@ Please adhere to these separations as much as possible.
 
 `query.lua` - query buffers: open, set the `b:dbui_*` contract, execute.
 
+`picker/` - the connection picker: `init.lua` routes to the configured/available backend (Snacks, Telescope, fzf-lua, with a `vim.ui.select` fallback), one file per backend, `utils.lua` for the shared items + select action.
+
 `drawer/` - the tree UI: `init.lua` (window + render), `content.lua` (pure `Node[]` builders), `actions.lua` (cursor verbs), `paint.lua` (buffer writes).
 
 `dbout/` - result buffers: `init.lua` (wiring), `winbar.lua`, `pagination.lua`, `cells.lua` (folds + cell/FK nav), `ctx.lua` (shared state).
