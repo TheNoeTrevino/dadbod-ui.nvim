@@ -11,8 +11,8 @@
 --- module is for driving connections, introspection, queries and exports.
 ---
 --- The surface groups into: drawer control (`open`/`toggle`/`close`/`reveal`/
---- `refresh`), connection management (`list`/`info`/`add`/`remove`/`rename`/
---- `duplicate`/`set_group`/`move`/`connect`/`disconnect`), introspection
+--- `refresh`), connection management (`list`/`info`/`pick`/`add`/`remove`/
+--- `rename`/`duplicate`/`set_group`/`move`/`connect`/`disconnect`), introspection
 --- (`introspect`/`schemas`/`tables`), queries (`query`/`query_sync`/`execute`/
 --- `explain`/`open_query`/`switch_buffer`), export (`export`/`export_result`),
 --- buffer verbs that act on the focused query buffer (`execute_query`/
@@ -89,6 +89,7 @@
 ---@field refresh fun(name: string): boolean, string|nil
 ---@field list fun(): DadbodUI.ConnectionInfo[]
 ---@field info fun(name: string): DadbodUI.ApiConnInfo|nil
+---@field pick fun(opts?: table)
 ---@field is_connected fun(name: string): boolean
 ---@field add fun(spec: DadbodUI.ApiAddSpec): boolean, string|nil
 ---@field remove fun(name: string): boolean, string|nil
@@ -378,6 +379,17 @@ function M.info(name)
     schemas = entry.schemas.list,
     connected = state.is_connected(entry),
   }
+end
+
+--- [any] Open the connection picker: an interactive list of every discovered
+--- connection where `<CR>` connects the selection. The backend is chosen by
+--- `config.picker` -- `'auto'` (the default) tries Snacks.nvim, Telescope.nvim,
+--- then fzf-lua, falling back to `vim.ui.select` when none is installed. `opts`
+--- is passed straight to the underlying picker implementation, so its shape
+--- depends on the configured backend (e.g. a `snacks.picker.Config` for snacks).
+---@param opts? table
+function M.pick(opts)
+  require('dadbod-ui.picker').show(opts)
 end
 
 --- [any] Whether `name` currently holds a live connection. False for an unknown name.

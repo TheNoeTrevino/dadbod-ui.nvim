@@ -330,6 +330,7 @@
 ---@field drawer_sections string[]
 ---@field expand_groups boolean
 ---@field dbout_list_sort 'asc'|'desc'
+---@field picker 'auto'|'snacks'|'telescope'|'fzf'|'fallback'  connection picker backend (api.pick)
 ---@field force_echo_notifications boolean
 ---@field disable_info_notifications boolean
 ---@field use_nvim_notify boolean
