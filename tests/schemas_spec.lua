@@ -1,5 +1,5 @@
 -- Specs for dadbod-ui.schemas: the per-adapter introspection metadata, the
--- result parsers (ported verbatim from vim-dadbod-ui), schema-support detection,
+-- result parsers, schema-support detection,
 -- and the command-spec construction used by the concurrent introspection path.
 
 local schemas = require('dadbod-ui.schemas')
@@ -50,7 +50,7 @@ describe('schemas: supports_schemes', function()
   end)
 end)
 
-describe('schemas: result parsers (verbatim port)', function()
+describe('schemas: result parsers', function()
   it('parses postgres schema and table output, stripping header and row count', function()
     local pg = schemas.get('postgres')
     local schema_lines = { 'schema_name', 'public', 'information_schema', '(2 rows)' }

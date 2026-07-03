@@ -2,9 +2,8 @@
 --
 -- Internal helpers used by the per-adapter builders (and the dispatcher): Vim
 -- list-slice emulation, blank detection, SQL identifier/literal escaping, the
--- routine-kind keyword map, and the `s:results_parser` port. These are ported
--- verbatim from vim-dadbod-ui's `autoload/db_ui/schemas.vim`; the slicing and
--- splitting rules encode each CLI's exact output framing and must not change.
+-- routine-kind keyword map, and the results parser. The slicing and splitting
+-- rules encode each CLI's exact output framing and must not change.
 
 local P = {}
 
@@ -84,11 +83,11 @@ function P.routine_verb(kind)
 end
 
 ---@private
--- Port of `s:results_parser`. `delimiter` is a Vim regex (split is done with
--- `vim.fn.split`, identical to the original). For `min_len == 1` the rows are
--- returned untouched (sans blanks); otherwise each row is split into fields and
--- only the rows of the expected width are kept -- when `min_len == 0` that width
--- is the widest row seen.
+-- Split raw command output into rows. `delimiter` is a Vim regex (split is done
+-- with `vim.fn.split`). For `min_len == 1` the rows are returned untouched (sans
+-- blanks); otherwise each row is split into fields and only the rows of the
+-- expected width are kept -- when `min_len == 0` that width is the widest row
+-- seen.
 ---@param results string[]
 ---@param delimiter string
 ---@param min_len integer

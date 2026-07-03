@@ -125,7 +125,7 @@ end
 --- Connect a connection if not already connected (SYNCHRONOUS -- blocks Neovim).
 --- Kept for the query / manual-assign paths that must have a live `b:db` before
 --- proceeding on the same tick. Errors are captured on the entry (surfaced as the
---- error icon) and notified, mirroring the original. The drawer-expand path uses
+--- error icon) and notified. The drawer-expand path uses
 --- the non-blocking `connect_async` instead.
 ---@param entry DadbodUI.ConnectionEntry
 ---@return DadbodUI.ConnectionEntry
@@ -161,8 +161,7 @@ function Introspect:connect_async(entry, on_done)
 end
 
 --- Introspect a connected entry: schema-supporting adapters fan out their
---- schema/table queries, the rest list tables directly. Port of
---- `drawer.populate`.
+--- schema/table queries, the rest list tables directly.
 ---@param entry DadbodUI.ConnectionEntry
 ---@return nil
 function Introspect:populate(entry)
@@ -210,8 +209,8 @@ function Introspect:expand_db(entry)
 end
 
 --- Refresh `entry.saved_queries.list` from the files on disk under its save_path.
---- Port of `s:drawer.load_saved_queries`. Lives here so the query controller can
---- refresh saved queries without reaching back through the drawer.
+--- Lives here so the query controller can refresh saved queries without reaching
+--- back through the drawer.
 ---@param entry DadbodUI.ConnectionEntry
 ---@return nil
 function Introspect:load_saved_queries(entry)
@@ -220,8 +219,7 @@ function Introspect:load_saved_queries(entry)
   end
 end
 
---- Whether `schema_name` matches any `hide_schemas` pattern (Vim regexes, as in
---- the original).
+--- Whether `schema_name` matches any `hide_schemas` pattern (Vim regexes).
 ---@param schema_name string
 ---@return boolean
 function Introspect:_is_schema_ignored(schema_name)
@@ -231,8 +229,7 @@ function Introspect:_is_schema_ignored(schema_name)
 end
 
 --- Ensure every table in `tables.list` has an expand-state item, preserving the
---- existing ones (so a refresh keeps tables expanded). Port of
---- `populate_table_items`.
+--- existing ones (so a refresh keeps tables expanded).
 ---@param tables DadbodUI.TablesNode
 ---@return nil
 function Introspect:populate_table_items(tables)
@@ -243,8 +240,8 @@ function Introspect:populate_table_items(tables)
   end
 end
 
---- Introspect schemas + tables concurrently and render. Port of
---- `populate_schemas`, with the two queries fanned out via `run_many`.
+--- Introspect schemas + tables concurrently and render, with the two queries
+--- fanned out via `run_many`.
 ---@param entry DadbodUI.ConnectionEntry
 ---@return nil
 function Introspect:populate_schemas(entry)
@@ -288,8 +285,8 @@ function Introspect:populate_schemas(entry)
 end
 
 --- Fold parsed schema names and (schema, table) rows into the entry, honoring
---- `hide_schemas`. Port of the body of `populate_schemas`: tables are grouped
---- per schema and also collected into the flat `entry.tables.list`.
+--- `hide_schemas`: tables are grouped per schema and also collected into the
+--- flat `entry.tables.list`.
 ---@param entry DadbodUI.ConnectionEntry
 ---@param schema_list string[]
 ---@param table_rows string[][]
@@ -344,9 +341,8 @@ end
 --- Fold parsed `(schema, name, kind)` routine rows into `entry.routines`. Schema-
 --- supporting adapters group routines per schema (mirroring `apply_schemas`,
 --- honoring `hide_schemas` and preserving each schema node's expand state); flat
---- adapters collect every routine into `entry.routines.flat`. Divergence from
---- upstream vim-dadbod-ui, which lists no procedures/functions at all -- this is
---- the first DBeaver-style object-introspection feature (see the commit message).
+--- adapters collect every routine into `entry.routines.flat`. This lists the
+--- database's stored procedures and functions in the drawer.
 ---@param entry DadbodUI.ConnectionEntry
 ---@param scheme_info DadbodUI.SchemaAdapter
 ---@param routine_rows string[][]
@@ -382,8 +378,8 @@ function Introspect:apply_routines(entry, scheme_info, routine_rows)
 end
 
 --- Introspect tables for a non-schema adapter (e.g. sqlite) via dadbod's
---- `tables` adapter call and render. Port of `populate_tables`, including the
---- sqlite whitespace fix and the mysql warning filter. When the adapter also
+--- `tables` adapter call and render, including the sqlite whitespace fix and the
+--- mysql warning filter. When the adapter also
 --- exposes routines (mysql pointed at a single database), those are fetched
 --- concurrently via `run_many` and folded in on land.
 ---@param entry DadbodUI.ConnectionEntry

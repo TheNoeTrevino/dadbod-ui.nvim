@@ -7,9 +7,8 @@
 -- while the query runs (replaced by the rows on completion), and we record each
 -- executed result under the drawer's `Query results` section.
 --
--- This deviates from the original on the loading symbol only: vim-dadbod-ui
--- shows a floating progress window, whereas we animate a braille `dots12`
--- spinner in the buffer itself. Both are gated by `disable_progress_bar`.
+-- The loading symbol is a braille `dots12` spinner animated in the output
+-- buffer itself, gated by `disable_progress_bar`.
 --
 -- This module is the wiring / coordinator: it owns the per-execution pending
 -- context and the DB event hooks (`_on_pre`/`_on_post`), and delegates the result
@@ -355,7 +354,7 @@ end
 
 --- Record an executed result file under the drawer's `Query results` section and
 --- re-render. The preview content is the first line of the query input (the
---- statement that produced it), truncated. Port of `s:dbui.save_dbout`.
+--- statement that produced it), truncated.
 ---@param file string  the .dbout result file path
 ---@return nil
 function M.save_dbout(file)
@@ -379,8 +378,7 @@ function M.save_dbout(file)
 end
 
 --- Comparator for result files in the `Query results` section: numeric by
---- basename, ascending or descending per `dbout_list_sort`. Port of
---- `s:sort_dbout`.
+--- basename, ascending or descending per `dbout_list_sort`.
 ---@param a string
 ---@param b string
 ---@return boolean

@@ -2,7 +2,7 @@
 -- catalog SQL + definition builders, folding parsed routine rows into the entry
 -- (nested per schema / flat / hidden schemas), the Procedures drawer section
 -- (nested, flat, non-empty-only, sqlite no-op), and the open-definition action.
--- A deliberate improvement over upstream vim-dadbod-ui, which lists no routines.
+-- Covers listing stored routines (procedures/functions) per adapter.
 -- No live DB required -- parsers are pure and populate mocks bridge.run_many.
 
 local schemas = require('dadbod-ui.schemas')

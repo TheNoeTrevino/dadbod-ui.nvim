@@ -5,8 +5,7 @@ local parse = require('dadbod-ui.schemas.parse')
 
 ---@private
 -- Oracle wraps every query with SQL*Plus formatting (`SET linesize ...`) joined
--- with `;\n`, ending in `;` -- the original builds this with `printf`, so the
--- query takes the place of the trailing `%s`.
+-- with `;\n`, ending in `;`; the query is appended after the formatting lines.
 local oracle_arg_lines = {
   'SET linesize 4000',
   'SET pagesize 4000',
@@ -62,9 +61,9 @@ SELECT /*csv*/ T.owner, T.table_name
 
  ORDER BY T.table_name]]
 
-  -- Standalone procedures + functions from the data dictionary (DBeaver reads
-  -- `ALL_OBJECTS` for the routine list and `DBMS_METADATA.GET_DDL` for the
-  -- source). Packaged routines are intentionally out of scope here.
+  -- Standalone procedures + functions from the data dictionary: `ALL_OBJECTS`
+  -- for the routine list and `DBMS_METADATA.GET_DDL` for the source. Packaged
+  -- routines are intentionally out of scope here.
   local procedures_query = [[
 SELECT /*csv*/ O.owner, O.object_name, LOWER(O.object_type)
  FROM all_objects O

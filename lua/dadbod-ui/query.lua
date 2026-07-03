@@ -1,8 +1,7 @@
 -- Query buffers: open, set the b:dbui_* contract, execute
 --
--- Faithful port of vim-dadbod-ui's `autoload/db_ui/query.vim`. A `Query` is
--- created over the drawer and owns the SQL buffers: opening a `New query` or a
--- table-helper buffer, setting the buffer-local contract verbatim
+-- A `Query` is created over the drawer and owns the SQL buffers: opening a
+-- `New query` or a table-helper buffer, setting the buffer-local contract
 -- (`b:dbui_db_key_name`, `b:db`, `b:dbui_table_name`, `b:dbui_schema_name`),
 -- and executing on save through the bridge's async `:DB` path. Bind parameters
 -- (M9) are detected on execute, prompted for, persisted in `b:dbui_bind_params`,
@@ -100,8 +99,7 @@ end
 
 --- Open the buffer a drawer `item` points at. `buffer`/`saved_query` items open
 --- their existing file; every other openable item (New query, a table helper)
---- builds a fresh buffer name and pre-fills the templated query. Port of
---- `s:query.open`.
+--- builds a fresh buffer name and pre-fills the templated query.
 ---@param item DadbodUI.Node
 ---@param edit_action string  'edit' | 'vertical … split' | …
 ---@return nil
@@ -141,8 +139,7 @@ end
 --- filename rather than Neovim's `filetype`. Honors a configured
 --- `buffer_name_generator` (whose output is used verbatim -- no extension is
 --- forced onto a user-supplied name), prefers the tmp-query location, and
---- otherwise drops it next to `tempname()` (tracking it as a tmp buffer). Port of
---- `s:query.generate_buffer_name`.
+--- otherwise drops it next to `tempname()` (tracking it as a tmp buffer).
 ---@param entry DadbodUI.ConnectionEntry
 ---@param opts { label: string, table?: string, schema?: string, filetype: string }
 ---@return string
@@ -171,7 +168,7 @@ end
 
 --- Move to a window suitable for the query buffer: reuse one already holding a
 --- dbui query buffer, else a normal editable window, else open a vertical split
---- on the side opposite the drawer. Port of `s:query.focus_window`.
+--- on the side opposite the drawer.
 ---@return nil
 function Query:focus_window()
   local win_cmd = 'vertical ' .. utils.opposite_position(self.config.win_position) .. ' new'
@@ -205,7 +202,6 @@ end
 --- Open `name` for `entry` via `edit_action`, set the buffer contract, and (for
 --- table-helper opens) substitute the placeholders into the templated query and
 --- optionally auto-execute. Connects the entry first so `b:db` is a live handle.
---- Port of `s:query.open_buffer`.
 ---@param entry DadbodUI.ConnectionEntry
 ---@param name string
 ---@param edit_action string
@@ -302,7 +298,6 @@ end
 
 --- Set the buffer-local contract, register the buffer with its connection,
 --- configure buffer options, and wire the execute-on-save / cleanup autocmds.
---- Port of `s:query.setup_buffer`.
 ---@param entry DadbodUI.ConnectionEntry
 ---@param opts { table?: string, schema?: string, existing_buffer?: boolean }
 ---@param name string
@@ -570,8 +565,7 @@ end
 --- persist the full set in `b:dbui_bind_params`, substitute the quoted values, and
 --- run the rewritten SQL from a temp file. Cancelling a prompt aborts without
 --- executing or persisting. Dadbod errors (e.g. a query already running for the
---- tab) surface as a notification rather than a raw stack trace. Port of
---- `s:query.execute_query` + `execute_lines` + `inject_variables`.
+--- tab) surface as a notification rather than a raw stack trace.
 ---@param is_visual? boolean
 ---@return nil
 function Query:execute_query(is_visual)
@@ -799,8 +793,7 @@ function Query:cancel_query()
   hooks.run(self.config, 'on_cancel_query_post', { bufnr = bufnr })
 end
 
---- Set or revise a bind parameter (`<Leader>E`). Improves on the original, which
---- could only touch parameters already answered via execute: we union the
+--- Set or revise a bind parameter (`<Leader>E`). Unions the
 --- placeholders detected in the buffer (in query order) with any stored names no
 --- longer present, so you can pre-fill a value BEFORE the first run instead of
 --- hitting a dead end. Unanswered params show as "Not provided" in the picker.
@@ -809,7 +802,7 @@ end
 --- leaves it unchanged. Entering an empty value keeps the entry but makes the
 --- placeholder a raw literal on the next run (the documented escape hatch).
 --- Delete is intentionally dropped -- edit-to-empty covers the only behavior it
---- offered. Port of `s:query.edit_bind_parameters`.
+--- offered.
 ---@return nil
 function Query:edit_bind_parameters()
   local notify = require('dadbod-ui.notifications')
@@ -871,7 +864,6 @@ function Query:edit_bind_parameters()
 end
 
 --- Drop a wiped/deleted buffer from its connection's buffer lists and re-render.
---- Port of `s:query.remove_buffer`.
 ---@param bufnr integer
 ---@return nil
 function Query:remove_buffer(bufnr)
@@ -891,8 +883,7 @@ end
 
 --- Save the current query buffer to the connection's save_path under a name the
 --- user provides, then reopen it as a saved query. Rejects a blank name or an
---- existing file. Port of `s:query.save_query` (callback-shaped for our async
---- prompt backend).
+--- existing file. Callback-shaped for the async prompt backend.
 ---@return nil
 function Query:save_query()
   local notify = require('dadbod-ui.notifications')
@@ -928,7 +919,7 @@ end
 --- The last executed query and its runtime. `last_query` is captured
 --- synchronously on dispatch; `last_query_time` (seconds) is recorded by
 --- `dadbod-ui.dbout` once the async result lands (dadbod's `b:db.runtime`), so it
---- is `''` until the first result comes back. Port of `s:query.get_last_query_info`.
+--- is `''` until the first result comes back.
 ---@return DadbodUI.LastQueryInfo
 function Query:get_last_query_info()
   return { last_query = self.last_query, last_query_time = self.last_query_time }
@@ -939,7 +930,7 @@ end
 --- `.sql` file opened under the tmp-query or save directory. A tmp-location file
 --- matches the `<name>-…` buffer prefix (stripping a leading `db_ui.` root); a
 --- save-location file lives in a per-connection subdir named for the db. Returns
---- `''` when nothing matches. Port of `s:query.get_saved_query_db_name`.
+--- `''` when nothing matches.
 ---@return string
 function Query:get_saved_query_db_name()
   local dir = vim.fn.expand('%:p:h')

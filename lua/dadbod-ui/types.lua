@@ -63,21 +63,21 @@
 ---@class DadbodUI.TableItem
 ---@field expanded boolean
 
---- A tables collection (the original's `{ expanded, list, items }`).
+--- A tables collection: `{ expanded, list, items }`.
 ---@class DadbodUI.TablesNode
 ---@field expanded boolean
 ---@field list string[]
 ---@field items table<string, DadbodUI.TableItem>
 
---- A connection's open query buffers (the original's `db.buffers`). `list` holds
---- full buffer file paths; `tmp` is the subset living in the tmp-query location.
+--- A connection's open query buffers. `list` holds full buffer file paths;
+--- `tmp` is the subset living in the tmp-query location.
 ---@class DadbodUI.BuffersNode
 ---@field expanded boolean
 ---@field list string[]
 ---@field tmp string[]
 
---- A connection's persisted saved queries (the original's `db.saved_queries`).
---- `list` holds full file paths under the connection's save_path.
+--- A connection's persisted saved queries. `list` holds full file paths under
+--- the connection's save_path.
 ---@class DadbodUI.SavedQueriesNode
 ---@field expanded boolean
 ---@field list string[]
@@ -118,9 +118,9 @@
 ---@field items table<string, DadbodUI.RoutineSchemaItem>  per-schema routines (schema adapters)
 ---@field flat DadbodUI.RoutineItem[]  routines, ungrouped (non-schema adapters)
 
---- Per-adapter introspection metadata (dadbod-ui.schemas). Mirrors the original
---- `s:schemas[scheme]` dict; M6 uses the schema/table listing fields, M10 uses
---- the dbout foreign-key / cell / layout fields below.
+--- Per-adapter introspection metadata (dadbod-ui.schemas). M6 uses the
+--- schema/table listing fields, M10 uses the dbout foreign-key / cell / layout
+--- fields below.
 ---@class DadbodUI.SchemaAdapter
 ---@field args? string[]              extra argv appended to the adapter command
 ---@field schemes_query? string       SQL listing schema names
@@ -135,8 +135,8 @@
 ---@field requires_stdin? boolean
 ---@field callable? string            'interactive' (default) | 'filter'
 --- dbout (result-buffer) metadata, used by dadbod-ui.dbout for folding + cell /
---- foreign-key navigation. SQL is copied verbatim from the original (the
---- "correct SQL" interop contract); the patterns are Vim regexes.
+--- foreign-key navigation. The SQL must match the exact result layout dadbod
+--- renders (the "correct SQL" interop contract); the patterns are Vim regexes.
 ---@field foreign_key_query? string   SQL resolving a column's foreign table; carries the `{col_name}` placeholder
 ---@field select_foreign_key_query? string  string.format template (schema, table, column, value) for the jump SELECT
 ---@field cell_line_number? integer   first possible separator (column-underline) line
@@ -365,8 +365,8 @@
 ---@field last_query string[]  lines of the most recently executed query
 ---@field last_query_time string  runtime in seconds ('' before any result)
 
---- Options for `require('dadbod-ui').statusline()` (mirrors the original
---- `db_ui#statusline()` opts dict). All optional; defaults match the original.
+--- Options for `require('dadbod-ui').statusline()` (the `db_ui#statusline()`
+--- opts dict). All optional.
 ---@class DadbodUI.StatuslineOpts
 ---@field prefix? string  leading text (default 'DBUI: ')
 ---@field separator? string  joiner between the shown fields (default ' -> ')

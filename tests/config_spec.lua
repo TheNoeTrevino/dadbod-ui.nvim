@@ -41,7 +41,7 @@ describe('config', function()
     assert.equals('vertical', config.resolve({ result_layout = 'vertical' }).result_layout)
   end)
 
-  it('reads legacy g:db_ui_* globals', function()
+  it('reads g:db_ui_* globals', function()
     set_global('db_ui_winwidth', 100)
     assert.equals(100, config.resolve().winwidth)
   end)

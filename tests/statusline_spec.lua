@@ -1,6 +1,6 @@
 -- Specs for the statusline public API and the last-query-info surface. Drawer
 -- behavior is driven through an injected drawer (dependency injection over the
--- global singleton); the `db_ui#statusline` autoload shim is exercised directly.
+-- global singleton); the `db_ui#statusline` autoload interface is exercised directly.
 
 local drawer_mod = require('dadbod-ui.drawer')
 local state = require('dadbod-ui.state')
@@ -81,7 +81,7 @@ describe('statusline', function()
     assert.equals('Last query time: 0.012 sec.', d:statusline())
   end)
 
-  it('is reachable through the db_ui#statusline autoload shim', function()
+  it('is reachable through the db_ui#statusline autoload interface', function()
     vim.cmd('silent! %bwipeout!')
     assert.equals('', vim.fn['db_ui#statusline']())
     assert.equals('', vim.fn['db_ui#statusline']({ prefix = 'x' }))
