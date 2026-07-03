@@ -20,6 +20,12 @@ local bind_params = require('dadbod-ui.bind_params')
 local introspect = require('dadbod-ui.introspect')
 local utils = require('dadbod-ui.utils')
 
+--- A last-mile SQL rewrite hook for `execute_query`/`execute_selection`. Receives
+--- the runnable SQL (a single string, after bind-param substitution) and returns
+--- the SQL to run instead -- e.g. wrapping the query in EXPLAIN. Returning nil
+--- runs the query unchanged.
+---@alias DadbodUI.SqlTransform fun(sql: string): string|nil
+
 ---@class DadbodUI.QueryModule
 ---@field connection_winbar fun(entry: DadbodUI.ConnectionEntry): string
 ---@field new fun(drawer: DadbodUI.Drawer): DadbodUI.Query
@@ -566,9 +572,17 @@ end
 --- run the rewritten SQL from a temp file. Cancelling a prompt aborts without
 --- executing or persisting. Dadbod errors (e.g. a query already running for the
 --- tab) surface as a notification rather than a raw stack trace.
+---
+--- `transform` is an optional last-mile rewrite hook: it receives the runnable SQL
+--- (a single string, AFTER any bind params are substituted) and returns the SQL to
+--- run instead -- e.g. wrapping the query in EXPLAIN. This is the sanctioned
+--- MUTATION point, distinct from the observer-only `on_execute_query` event.
+--- Returning nil (or omitting `transform`) runs the buffer unchanged (whole-buffer
+--- runs keep dadbod's `%DB` fast path).
 ---@param is_visual? boolean
+---@param transform? DadbodUI.SqlTransform
 ---@return nil
-function Query:execute_query(is_visual)
+function Query:execute_query(is_visual, transform)
   local notify = require('dadbod-ui.notifications')
   local dbout = require('dadbod-ui.dbout')
   local lines = self:get_lines(is_visual)
@@ -621,15 +635,35 @@ function Query:execute_query(is_visual)
     self.last_query = lines
   end
 
+  -- Apply `transform` (if any) to `sql_lines`, returning the lines to run and
+  -- whether the SQL was rewritten. `mutated` lets callers drop the whole-buffer
+  -- `%DB` fast path (the buffer text no longer matches what runs). A nil transform,
+  -- or one that returns nil, is the identity (mutated=false), preserving today's
+  -- exact execution paths.
+  ---@param sql_lines string[]
+  ---@return string[] lines
+  ---@return boolean mutated
+  local function transformed(sql_lines)
+    if transform == nil then
+      return sql_lines, false
+    end
+    local new_sql = transform(table.concat(sql_lines, '\n'))
+    if new_sql == nil then
+      return sql_lines, false
+    end
+    return vim.split(new_sql, '\n'), true
+  end
+
   if #names == 0 then
     -- No placeholders. Whole-buffer and visual both flow through `dispatch`, which
     -- auto-paginates a plain SELECT (page 1) and otherwise runs unmodified -- the
-    -- whole-buffer non-paginated case still uses the fast `%DB` path.
+    -- whole-buffer non-paginated, non-transformed case still uses the fast `%DB` path.
     local entry = self.instance.dbs[vim.b.dbui_db_key_name]
     if entry == nil then
-      -- Not a tracked dbui query buffer: a visual run needs the connection, but a
-      -- whole-buffer run can still go straight through `%DB` on the buffer's b:db
-      -- (preserving the public execute_query contract for plain buffers).
+      -- Not a tracked dbui query buffer (`transform` is a dbui-query-buffer
+      -- feature, so it does not apply here): a visual run needs the connection, but
+      -- a whole-buffer run can still go straight through `%DB` on the buffer's b:db,
+      -- preserving the public execute_query contract for plain buffers.
       if is_visual then
         return notify.error('Buffer not attached to any database')
       end
@@ -637,8 +671,9 @@ function Query:execute_query(is_visual)
         bridge.execute_buffer(quiet, self.config.result_layout == 'vertical')
       end)
     end
+    local final, mutated = transformed(lines)
     return run(function()
-      self:dispatch(lines, entry, not is_visual, quiet)
+      self:dispatch(final, entry, (not is_visual) and not mutated, quiet)
     end)
   end
 
@@ -660,7 +695,11 @@ function Query:execute_query(is_visual)
     if vim.api.nvim_buf_is_valid(bufnr) then
       vim.b[bufnr].dbui_bind_params = values
     end
-    local final = bind_params.substitute(lines, values, pattern)
+    -- Substitute bind params first, THEN transform -- the hook sees the runnable
+    -- SQL, not raw `:placeholder` tokens. This is already a substituted (non-whole-
+    -- buffer) run, so the transform's `mutated` flag is moot: either way it
+    -- dispatches from a temp file.
+    local final = transformed(bind_params.substitute(lines, values, pattern))
     run(function()
       self:dispatch(final, entry, false, quiet)
     end)

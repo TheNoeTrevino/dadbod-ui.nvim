@@ -106,8 +106,8 @@
 ---@field open_query fun(name: string, edit_action?: string): boolean, string|nil
 ---@field find_buffer fun()
 ---@field rename_buffer fun()
----@field execute_query fun()
----@field execute_selection fun()
+---@field execute_query fun(transform?: DadbodUI.SqlTransform)
+---@field execute_selection fun(transform?: DadbodUI.SqlTransform)
 ---@field cancel_query fun()
 ---@field last_query_info fun()
 ---@field query fun(name: string, sql: string, cb: DadbodUI.ApiResultCallback)
@@ -678,14 +678,29 @@ end
 
 --- [query-buf] Execute the whole current query buffer through dadbod, opening the `.dbout`
 --- result window -- the Lua equivalent of the `execute` mapping in normal mode.
-function M.execute_query()
-  require('dadbod-ui').execute_query()
+--- Pass an optional `transform` to rewrite the runnable SQL before it is
+--- dispatched -- it receives the buffer's SQL (already bind-param substituted) and
+--- returns the SQL to run instead (e.g. wrapping it in EXPLAIN). Returning nil, or
+--- omitting `transform`, runs the buffer unchanged. The transform is synchronous:
+--- to drive it from a picker, open the picker first and call `execute_query` from
+--- its callback.
+---
+--- >lua
+---   require('dadbod-ui.api').execute_query(function(sql)
+---     return 'EXPLAIN ANALYZE\n' .. sql
+---   end)
+--- <
+---@param transform? DadbodUI.SqlTransform
+function M.execute_query(transform)
+  require('dadbod-ui').execute_query(transform)
 end
 
 --- [query-buf] Execute the current visual selection through dadbod -- the Lua equivalent of
---- the `execute` mapping in visual mode.
-function M.execute_selection()
-  require('dadbod-ui').execute_selection()
+--- the `execute` mapping in visual mode. Takes the same optional `transform` as
+--- `execute_query`, applied to the selected SQL.
+---@param transform? DadbodUI.SqlTransform
+function M.execute_selection(transform)
+  require('dadbod-ui').execute_selection(transform)
 end
 
 --- [query-buf] Cancel the running async query for the current query buffer -- the Lua
