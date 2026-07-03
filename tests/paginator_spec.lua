@@ -1,6 +1,6 @@
 -- Specs for dadbod-ui.paginator: the per-adapter LIMIT/OFFSET rewrite and the
 -- guard cases (already-paged / non-SELECT / multi-statement / unsupported
--- adapter), modelled on DBeaver's clause-append approach.
+-- adapter), using a clause-append approach.
 
 local paginator = require('dadbod-ui.paginator')
 

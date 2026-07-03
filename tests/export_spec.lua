@@ -471,7 +471,7 @@ describe('export.export_interactive', function()
     local picked_items, prompted_default
     base.select = function(items, opts, on_choice)
       picked_items = items
-      assert.are.equal('CSV', opts.format_item('csv')) -- DBeaver-style label
+      assert.are.equal('CSV', opts.format_item('csv')) -- display label
       on_choice('csv')
     end
     base.input = function(opts, on_confirm)

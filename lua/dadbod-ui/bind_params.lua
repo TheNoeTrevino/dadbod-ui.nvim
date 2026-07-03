@@ -1,36 +1,30 @@
 -- Bind-parameter detection, quoting and substitution
 --
--- The pure, side-effect-free core of M9. vim-dadbod-ui scans a query for
--- placeholders (default `:name`), prompts for each, and substitutes the quoted
--- values before handing the SQL to the engine. This module owns the three
--- testable pieces of that flow -- detection, value quoting, and substitution --
--- while `dadbod-ui.query` owns the interactive prompting and the
--- `b:dbui_bind_params` persistence. None of these functions touch a buffer, the
--- engine, or config, so they unit-test directly.
+-- The pure, side-effect-free core of M9. This module scans a query for
+-- placeholders (default `:name`) and owns the three testable pieces of the bind-
+-- parameter flow -- detection, value quoting, and substitution -- while
+-- `dadbod-ui.query` owns the interactive prompting and the `b:dbui_bind_params`
+-- persistence. None of these functions touch a buffer, the engine, or config, so
+-- they unit-test directly.
 --
--- Deliberate improvements over the original (`autoload/db_ui/query.vim` +
--- `quote_query_value`):
+-- Behavior:
 --   * Placeholders are matched with `vim.regex` against the user's Vim-regex
---     `bind_param_pattern`, so a custom pattern (e.g. `\$\d\+`) Just Works
---     without rebuilding a vimscript regex by string concatenation.
+--     `bind_param_pattern`, so a custom pattern (e.g. `\$\d\+`) works without
+--     rebuilding a regex by string concatenation.
 --   * A placeholder is ignored when it sits inside a quoted span -- a single-quoted
 --     string literal (`'... :id ...'`), a double-quoted identifier
 --     (`"... :id ..."`), or a Postgres dollar-quoted body (`$$ ... :id ... $$`) --
 --     or a comment (`-- :id`, `/* :id */`), consistently for BOTH detection and
 --     substitution. A small lexer carries string, identifier, dollar-quote and
 --     block-comment state across lines, so multi-line spans mask correctly. This
---     also means an apostrophe inside `"customer's"` or a dollar-quoted body no
---     longer flips string state and corrupts masking of the rest of the statement.
---     The original filtered such names out of prompting but would still substitute
---     them if the same name appeared unquoted elsewhere, tracked only single-line
---     single-quoted strings, and never skipped comments.
+--     means an apostrophe inside `"customer's"` or a dollar-quoted body does not
+--     flip string state and corrupt masking of the rest of the statement.
 --   * The colon-prefix guard (so `value::text` casts are not seen as `:text`
 --     placeholders) is a single "preceding char is not `:`" check rather than a
 --     grouped capture, which keeps it pattern-agnostic.
---   * `quote()` escapes embedded single quotes (`O'Brien` -> `'O''Brien'`),
---     passes NULL and decimals/negatives through bare, and still respects an
---     already-quoted literal -- the original neither escaped quotes nor knew
---     about NULL or non-integer numbers.
+--   * `quote()` escapes embedded single quotes (`O'Brien` -> `'O''Brien'`), and
+--     passes NULL and decimals/negatives through bare, while still respecting an
+--     already-quoted literal.
 
 ---@class DadbodUI.BindParamsModule
 ---@field quote fun(val: string): string
@@ -50,7 +44,7 @@ local M = {}
 ---@return string
 function M.quote(val)
   -- Already a single-quoted literal: trust it as-is (escape hatch for values the
-  -- user pre-quoted, mirroring the original).
+  -- user pre-quoted).
   if val:match("^'.*'$") then
     return val
   end
@@ -207,7 +201,7 @@ end
 --- preceded by `:` (so `::text` casts are not matched), and returns occurrences
 --- with 0-based byte spans `[s, e)` so callers can rebuild the line. The compiled
 --- regex is captured here (compiled once per detect/substitute call) -- its type
---- is left to inference because the upstream `vim.regex` class is `@nodoc` and
+--- is left to inference because Neovim's `vim.regex` class is `@nodoc` and
 --- cannot be named in an annotation.
 ---@param pattern string  a Vim regex (the resolved `bind_param_pattern`)
 ---@return fun(line: string, mask: boolean[]): DadbodUI.BindOccurrence[]

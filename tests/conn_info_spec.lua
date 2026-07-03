@@ -1,6 +1,6 @@
--- Specs for the db_ui#get_conn_info compatibility shim (M7 fix): third-party
+-- Specs for the db_ui#get_conn_info autoload entry point (M7 fix): third-party
 -- integrations (e.g. vim-dadbod-completion) call db_ui#get_conn_info from a
--- FileType sql autocmd; it must resolve against this Lua port's state.
+-- FileType sql autocmd; it must resolve against the plugin's state.
 
 local dadbod_ui = require('dadbod-ui')
 local state = require('dadbod-ui.state')
@@ -29,7 +29,7 @@ describe('db_ui#get_conn_info', function()
     assert.is_string(info.url)
   end)
 
-  it('is reachable through the vimscript autoload shim', function()
+  it('is reachable through the db_ui# autoload interface', function()
     vim.g.dbs = { { name = 'ci', url = 'sqlite:/tmp/ci.db' } }
     dadbod_ui.reset()
     local inst = state.get()

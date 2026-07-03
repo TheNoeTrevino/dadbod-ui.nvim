@@ -26,11 +26,11 @@ return function(config)
     args = { '-h-1', '-W', '-s', '|', '-Q' },
     schemes_query = 'SELECT schema_name FROM INFORMATION_SCHEMA.SCHEMATA',
     schemes_tables_query = 'SELECT table_schema, table_name FROM INFORMATION_SCHEMA.TABLES',
-    -- DBeaver reads sqlserver routines from `sys.all_objects` (type IN P/FN/TF/…)
-    -- and their source via `OBJECT_DEFINITION(object_id)` / `sys.sql_modules`
-    -- (SQLServerSchema.java / SQLServerUtils.extractSource). We use the portable
-    -- INFORMATION_SCHEMA.ROUTINES for the listing (consistent with the other
-    -- sqlserver queries here) and `OBJECT_DEFINITION(OBJECT_ID(...))` for the DDL.
+    -- sqlserver routines live in `sys.all_objects` (type IN P/FN/TF/…) with their
+    -- source in `OBJECT_DEFINITION(object_id)` / `sys.sql_modules`. We use the
+    -- portable INFORMATION_SCHEMA.ROUTINES for the listing (consistent with the
+    -- other sqlserver queries here) and `OBJECT_DEFINITION(OBJECT_ID(...))` for the
+    -- DDL.
     procedures_query = 'SELECT routine_schema, routine_name, LOWER(routine_type) FROM INFORMATION_SCHEMA.ROUTINES '
       .. "WHERE routine_type IN ('PROCEDURE', 'FUNCTION') ORDER BY routine_schema, routine_name",
     ---@param schema string

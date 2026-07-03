@@ -28,9 +28,8 @@ local M = {}
 --- Resolve and validate a url the user typed. Returns `(resolved, nil)` or
 --- `(nil, err)` when dadbod rejects it. The resolved value is for validation
 --- (and deriving a default name) only -- callers persist the RAW typed url so
---- env-var references like `$DB_PASS` stay unexpanded on disk (matching
---- upstream vim-dadbod-ui, which validates via `db#url#parse` but saves the
---- typed url).
+--- env-var references like `$DB_PASS` stay unexpanded on disk: the url is
+--- validated via `db#url#parse`, but the RAW typed url is what gets saved.
 ---@param url string
 ---@return string|nil, string|nil
 local function validate_url(url)

@@ -6,8 +6,8 @@
 -- Neovim buffers and no database, so the whole module is exhaustively unit-tested
 -- against the fixtures in `specs/native-export.md` §5.
 --
--- These are reimplementations (not copies) of DBeaver's stream exporters
--- (`DataExporterCSV/JSON/MarkdownTable/HTML/XML`), pared down to the options that
+-- Each function is a pure formatter that serializes a result set to one target
+-- format (CSV, TSV, JSON, Markdown, HTML, XML, SQL), exposing the options that
 -- matter for a terminal workflow.
 --
 -- SQL NULL is the module sentinel `M.NULL`, never a Lua nil -- Lua arrays cannot
@@ -197,9 +197,8 @@ local function csv_opts(opts)
   }
 end
 
---- CSV document for `data`. Port of `DataExporterCSV`'s core: per-field RFC-4180
---- quoting with doubled quote escaping, optional header, configurable delimiter /
---- quote / null marker.
+--- CSV document for `data`: per-field RFC-4180 quoting with doubled quote
+--- escaping, optional header, configurable delimiter / quote / null marker.
 ---@param data DadbodUI.ExportData
 ---@param opts? table  { delimiter, header, quote, null_string, line_feed_escape }
 ---@return string
@@ -265,7 +264,7 @@ local function json_value(cell, opts)
   return '"' .. json_escape(s) .. '"'
 end
 
---- JSON document for `data`. Port of `DataExporterJSON`: an array of one object
+--- JSON document for `data`: an array of one object
 --- per row keyed by column name. `wrap_table_name` (default true) wraps the array
 --- in `{ "<source>": [...] }`. `coerce_numbers` (default false) emits
 --- numeric/boolean strings unquoted (the CSV extract is untyped -- LIMITATION-002).
@@ -305,8 +304,8 @@ local function md_cell(cell)
   return (tostring(cell):gsub('|', '\\|'):gsub('\r\n', '\n'):gsub('\n', '<br>'))
 end
 
---- Markdown table for `data`. Port of `DataExporterMarkdownTable`: a header row,
---- a `---` delimiter row, then one row per record, each cell padded by a space.
+--- Markdown table for `data`: a header row, a `---` delimiter row, then one row
+--- per record, each cell padded by a space.
 ---@param data DadbodUI.ExportData
 ---@return string
 function M.markdown(data)
@@ -336,9 +335,8 @@ local function html_escape(s)
   return (s:gsub('&', '&amp;'):gsub('<', '&lt;'):gsub('>', '&gt;'):gsub('"', '&quot;'))
 end
 
---- HTML `<table>` for `data` (port of `DataExporterHTML`, minimal/no inline CSS).
---- `<thead>`/`<tbody>`; `&<>"` escaped; NULL -> empty `<td>`; newlines -> `<br>`
---- (OQ-2 decision).
+--- HTML `<table>` for `data` (minimal/no inline CSS). `<thead>`/`<tbody>`; `&<>"`
+--- escaped; NULL -> empty `<td>`; newlines -> `<br>` (OQ-2 decision).
 ---@param data DadbodUI.ExportData
 ---@return string
 function M.html(data)
@@ -378,7 +376,7 @@ local function xml_escape(s)
   return (html_escape(s):gsub("'", '&apos;'))
 end
 
---- XML document for `data` (port of `DataExporterXML`, OQ-2 shape): a `<data>`
+--- XML document for `data` (OQ-2 shape): a `<data>`
 --- root, one `<row>` per record, one `<col name="...">value</col>` per column.
 --- NULL -> self-closing `<col name="..." isNull="true"/>`.
 ---@param data DadbodUI.ExportData
@@ -421,7 +419,7 @@ local function sql_value(cell, opts)
   return "'" .. s:gsub("'", "''") .. "'"
 end
 
---- SQL `INSERT` statements for `data`, one per row. Port of `DataExporterSQL`.
+--- SQL `INSERT` statements for `data`, one per row.
 --- Target table: `opts.table` else `data.source` else `exported_table`.
 --- `quote_identifiers` wraps table/column names in `identifier_quote` (`"` by
 --- default) -- driven by the adapter's `quote` flag at the call site.

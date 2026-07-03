@@ -1,5 +1,5 @@
 -- Specs for dadbod-ui.table_helpers: the per-adapter helper templates (data
--- only in M6) and the merge/override rules ported from vim-dadbod-ui.
+-- only in M6) and the merge/override rules for table-helper templates.
 
 local table_helpers = require('dadbod-ui.table_helpers')
 local config = require('dadbod-ui.config')

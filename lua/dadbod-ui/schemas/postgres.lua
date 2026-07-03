@@ -18,13 +18,12 @@ local postgres_tables_and_views_query =
   'SELECT table_schema, table_name FROM information_schema.tables UNION ALL select schemaname, matviewname from pg_matviews;'
 
 ---@private
--- Stored procedures + functions. DBeaver lists routines from `pg_catalog.pg_proc`
--- keyed by `prokind` (`p` procedure, `f` function, `a` aggregate, `w` window) and
--- reads their DDL with `pg_get_functiondef(oid)` (see PostgreSchema.java /
--- PostgreProcedure.java). We list only plain procedures + functions (`prokind IN
--- ('f','p')`); aggregate/window entries are excluded because `pg_get_functiondef`
--- raises on them. `prokind` is postgres 11+; earlier servers used `proisagg` and
--- had no procedures, which we don't target.
+-- Stored procedures + functions. Routines come from `pg_catalog.pg_proc` keyed
+-- by `prokind` (`p` procedure, `f` function, `a` aggregate, `w` window), with
+-- their DDL read via `pg_get_functiondef(oid)`. We list only plain procedures +
+-- functions (`prokind IN ('f','p')`); aggregate/window entries are excluded
+-- because `pg_get_functiondef` raises on them. `prokind` is postgres 11+; earlier
+-- servers used `proisagg` and had no procedures, which we don't target.
 local postgres_procedures_query = [[
 SELECT n.nspname AS routine_schema, p.proname AS routine_name,
        CASE p.prokind WHEN 'p' THEN 'procedure' ELSE 'function' END AS routine_type

@@ -71,8 +71,8 @@ end
 ---@private
 --- The query-buffer filetype for an adapter: the schema metadata's own filetype
 --- if it declares one, else dadbod's input extension (mongodb's `js` is mapped
---- to `javascript`), defaulting to `sql`. Mirrors the original's
---- `populate_schema_info`. Note this may differ from `resolve_extension` (e.g.
+--- to `javascript`), defaulting to `sql`. Note this may differ from
+--- `resolve_extension` (e.g.
 --- mysql/plsql filetypes over a `sql` extension) -- the extension names the file,
 --- the filetype drives Neovim's syntax/behaviour.
 ---@param url string
@@ -95,7 +95,7 @@ end
 --- names) starts with `<slug(name)>-`. The prefix must be the SLUG of the name
 --- (as `query.generate_buffer_name` and `drawer:get_buffer_name` both use), so a
 --- connection named e.g. "My DB" -- whose files are `mydb-...` -- still restores
---- its tmp buffers. Port of the `old_buffers` filter in `generate_new_db_entry`.
+--- its tmp buffers.
 ---@param old_buffers string[]
 ---@param name string
 ---@return string[]
@@ -162,7 +162,7 @@ end
 --- Create a new instance from resolved config (does not populate yet). When a
 --- tmp-query location is configured we ensure it exists and snapshot the query
 --- files already in it, so connections can restore their open buffers on the
---- next populate (port of the `s:dbui.new` tmp_location block).
+--- next populate.
 ---@param config DadbodUI.Config
 ---@return DadbodUI.Instance
 function M.new(config)
@@ -202,7 +202,7 @@ function Instance:populate(inputs)
     -- interactive state (expanded, live handle, introspected schemas/tables)
     -- must survive an unrelated edit. Only new or url-changed connections are
     -- rebuilt -- which also avoids re-running make_entry's bridge calls for
-    -- every connection on each repopulate. Mirrors the original populate_dbs.
+    -- every connection on each repopulate.
     local prev = previous[record.key_name]
     if prev ~= nil and prev.url == record.url then
       self.dbs[record.key_name] = prev
@@ -228,7 +228,7 @@ end
 
 --- Whether `buf` (a buffer file path) belongs to the tmp-query location for
 --- `entry`: either it was generated into the entry's `buffers.tmp` list, or it
---- lives under the configured `tmp_location`. Port of `is_tmp_location_buffer`.
+--- lives under the configured `tmp_location`.
 ---@param entry DadbodUI.ConnectionEntry
 ---@param buf string
 ---@return boolean

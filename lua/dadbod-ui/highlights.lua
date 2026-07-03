@@ -1,15 +1,13 @@
 -- Drawer extmark highlighting (pure ranges + groups)
 --
--- The original (`syntax/dbui.vim`) rebuilds `syn match` regexes over the icon
--- glyphs at runtime -- escaping nerd-font characters into patterns and
--- re-deriving the tree the renderer already knows. We diverge: the drawer
--- already splits rendering into `build_content` (pure `Node[]`) and `paint` (the
--- only buffer-touching half), and every `Node` knows its `type`, `level`,
--- `icon`, `label`. So `highlights_for` computes the exact byte ranges to
--- highlight straight from the node + its painted line text -- pure, buffer-free,
--- and unit-testable -- and `paint` applies them as extmarks in a dedicated
--- namespace. Groups are defined once with `default = true` links so users can
--- override them.
+-- Highlighting is computed from the drawer's node tree rather than by matching
+-- syntax regexes over the rendered text. The drawer splits rendering into
+-- `build_content` (pure `Node[]`) and `paint` (the only buffer-touching half),
+-- and every `Node` knows its `type`, `level`, `icon`, `label`. So
+-- `highlights_for` computes the exact byte ranges to highlight straight from the
+-- node + its painted line text -- pure, buffer-free, and unit-testable -- and
+-- `paint` applies them as extmarks in a dedicated namespace. Groups are defined
+-- once with `default = true` links so users can override them.
 
 ---@class DadbodUI.HighlightsModule
 ---@field NS integer  extmark namespace, cleared and repainted on every render
@@ -24,8 +22,8 @@ M.NS = vim.api.nvim_create_namespace('dadbod_ui')
 
 ---@private
 -- Node type -> the highlight group for its icon column. Anything not listed
--- falls back to DadbodUIIcon (linked to Directory), matching the original, which
--- links most icon glyphs to Directory and singles out a few by icon name.
+-- falls back to DadbodUIIcon (linked to Directory): most icon glyphs link to
+-- Directory, and a few are singled out by icon name.
 local ICON_GROUP = {
   query = 'DadbodUINewQuery', -- the New query (`+`) glyph -> Operator
   buffer = 'DadbodUIBuffers', -- open-buffer glyph -> Constant
@@ -37,7 +35,7 @@ local ICON_GROUP = {
 
 --- Define the drawer's highlight groups. All are `default = true` links so a user
 --- `:highlight`/`nvim_set_hl` override wins; only the connection ok/error colors
---- are concrete, and they are `&background`-aware exactly as the original. Safe to
+--- are concrete, and they are `&background`-aware. Safe to
 --- call repeatedly (idempotent).
 ---@return nil
 function M.define()
@@ -99,8 +97,7 @@ function M.highlights_for(node, line_text, icons)
   local hls = {}
 
   -- Help lines: the whole `"…` line is Comment, and the leading key token
-  -- (`o`/`S`/`<C-j>`…, the bit before ` - `) is String. Port of dbui_help /
-  -- dbui_help_key.
+  -- (`o`/`S`/`<C-j>`…, the bit before ` - `) is String.
   if node.type == 'help' then
     if line_text:sub(1, 1) == '"' then
       hls[#hls + 1] = { group = 'DadbodUIHelp', col_start = 0, col_end = #line_text }
@@ -142,7 +139,7 @@ function M.highlights_for(node, line_text, icons)
 
   -- A trailing `(…)` suffix is the dimmed detail: the connection's
   -- `(scheme - source)` line under `H`, a group's `(Group)` label, or a section's
-  -- `(count)`. Port of dbui_connection_source.
+  -- `(count)`.
   local ds, de = line_text:find('%([^()]*%)%s*$')
   if ds ~= nil then
     hls[#hls + 1] = { group = 'DadbodUIConnectionSource', col_start = ds - 1, col_end = de }
