@@ -330,8 +330,7 @@ end
 
 --- Delete a saved query or tmp query buffer (the file and all its tracking),
 --- after confirmation. Saved queries leave file connections' disk store; tmp
---- buffers only exist in the tmp location. Port of the buffer branch of
---- `s:drawer.delete_line`.
+--- buffers only exist in the tmp location.
 ---@param item DadbodUI.Node
 ---@return nil
 function Drawer:delete_buffer(item)
@@ -397,8 +396,8 @@ end
 
 --- Rename a written query file on disk and move its buffer tracking to the new
 --- name, transferring the buffer-local contract. Saved queries keep their bare
---- name; tmp buffers are re-prefixed with the connection slug. Port of
---- `s:drawer.rename_buffer` (callback-shaped for our async prompt backend).
+--- name; tmp buffers are re-prefixed with the connection slug. Callback-shaped
+--- for our async prompt backend.
 ---@param buffer string  the file being renamed
 ---@param key_name string  the owning connection's key
 ---@param is_saved_query boolean
@@ -502,7 +501,7 @@ end
 --- the buffer's path (`Query:get_saved_query_db_name`): non-empty picks that db by
 --- name; otherwise a lone connection is taken automatically and several prompt the
 --- (injectable) selector. `cb` receives the entry, or nil when nothing resolves or
---- the user cancels. Port of `s:get_db` (callback-shaped for the async selector).
+--- the user cancels. Callback-shaped for the async selector.
 ---@param saved_name string
 ---@param cb fun(entry: DadbodUI.ConnectionEntry|nil)
 ---@return nil
@@ -544,7 +543,7 @@ end
 --- registered and revealed in the drawer directly; a bare buffer first resolves a
 --- connection (`pick_db`), connects it, and writes the contract before revealing.
 --- Opens the drawer, moves the cursor onto the buffer's node, expands its
---- connection, then returns focus to the query window. Port of `db_ui#find_buffer`.
+--- connection, then returns focus to the query window.
 ---@return nil
 function Drawer:find_buffer()
   local notify = require('dadbod-ui.notifications')
@@ -580,7 +579,7 @@ function Drawer:reveal_buffer(entry)
     return require('dadbod-ui.notifications').error('Cannot assign an unnamed buffer; save it to a file first.')
   end
   self:query():setup_buffer(entry, { existing_buffer = true }, bufname)
-  -- Feed vim-dadbod-completion when it is installed, mirroring the original.
+  -- Feed vim-dadbod-completion when it is installed.
   if vim.fn.exists('*vim_dadbod_completion#fetch') == 1 then
     pcall(vim.fn['vim_dadbod_completion#fetch'], vim.api.nvim_get_current_buf())
   end
@@ -597,7 +596,7 @@ function Drawer:reveal_buffer(entry)
   if row > 0 then
     pcall(vim.api.nvim_win_set_cursor, self.winid, { row, 0 })
   end
-  -- Back to the window we came from (the query buffer), as the original does.
+  -- Back to the window we came from (the query buffer).
   vim.cmd('wincmd p')
 end
 

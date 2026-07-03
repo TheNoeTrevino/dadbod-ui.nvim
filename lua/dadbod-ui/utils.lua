@@ -1,4 +1,4 @@
--- Small shared helpers (port of `autoload/db_ui/utils.vim`)
+-- Small shared helpers.
 --
 -- Leaf module with no sibling dependencies, so both the drawer and query
 -- controllers can `require` it directly without re-introducing their lazy
@@ -17,7 +17,7 @@
 ---@diagnostic disable-next-line: missing-fields
 local M = {}
 
---- Strip everything but `[A-Za-z0-9_-]` from `str`. Port of `db_ui#utils#slug`.
+--- Strip everything but `[A-Za-z0-9_-]` from `str`.
 ---@param str string
 ---@return string
 function M.slug(str)

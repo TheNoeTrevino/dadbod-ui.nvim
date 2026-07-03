@@ -1,9 +1,8 @@
 -- User-facing messages
 --
--- Neovim-native port of vim-dadbod-ui's notification layer. Messages route
+-- The plugin's notification layer over `vim.notify`. Messages route
 -- through `vim.notify` (so a UI plugin like nvim-notify can render them), with
--- an `:echo` fallback for users who prefer the command line. The legacy Vim-8
--- popup/float backends are dropped.
+-- an `:echo` fallback for users who prefer the command line.
 --
 -- Honors the resolved config (read lazily from `dadbod-ui.state`):
 -- `disable_info_notifications` suppresses info, `force_echo_notifications`
@@ -45,7 +44,7 @@ local ECHO_HL = {
 local last_msg = ''
 
 ---@private
--- True when msg carries no content (mirrors the original's `empty(a:msg)` guard).
+-- True when msg carries no content.
 ---@param msg string|string[]
 ---@return boolean
 local function is_empty(msg)
@@ -79,7 +78,7 @@ local function build_opts(kind, config, opts)
     out.timeout = opts.delay
   end
   if config.use_nvim_notify and kind == 'info' then
-    out.id = 'vim-dadbod-ui-info'
+    out.id = 'dadbod-ui-info'
   end
   return out
 end

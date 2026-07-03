@@ -40,7 +40,7 @@ describe('bind_params.detect', function()
     assert.same({}, bind.detect({ 'SELECT 1' }, DEFAULT))
   end)
 
-  it('matches a placeholder at column 0 (improves on the original)', function()
+  it('matches a placeholder at column 0', function()
     assert.same({ ':id' }, bind.detect({ ':id' }, DEFAULT))
   end)
 

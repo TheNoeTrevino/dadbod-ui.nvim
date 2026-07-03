@@ -1,19 +1,17 @@
 -- Per-adapter schema/table introspection (SQL + parsers)
 --
--- Faithful port of vim-dadbod-ui's `autoload/db_ui/schemas.vim`. Each supported
--- adapter carries the SQL that lists its schemas and its (schema, table) pairs,
--- plus a `parse_results` function that turns the raw command output into either
--- a list of names (`min_len == 1`) or a list of `{ schema, table }` rows
--- (`min_len == 2`). The queries and the slicing/splitting rules are ported
--- verbatim -- they encode each CLI's exact output framing (header rows, footer
--- counts, column delimiters) and must not be paraphrased.
+-- Each supported adapter carries the SQL that lists its schemas and its
+-- (schema, table) pairs, plus a `parse_results` function that turns the raw
+-- command output into either a list of names (`min_len == 1`) or a list of
+-- `{ schema, table }` rows (`min_len == 2`). The queries and the
+-- slicing/splitting rules encode each CLI's exact output framing (header rows,
+-- footer counts, column delimiters) and must not be paraphrased.
 --
--- We diverge from the original in *execution only*: instead of dadbod's blocking
--- `db#systemlist`, the drawer builds a `DadbodUI.CommandSpec` via `command_spec`
--- and runs schema + table listing concurrently through `bridge.run_many`, so a
--- large database never freezes the UI on expand. The command construction still
--- goes through dadbod (via `bridge.command`) so the per-adapter argv stays
--- correct.
+-- Execution is async: instead of dadbod's blocking `db#systemlist`, the drawer
+-- builds a `DadbodUI.CommandSpec` via `command_spec` and runs schema + table
+-- listing concurrently through `bridge.run_many`, so a large database never
+-- freezes the UI on expand. The command construction still goes through dadbod
+-- (via `bridge.command`) so the per-adapter argv stays correct.
 
 ---@class DadbodUI.SchemasModule
 ---@field results_parser fun(results: string[], delimiter: string, min_len: integer): any[]
@@ -38,8 +36,7 @@ M.results_parser = parse.results_parser
 ---@private
 -- scheme -> builder. Postgres aliases share one builder. sqlite's entry carries
 -- ONLY dbout-navigation metadata (no schemes_query), so it keeps the tables-only
--- drawer path while still supporting the foreign-key jump + cell/header nav --
--- our improvement over the original, which had no sqlite entry at all.
+-- drawer path while still supporting the foreign-key jump + cell/header nav.
 local builders = {
   postgres = require('dadbod-ui.schemas.postgres'),
   postgresql = require('dadbod-ui.schemas.postgres'),
@@ -69,9 +66,9 @@ function M.get(scheme, config)
   return builder(config)
 end
 
---- Whether the adapter exposes schemas for this url. Mirrors the original:
---- schema support requires a `schemes_query`, and MySQL/MariaDB urls that name a
---- database in the path list tables directly instead.
+--- Whether the adapter exposes schemas for this url: schema support requires a
+--- `schemes_query`, and MySQL/MariaDB urls that name a database in the path list
+--- tables directly instead.
 ---@param scheme_info DadbodUI.SchemaAdapter
 ---@param parsed_url DadbodUI.ParsedUrl
 ---@return boolean
@@ -87,10 +84,9 @@ function M.supports_schemes(scheme_info, parsed_url)
 end
 
 --- Build the command spec for running `query` against `conn` with this adapter.
---- Port of the original `s:format_query`: dadbod constructs the base argv for the
---- adapter's `callable` (interactive by default), the adapter's extra `args` are
---- appended, and the query is either fed on stdin (`requires_stdin`) or appended
---- as the final argument.
+--- dadbod constructs the base argv for the adapter's `callable` (interactive by
+--- default), the adapter's extra `args` are appended, and the query is either fed
+--- on stdin (`requires_stdin`) or appended as the final argument.
 ---@param conn string  resolved connection url
 ---@param scheme_info DadbodUI.SchemaAdapter
 ---@param query string
@@ -109,10 +105,10 @@ function M.command_spec(conn, scheme_info, query)
 end
 
 --- Run `query` against `conn` synchronously and return its output lines (trailing
---- CR stripped), mirroring the original `db_ui#schemas#query`. Blocks Neovim, so
---- it is reserved for the single small introspection lookup the dbout foreign-key
---- jump needs -- not for the drawer's bulk introspection, which fans out async via
---- `run_many`. Goes through the bridge (the engine boundary) for the actual call.
+--- CR stripped). Blocks Neovim, so it is reserved for the single small
+--- introspection lookup the dbout foreign-key jump needs -- not for the drawer's
+--- bulk introspection, which fans out async via `run_many`. Goes through the
+--- bridge (the engine boundary) for the actual call.
 ---@param conn string  resolved connection url
 ---@param scheme_info DadbodUI.SchemaAdapter
 ---@param query string
@@ -148,9 +144,8 @@ function M.result_lines(result)
 end
 
 --- Normalize the raw table list dadbod's `tables` adapter call returns for a
---- non-schema adapter. Port of the per-adapter cleanup the original does inline
---- in `populate_tables`: sqlite lists tables as space-separated strings (split
---- and sort), mysql prepends a header / warning lines (filter them out).
+--- non-schema adapter: sqlite lists tables as space-separated strings (split and
+--- sort), mysql prepends a header / warning lines (filter them out).
 ---@param scheme string
 ---@param raw string[]
 ---@return string[]

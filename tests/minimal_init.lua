@@ -24,8 +24,6 @@ local plenary = first_dir({
 local dadbod = first_dir({
   root .. '/.deps/vim-dadbod',
   vim.fn.stdpath('data') .. '/lazy/vim-dadbod',
-  -- local checkout used during the port
-  root .. '/../vim-dadbod-ui/vim-dadbod',
 })
 
 assert(plenary, 'plenary.nvim not found -- run `make deps`')

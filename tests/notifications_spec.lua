@@ -113,7 +113,7 @@ describe('notifications', function()
     state.setup({ use_nvim_notify = true })
     notifications.info('a')
     notifications.error('b')
-    assert.equals('vim-dadbod-ui-info', notify_calls[1].opts.id)
+    assert.equals('dadbod-ui-info', notify_calls[1].opts.id)
     assert.is_nil(notify_calls[2].opts.id)
   end)
 

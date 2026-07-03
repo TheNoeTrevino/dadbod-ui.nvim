@@ -51,7 +51,7 @@ function M.key_name(name, source, group)
 end
 
 --- Normalize a discovered connection into a record (url resolved at storage
---- time, matching the original).
+--- time).
 ---@param name string
 ---@param url string
 ---@param source string
@@ -216,7 +216,7 @@ end
 --- Read a connections.json array. Returns `{}` when missing or when the content
 --- is not a valid json array. A missing file is normal (no callback); a present
 --- but unreadable (e.g. chmod 000) or corrupt file invokes `on_error` so the
---- caller can warn and avoid overwriting it (the original warns here too). The
+--- caller can warn and avoid overwriting it. The
 --- pcall covers `readfile` as well as `decode`, so an E484 read error hits the
 --- same graceful path as invalid JSON.
 ---@param path string|nil
@@ -253,7 +253,7 @@ end
 
 ---@private
 -- Two stored connections are "the same" when names match (case-insensitive) and
--- their urls resolve equal -- mirrors the original delete/rename matching.
+-- their urls resolve equal -- the delete/rename matching rule.
 ---@param conn DadbodUI.FileConnection
 ---@param name string
 ---@param resolved_url string

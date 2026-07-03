@@ -4,9 +4,9 @@
 ---@text
 --- # Introduction ~
 ---
---- dadbod-ui.nvim is a Neovim-native (Lua) port of vim-dadbod-ui: a database UI
---- drawer over tpope/vim-dadbod. It lists connections, browses schemas and
---- tables, opens query buffers, and renders results -- all inside Neovim.
+--- dadbod-ui.nvim is a database UI drawer for Neovim over tpope/vim-dadbod. It
+--- lists connections, browses schemas and tables, opens query buffers, and
+--- renders results -- all inside Neovim.
 ---
 --- Session state lives in `dadbod-ui.state` (the single source of truth) and the
 --- vim-dadbod engine boundary lives in `dadbod-ui.bridge`. Sibling modules are
@@ -162,8 +162,8 @@ function M.cancel_query()
   drawer():query():cancel_query()
 end
 
---- Connection info for `key_name`, mirroring the original `db_ui#get_conn_info`.
---- Backs the `db_ui#get_conn_info` autoload shim that third-party integrations
+--- Connection info for `key_name`.
+--- Backs the `db_ui#get_conn_info` autoload entry point that third-party integrations
 --- (e.g. vim-dadbod-completion) call. Returns the resolved url, the live
 --- connection handle (empty when not yet connected), the known tables/schemas,
 --- the scheme, and a 0/1 connected flag. `{}` for an unknown key.
@@ -244,7 +244,6 @@ function M.rename_buffer()
 end
 
 --- Echo the last executed query and its runtime. Backs `:DBUILastQueryInfo`.
---- Mirrors the original `db_ui#print_last_query_info`.
 ---@return nil
 function M.print_last_query_info()
   local notify = require('dadbod-ui.notifications')
@@ -261,8 +260,8 @@ function M.print_last_query_info()
 end
 
 --- Connection/table info for the current query buffer, or the last query's
---- runtime for a `.dbout` result buffer -- a drop-in for the original
---- `db_ui#statusline()`, safe to embed in a `statusline`/`winbar` expression.
+--- runtime for a `.dbout` result buffer -- provides `db_ui#statusline()`
+--- semantics, safe to embed in a `statusline`/`winbar` expression.
 --- Reads the `b:dbui_*` contract; never opens the drawer window. Delegates to
 --- `Drawer:statusline` (which holds the query controller for the dbout runtime).
 ---@param opts? DadbodUI.StatuslineOpts

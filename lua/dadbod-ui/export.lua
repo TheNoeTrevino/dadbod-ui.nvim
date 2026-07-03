@@ -438,8 +438,8 @@ end
 -- Interactive entry point ----------------------------------------------------
 
 ---@private
--- Display labels (mirroring DBeaver's target-format list) and file extensions
--- per format id. `format_item` shows the label; the file gets the extension.
+-- Display labels and file extensions per format id. `format_item` shows the
+-- label; the file gets the extension.
 local LABELS =
   { csv = 'CSV', tsv = 'TSV', json = 'JSON', markdown = 'Markdown', html = 'HTML', xml = 'XML', sql = 'SQL' }
 ---@private
@@ -492,7 +492,7 @@ end
 --- interactive core. Both entry points resolve their own `info` and hand it here:
 --- the `.dbout` result buffer (`export_interactive`) and the query buffer
 --- (`db_ui`'s `explain`-style `export_query`). Picks the target format (the
---- DBeaver-style list, filtered to what the adapter supports), prompts for the
+--- list of formats the adapter supports), prompts for the
 --- output path (guarding an existing file), then `export`s the query RESULTS.
 --- The picker / prompt / notifier / confirm are injectable (`deps.select`,
 --- `deps.input`, `deps.notify`, `deps.confirm`) so the flow is testable without a
