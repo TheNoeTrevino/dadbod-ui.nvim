@@ -78,12 +78,6 @@ describe('api: resolution and error paths', function()
     assert.is_nil(api.info('nope'))
   end)
 
-  it('is_connected is false for a fresh or unknown connection', function()
-    seed({ dev = 'postgres://h/dev' })
-    assert.is_false(api.is_connected('dev'))
-    assert.is_false(api.is_connected('nope'))
-  end)
-
   it('query_sync errors for an unknown connection', function()
     seed({ dev = 'postgres://h/dev' })
     local rows, err = api.query_sync('nope', 'select 1')
@@ -313,15 +307,15 @@ describe('api: disconnect', function()
     state.reset()
   end)
 
-  it('drops the live handle so is_connected flips to false', function()
+  it('drops the live handle so info reports disconnected', function()
     seed({ dev = 'postgres://h/dev' })
     -- Simulate a live connection without a real server.
     local entry = state.get().dbs['dev_g:dbs']
     entry.conn = 'postgres://h/dev'
-    assert.is_true(api.is_connected('dev'))
+    assert.is_true(api.info('dev').connected)
     local ok, err = api.disconnect('dev')
     assert.is_true(ok, err)
-    assert.is_false(api.is_connected('dev'))
+    assert.is_false(api.info('dev').connected)
   end)
 
   it('errors for an unknown name', function()
@@ -423,7 +417,7 @@ describe('api: sqlite end-to-end (guarded)', function()
     assert.is_truthy(vim.iter(rows):any(function(line)
       return line:find('ada', 1, true) ~= nil
     end))
-    assert.is_true(api.is_connected('qa'))
+    assert.is_true(api.info('qa').connected)
   end)
 
   it('query_sync surfaces a query error', function()
