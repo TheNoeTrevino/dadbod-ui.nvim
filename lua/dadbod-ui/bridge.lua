@@ -192,7 +192,7 @@ function M.dbout_input(file)
   if bufnr < 0 then
     return nil
   end
-  local db = fn.getbufvar(bufnr, 'db')
+  local db = vim.b[bufnr].db
   if type(db) ~= 'table' then
     return nil
   end

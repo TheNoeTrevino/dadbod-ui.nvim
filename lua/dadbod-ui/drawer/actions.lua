@@ -365,12 +365,12 @@ function Drawer:delete_buffer(item)
   end
   local bufnr = utils.loaded_bufnr(file)
   if bufnr > -1 then
-    local win = vim.fn.bufwinnr(bufnr)
+    local win = vim.fn.bufwinid(bufnr)
     if win > -1 then
-      vim.cmd(win .. 'wincmd w')
+      vim.api.nvim_set_current_win(win)
       vim.cmd('silent! b#')
     end
-    vim.cmd('silent! bwipeout! ' .. bufnr)
+    pcall(vim.api.nvim_buf_delete, bufnr, { force = true })
   end
   if self:is_open() then
     vim.api.nvim_set_current_win(self.winid)
@@ -449,20 +449,20 @@ function Drawer:rename_buffer(buffer, key_name, is_saved_query)
     -- loaded_bufnr, not vim.fn.bufnr: the path is looked up exactly, never as a
     -- name PATTERN (a `.` in the path would otherwise match any char).
     local bufnr = utils.loaded_bufnr(buffer)
-    local bufwin = bufnr > -1 and vim.fn.bufwinnr(bufnr) or -1
+    local bufwin = bufnr > -1 and vim.fn.bufwinid(bufnr) or -1
     local new_bufnr = -1
     if bufwin > -1 then
       -- Navigate to the window actually showing the old buffer first: open_buffer
       -- -> Query:focus_window picks the first dbui window, which could be a
       -- DIFFERENT window's query buffer, and the rename would replace it.
-      vim.cmd(bufwin .. 'wincmd w')
+      vim.api.nvim_set_current_win(bufwin)
       self:query():open_buffer(entry, new, 'edit')
       new_bufnr = vim.api.nvim_get_current_buf()
     elseif bufnr > -1 then
       -- bufadd() returns the buffer number for `new` directly (creating it if
       -- needed), so we never round-trip through vim.fn.bufnr's pattern matching.
       new_bufnr = vim.fn.bufadd(new)
-      vim.fn.setbufvar(new_bufnr, '&buflisted', 1)
+      vim.bo[new_bufnr].buflisted = true
       table.insert(entry.buffers.list, new)
     else
       local idx = vim.fn.index(entry.buffers.list, buffer)
@@ -476,14 +476,13 @@ function Drawer:rename_buffer(buffer, key_name, is_saved_query)
 
     if new_bufnr > -1 then
       -- Carry the contract onto the renamed buffer through the single writer,
-      -- preserving the old buffer's table name and bind params (the latter is a
-      -- bare '' when the source was never parametrized -- round-tripped as-is).
-      -- Read from the old buffer's number (already resolved above), not its
-      -- name, so getbufvar resolves the buffer once rather than per field.
+      -- preserving the old buffer's table name and bind params (the latter is
+      -- nil when the source was never parametrized -- write_contract skips it).
+      local old = vim.b[bufnr]
       self:query().write_contract(new_bufnr, entry, {
-        table = vim.fn.getbufvar(bufnr, 'dbui_table_name'),
-        schema = vim.fn.getbufvar(bufnr, 'dbui_schema_name'),
-        bind_params = vim.fn.getbufvar(bufnr, 'dbui_bind_params'),
+        table = old.dbui_table_name,
+        schema = old.dbui_schema_name,
+        bind_params = old.dbui_bind_params,
       })
     end
 
