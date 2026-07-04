@@ -153,7 +153,7 @@ describe('explain: sqlite end-to-end (guarded)', function()
     assert.is_truthy(vim.iter(rows):any(function(line)
       return line:find('contacts', 1, true) ~= nil
     end))
-    assert.is_true(api.is_connected('qa'))
+    assert.is_true(api.info('qa').connected)
   end)
 end)
 

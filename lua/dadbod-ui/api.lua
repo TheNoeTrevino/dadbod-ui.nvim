@@ -13,7 +13,7 @@
 --- The surface groups into: drawer control (`open`/`toggle`/`close`/`reveal`/
 --- `refresh`), connection management (`list`/`info`/`pick`/`add`/`remove`/
 --- `rename`/`duplicate`/`set_group`/`move`/`connect`/`disconnect`), introspection
---- (`introspect`/`schemas`/`tables`), queries (`query`/`query_sync`/`execute`/
+--- (`introspect`), queries (`query`/`query_sync`/`execute`/
 --- `explain`/`open_query`/`switch_buffer`), export (`export`/`export_result`),
 --- buffer verbs that act on the focused query buffer (`execute_query`/
 --- `execute_selection`/`explain_query`/`explain_selection`/`export_query`/
@@ -34,8 +34,8 @@
 --- `require('dadbod-ui.api').list()` (its `key_name` also resolves, to
 --- disambiguate a name reused across groups).
 ---
---- The data-returning verbs (`connect`, `query`, `explain`, `schemas`,
---- `tables`, `introspect`) are asynchronous and take a `cb(result, err)` callback,
+--- The data-returning verbs (`connect`, `query`, `explain`, `introspect`)
+--- are asynchronous and take a `cb(result, err)` callback,
 --- mirroring the engine bridge they sit on; `err` is a string on failure and
 --- `result` is nil. `query_sync` is the blocking dual for scripts. Query results
 --- are the raw, adapter-formatted output lines (`string[]`) -- exactly what the
@@ -90,7 +90,6 @@
 ---@field list fun(): DadbodUI.ConnectionInfo[]
 ---@field info fun(name: string): DadbodUI.ApiConnInfo|nil
 ---@field pick fun(opts?: table)
----@field is_connected fun(name: string): boolean
 ---@field add fun(spec: DadbodUI.ApiAddSpec): boolean, string|nil
 ---@field remove fun(name: string): boolean, string|nil
 ---@field rename fun(name: string, new_name: string, new_url?: string): boolean, string|nil
@@ -99,8 +98,6 @@
 ---@field move fun(name: string, direction: 'up'|'down'): boolean, string|nil
 ---@field connect fun(name: string, cb?: DadbodUI.ApiOkCallback)
 ---@field disconnect fun(name: string): boolean, string|nil
----@field schemas fun(name: string, cb: fun(schemas: string[]|nil, err: string|nil))
----@field tables fun(name: string, cb: fun(tables: string[]|nil, err: string|nil))
 ---@field introspect fun(name: string, cb: fun(data: DadbodUI.ApiIntrospection|nil, err: string|nil))
 ---@field add_connection fun()
 ---@field switch_buffer fun(name?: string): boolean, string|nil
@@ -392,14 +389,6 @@ function M.pick(opts)
   require('dadbod-ui.picker').show(opts)
 end
 
---- [any] Whether `name` currently holds a live connection. False for an unknown name.
----@param name string
----@return boolean
-function M.is_connected(name)
-  local entry = resolve(name)
-  return entry ~= nil and state.is_connected(entry)
-end
-
 --- [any] Add a connection to the `connections.json` store programmatically (the
 --- non-interactive dual of `:DBUIAddConnection`). Rediscovers connections on
 --- success so the new one is immediately resolvable. Returns `false, err` when
@@ -530,7 +519,7 @@ function M.connect(name, cb)
   ensure_connected(entry, cb)
 end
 
---- [any] Drop `name`'s live connection so `is_connected` reports false and the next
+--- [any] Drop `name`'s live connection so `info` reports disconnected and the next
 --- query/connect re-probes (the dual of `connect`). Cached tables/schemas are
 --- kept -- this forgets the live handle, not the introspected metadata. Returns
 --- `false, err` for an unknown name.
@@ -604,30 +593,6 @@ function M.introspect(name, cb)
       connected(state.is_connected(entry), entry.conn_error)
     end)
   end
-end
-
---- [any] Connect (if needed), introspect `name` and return just its schema names.
----@param name string
----@param cb fun(schemas: string[]|nil, err: string|nil)
-function M.schemas(name, cb)
-  M.introspect(name, function(data, err)
-    if data == nil then
-      return cb(nil, err)
-    end
-    cb(data.schemas)
-  end)
-end
-
---- [any] Connect (if needed), introspect `name` and return just its table names.
----@param name string
----@param cb fun(tables: string[]|nil, err: string|nil)
-function M.tables(name, cb)
-  M.introspect(name, function(data, err)
-    if data == nil then
-      return cb(nil, err)
-    end
-    cb(data.tables)
-  end)
 end
 
 -- Query ----------------------------------------------------------------------
