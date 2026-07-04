@@ -86,7 +86,7 @@ end
 function M._write(path, content)
   content = (content:gsub('\n$', ''))
   local data = content == '' and '' or (content .. '\n')
-  local fh, oerr = io.open(vim.fn.expand(path), 'wb')
+  local fh, oerr = io.open(vim.fs.normalize(path), 'wb')
   if fh == nil then
     return false, oerr or 'could not open file'
   end
@@ -188,8 +188,8 @@ function M._transform_async(scheme, stdout, fmt, opts, source, cb)
       cb(false, nil, nil, tostring(content))
     end
   end
-  local uv = vim.uv or vim.loop
-  if #stdout < M._TRANSFORM_THRESHOLD or uv == nil or type(uv.new_work) ~= 'function' then
+  local uv = vim.uv
+  if #stdout < M._TRANSFORM_THRESHOLD or type(uv.new_work) ~= 'function' then
     return deliver(pcall(M._transform_sync, scheme, stdout, fmt, opts, source or ''))
   end
   local work = uv.new_work(
@@ -262,12 +262,13 @@ end
 ---@return DadbodUI.ExportBufferInfo|nil, string?
 function M.resolve_buffer(bufnr)
   local bridge = require('dadbod-ui.bridge')
-  local db = vim.fn.getbufvar(bufnr, 'db')
+  local utils = require('dadbod-ui.utils')
+  local db = vim.b[bufnr].db
   if type(db) ~= 'table' or type(db.db_url) ~= 'string' or db.db_url == '' then
     return nil, 'Not a query result buffer.'
   end
   local input = type(db.input) == 'string' and db.input or ''
-  if input == '' or vim.fn.filereadable(input) ~= 1 then
+  if input == '' or not utils.is_file(input) then
     return nil, 'No stored query for this result.'
   end
   local query = table.concat(vim.fn.readfile(input), '\n')
@@ -275,9 +276,9 @@ function M.resolve_buffer(bufnr)
   -- query buffer) and its input file is a tempname, so the basename would be junk
   -- like `0`. Read the table name if it is somehow present, else derive one from
   -- the query (the first identifier after FROM, else `results`).
-  local table_name = vim.fn.getbufvar(bufnr, 'dbui_table_name')
+  local table_name = vim.b[bufnr].dbui_table_name
   local source = (type(table_name) == 'string' and table_name ~= '') and table_name or derive_source(query)
-  local page = vim.fn.getbufvar(bufnr, 'dbui_page')
+  local page = vim.b[bufnr].dbui_page
   return {
     url = db.db_url,
     scheme = bridge.scheme_of(db.db_url),
@@ -454,7 +455,7 @@ local EXTENSIONS = { csv = 'csv', tsv = 'tsv', json = 'json', markdown = 'md', h
 ---@return string
 function M.default_path(source, fmt, dir)
   local base = require('dadbod-ui.export_formats').nonempty(source) or 'export'
-  local base_dir = (dir ~= nil and dir ~= '') and vim.fn.expand(dir) or vim.fn.getcwd()
+  local base_dir = (dir ~= nil and dir ~= '') and vim.fs.normalize(dir) or vim.fn.getcwd()
   return string.format('%s/%s.%s', base_dir, base, EXTENSIONS[fmt] or fmt)
 end
 
@@ -537,7 +538,8 @@ function M.export_prompt(info, deps)
       end
       path = vim.trim(path)
       if
-        vim.fn.filereadable(vim.fn.expand(path)) == 1 and not confirm(string.format('%s exists. Overwrite?', path))
+        require('dadbod-ui.utils').is_file(vim.fs.normalize(path))
+        and not confirm(string.format('%s exists. Overwrite?', path))
       then
         return notify.info('Export cancelled.')
       end

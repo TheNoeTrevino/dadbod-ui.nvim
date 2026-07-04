@@ -935,7 +935,7 @@ end
 ---@param bufnr integer
 ---@return nil
 function Query:remove_buffer(bufnr)
-  local key = vim.fn.getbufvar(bufnr, 'dbui_db_key_name')
+  local key = vim.b[bufnr].dbui_db_key_name
   local entry = self.instance.dbs[key]
   if entry == nil then
     return
