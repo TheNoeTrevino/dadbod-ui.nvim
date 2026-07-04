@@ -743,7 +743,7 @@ end
 --- Explain output is never paginated. `opts.analyze` selects `EXPLAIN ANALYZE`
 --- (which RUNS the query). An adapter without explain support (or without an
 --- executing form, for `analyze`) surfaces `dadbod-ui.explain`'s user error as a
---- notification and runs nothing. Backs `api.explain_query`/`explain_selection`.
+--- notification and runs nothing. Backs `api.buf.explain`/`explain_selection`.
 ---@param is_visual? boolean
 ---@param opts? DadbodUI.ExplainOpts
 ---@return nil
@@ -798,7 +798,7 @@ end
 --- file reflects the query you'd actually execute. Hands the resolved query +
 --- connection to `export.export_prompt`, which prompts for format + path. The
 --- output filename defaults to the buffer's table name (`b:dbui_table_name`) when
---- set, else a name derived from the query. Backs `api.export_query`/`export_selection`.
+--- set, else a name derived from the query. Backs `api.buf.export`/`export_selection`.
 ---@param is_visual? boolean
 ---@return nil
 function Query:export_query(is_visual)

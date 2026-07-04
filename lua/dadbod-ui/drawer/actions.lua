@@ -650,7 +650,7 @@ end
 --- an explicit choice -- so a lone connection has nothing to switch to.
 ---
 --- `target_name` (name or key_name) switches DIRECTLY to that connection with no
---- prompt -- the scriptable path behind `dadbod-ui.api.switch_buffer`. It returns
+--- prompt -- the scriptable path behind `dadbod-ui.api.buf.switch`. It returns
 --- `ok, err`; the interactive path (no `target_name`) shows the picker and
 --- returns nil.
 ---@param target_name? string
