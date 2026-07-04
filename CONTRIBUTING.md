@@ -41,6 +41,8 @@ Please adhere to these separations as much as possible.
 
 `init.lua` - public entry point / `setup()`
 
+`api/` - the stable Lua scripting facade, namespaced by scope (the `vim.lsp.buf` convention): `init.lua` (callable-anywhere verbs, addressed by connection name), `buf.lua` (verbs on the current query buffer), `dbout.lua` (verbs on the current result buffer), `resolve.lua` (shared connection-name resolution).
+
 `bridge.lua` - the only module allowed to touch `vim-dadbod`, the 'bridge'
 
 `config.lua` - defaults and `g:db_ui_*` -> Lua option resolution.
