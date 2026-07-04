@@ -16,15 +16,21 @@
 ---@field url string  connection url
 ---@field is_connected boolean
 
+--- The `<CR>` action a backend fires with the picked item (nil = cancelled).
+---@alias DadbodUI.PickerSelect fun(item: DadbodUI.PickerItem|nil)
+
 --- The interface every backend implements. `show` returns false when the
 --- backend's plugin is not installed, so the router can try the next one.
+--- `on_select` overrides the `<CR>` action (default: `utils.connect`).
 ---@class DadbodUI.PickerBackend
 ---@field is_available fun(): boolean
----@field show fun(opts?: table): boolean
+---@field show fun(opts?: table, on_select?: DadbodUI.PickerSelect): boolean
 
 ---@class DadbodUI.PickerUtils
 ---@field build_items fun(): DadbodUI.PickerItem[]
----@field connect fun(item: DadbodUI.PickerItem|nil)
+---@field connect DadbodUI.PickerSelect
+---@field execute_action fun(sql: string): DadbodUI.PickerSelect
+---@field explain_action fun(sql: string, opts?: DadbodUI.ExplainOpts): DadbodUI.PickerSelect
 
 local notifications = require('dadbod-ui.notifications')
 
@@ -53,9 +59,8 @@ function M.build_items()
   return items
 end
 
---- The `<CR>` action shared by every backend: connect the selection (a no-op
---- when already connected). Nil-safe so backends can pass a cancelled pick
---- straight through.
+--- The default `<CR>` action: connect the selection (a no-op when already
+--- connected). Nil-safe so backends can pass a cancelled pick straight through.
 ---@param item DadbodUI.PickerItem|nil
 function M.connect(item)
   if item == nil then
@@ -67,6 +72,42 @@ function M.connect(item)
     end
     notifications.info('Connected to ' .. item.label)
   end)
+end
+
+--- Build a `<CR>` action that executes `sql` against the selection through
+--- dadbod's `:DB` (connecting first if needed), opening the `.dbout` result
+--- window -- the picker dual of `api.execute`.
+---@param sql string
+---@return DadbodUI.PickerSelect
+function M.execute_action(sql)
+  return function(item)
+    if item == nil then
+      return
+    end
+    local ok, err = require('dadbod-ui.api').execute(item.key_name, sql)
+    if not ok then
+      notifications.error(err or ('Failed to execute against ' .. item.label))
+    end
+  end
+end
+
+--- Build a `<CR>` action that runs `sql`'s EXPLAIN plan against the selection,
+--- wrapped in the picked adapter's own EXPLAIN syntax -- the picker dual of
+--- `api.explain_execute`. An adapter without explain (or analyze) support
+--- surfaces as an error notification.
+---@param sql string
+---@param opts? DadbodUI.ExplainOpts
+---@return DadbodUI.PickerSelect
+function M.explain_action(sql, opts)
+  return function(item)
+    if item == nil then
+      return
+    end
+    local ok, err = require('dadbod-ui.api').explain_execute(item.key_name, sql, opts)
+    if not ok then
+      notifications.error(err or ('Failed to explain against ' .. item.label))
+    end
+  end
 end
 
 return M

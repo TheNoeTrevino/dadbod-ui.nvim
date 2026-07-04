@@ -18,15 +18,17 @@ end
 --- Show the picker via vim.ui.select. `_opts` is unused (vim.ui.select takes
 --- no passthrough config); accepted for backend-interface compliance.
 ---@param _opts? table
+---@param on_select? DadbodUI.PickerSelect
 ---@return boolean
-function M.show(_opts)
+function M.show(_opts, on_select)
+  local select = on_select or utils.connect
   vim.ui.select(utils.build_items(), {
     prompt = 'Connections',
     format_item = function(item)
       return item.text
     end,
   }, function(choice)
-    utils.connect(choice)
+    select(choice)
   end)
   return true
 end

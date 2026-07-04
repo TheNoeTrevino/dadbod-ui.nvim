@@ -17,11 +17,13 @@ end
 
 --- Show the Telescope picker.
 ---@param opts? table  Telescope picker overrides
+---@param on_select? DadbodUI.PickerSelect
 ---@return boolean
-function M.show(opts)
+function M.show(opts, on_select)
   if not M.is_available() then
     return false
   end
+  local select = on_select or utils.connect
 
   local pickers = require('telescope.pickers')
   local finders = require('telescope.finders')
@@ -68,7 +70,7 @@ function M.show(opts)
       actions.select_default:replace(function()
         local selection = action_state.get_selected_entry()
         actions.close(prompt_bufnr)
-        utils.connect(selection and selection.value)
+        select(selection and selection.value)
       end)
       return true
     end,

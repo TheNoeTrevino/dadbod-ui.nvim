@@ -17,12 +17,14 @@ end
 
 --- Show the fzf-lua picker.
 ---@param opts? table  fzf-lua overrides
+---@param on_select? DadbodUI.PickerSelect
 ---@return boolean
-function M.show(opts)
+function M.show(opts, on_select)
   local ok, fzf = pcall(require, 'fzf-lua')
   if not ok then
     return false
   end
+  local select = on_select or utils.connect
 
   -- fzf works on display strings, so selections come back as text; map them
   -- back to their items through a lookup.
@@ -37,7 +39,7 @@ function M.show(opts)
     prompt = 'Connections> ',
     actions = {
       default = function(selected)
-        utils.connect(selected and lookup[selected[1]])
+        select(selected and lookup[selected[1]])
       end,
     },
   }, opts or {})
