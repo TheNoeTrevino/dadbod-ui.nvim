@@ -17,12 +17,14 @@ end
 
 --- Show the Snacks picker.
 ---@param opts? table  snacks.picker.Config overrides
+---@param on_select? DadbodUI.PickerSelect
 ---@return boolean
-function M.show(opts)
+function M.show(opts, on_select)
   local ok, Snacks = pcall(require, 'snacks')
   if not ok then
     return false
   end
+  local select = on_select or utils.connect
 
   local picker_opts = {
     title = 'Connections',
@@ -39,7 +41,7 @@ function M.show(opts)
     end,
     confirm = function(picker, item)
       picker:close()
-      utils.connect(item --[[@as DadbodUI.PickerItem|nil]])
+      select(item --[[@as DadbodUI.PickerItem|nil]])
     end,
   }
   Snacks.picker(vim.tbl_deep_extend('force', picker_opts, opts or {}))

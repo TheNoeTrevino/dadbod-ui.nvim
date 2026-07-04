@@ -13,8 +13,8 @@
 --- The surface groups into: drawer control (`open`/`toggle`/`close`/`reveal`/
 --- `refresh`), connection management (`list`/`info`/`pick`/`add`/`remove`/
 --- `rename`/`duplicate`/`set_group`/`move`/`connect`/`disconnect`), introspection
---- (`introspect`), queries (`query`/`query_sync`/`execute`/
---- `explain`/`open_query`/`switch_buffer`), export (`export`/`export_result`),
+--- (`introspect`), queries (`query`/`query_sync`/`execute`/`execute_pick`/
+--- `explain`/`explain_pick`/`open_query`/`switch_buffer`), export (`export`/`export_result`),
 --- buffer verbs that act on the focused query buffer (`execute_query`/
 --- `execute_selection`/`explain_query`/`explain_selection`/`export_query`/
 --- `export_selection`/`cancel_query`/`find_buffer`/`rename_buffer`) and a runtime
@@ -90,6 +90,8 @@
 ---@field list fun(): DadbodUI.ConnectionInfo[]
 ---@field info fun(name: string): DadbodUI.ApiConnInfo|nil
 ---@field pick fun(opts?: table)
+---@field execute_pick fun(sql: string, opts?: table)
+---@field explain_pick fun(sql: string, opts?: DadbodUI.ExplainOpts, picker_opts?: table)
 ---@field add fun(spec: DadbodUI.ApiAddSpec): boolean, string|nil
 ---@field remove fun(name: string): boolean, string|nil
 ---@field rename fun(name: string, new_name: string, new_url?: string): boolean, string|nil
@@ -387,6 +389,57 @@ end
 ---@param opts? table
 function M.pick(opts)
   require('dadbod-ui.picker').show(opts)
+end
+
+--- [any] Open the connection picker and run `sql` against the picked connection
+--- through dadbod's `:DB`, opening the `.dbout` result window -- `execute` with
+--- the name chosen interactively instead of passed in. Callable from anywhere
+--- with any sql, so it pairs naturally with a visual-mode mapping that pipes the
+--- selection to a database of your choosing:
+---
+--- >lua
+---   vim.keymap.set('v', '<leader>dr', function()
+---     local sql = table.concat(
+---       vim.fn.getregion(vim.fn.getpos('v'), vim.fn.getpos('.'), { type = vim.fn.mode() }),
+---       '\n'
+---     )
+---     require('dadbod-ui.api').execute_pick(sql)
+---   end, { desc = 'Run selection against a picked connection' })
+--- <
+---
+--- Same backend selection and `opts` passthrough as `pick`.
+---@param sql string
+---@param opts? table
+function M.execute_pick(sql, opts)
+  require('dadbod-ui.picker').execute(sql, opts)
+end
+
+--- [any] Open the connection picker and run `sql`'s EXPLAIN plan against the picked
+--- connection, opening the `.dbout` result window -- `explain_execute` with the
+--- name chosen interactively, so the plan is wrapped in whatever adapter the
+--- pick lands on (unlike hand-prepending `EXPLAIN`, which only fits one
+--- dialect). When `opts.analyze` is NOT specified, first prompts for the
+--- EXPLAIN / EXPLAIN ANALYZE variant; pass `{ analyze = true }` or
+--- `{ analyze = false }` to skip the prompt (analyze RUNS the query for real
+--- timings -- side effects for writes). Pairs with a visual-mode mapping the
+--- same way `execute_pick` does:
+---
+--- >lua
+---   vim.keymap.set('v', '<leader>de', function()
+---     local sql = table.concat(
+---       vim.fn.getregion(vim.fn.getpos('v'), vim.fn.getpos('.'), { type = vim.fn.mode() }),
+---       '\n'
+---     )
+---     require('dadbod-ui.api').explain_pick(sql)
+---   end, { desc = 'Explain selection against a picked connection' })
+--- <
+---
+--- `picker_opts` is the same backend passthrough as `pick`.
+---@param sql string
+---@param opts? DadbodUI.ExplainOpts
+---@param picker_opts? table
+function M.explain_pick(sql, opts, picker_opts)
+  require('dadbod-ui.picker').explain(sql, opts, picker_opts)
 end
 
 --- [any] Add a connection to the `connections.json` store programmatically (the
