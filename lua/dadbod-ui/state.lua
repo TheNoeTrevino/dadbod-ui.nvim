@@ -52,7 +52,7 @@ local function expand_dir(path)
   if path == nil or path == '' then
     return ''
   end
-  return (vim.fn.fnamemodify(path, ':p'):gsub('/$', ''))
+  return vim.fs.abspath(vim.fs.normalize(path))
 end
 
 ---@private

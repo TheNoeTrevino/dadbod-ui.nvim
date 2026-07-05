@@ -209,7 +209,7 @@ function M.connections_path(save_location)
   if save_location == nil or save_location == '' then
     return nil
   end
-  local folder = (vim.fn.fnamemodify(save_location, ':p'):gsub('/$', ''))
+  local folder = vim.fs.abspath(vim.fs.normalize(save_location))
   return folder .. '/connections.json'
 end
 

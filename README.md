@@ -2,6 +2,8 @@
 
 A Neovim-native user interface for [tpope/vim-dadbod](https://github.com/tpope/vim-dadbod) written in lua.
 
+Requires Neovim >= 0.12.
+
 ## Installation & full configuration ([lazy.nvim](https://github.com/folke/lazy.nvim))
 
 ```lua
