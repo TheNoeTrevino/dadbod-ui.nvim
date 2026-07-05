@@ -11,7 +11,8 @@ local prefix = "<localleader>d"
 return {
   "TheNoeTrevino/dadbod-ui.nvim",
   dependencies = { "tpope/vim-dadbod" },
-  cmd = { "DBUI", "DBUIToggle", "DBUIAddConnection", "DBUIFindBuffer" },
+  -- No `:DBUI*` commands are shipped: drive everything from `require('dadbod-ui.api')`.
+  -- These `keys` both define your mappings and lazy-load the plugin on first use.
   keys = {
     { prefix .. "d", function() require("dadbod-ui.api").toggle() end, desc = "Toggle DBUI" },
     { prefix .. "o", function() require("dadbod-ui.api").open() end, desc = "Open DBUI" },
@@ -190,6 +191,29 @@ disambiguate with `"{group}/{name}"` or the full `key_name` from `api.list()`.
 local api = require('dadbod-ui.api')
 ```
 
+### Prefer `:DBUI*` commands?
+
+The plugin ships none, but they are a few lines over the api if you want them:
+
+```lua
+local api = require('dadbod-ui.api')
+local function cmd(name, fn, opts) vim.api.nvim_create_user_command(name, fn, opts or {}) end
+
+cmd('DBUI', function(a) api.open(a.mods) end)
+cmd('DBUIToggle', api.toggle)
+cmd('DBUIClose', api.close)
+cmd('DBUIAddConnection', api.add_connection)
+cmd('DBUIFindBuffer', api.buf.find)
+cmd('DBUISwitchBuffer', function() api.buf.switch() end) -- no arg -> interactive picker
+cmd('DBUIRenameBuffer', api.buf.rename)
+cmd('DBUILastQueryInfo', api.buf.last_query_info)
+cmd('DBUICancelQuery', api.buf.cancel)
+cmd('DBUIExportResult', function(a) api.dbout.export(a.args == 'current' and 'current' or 'full') end, {
+  nargs = '?',
+  complete = function() return { 'full', 'current' } end,
+})
+```
+
 ### Drawer
 
 ```lua
@@ -232,7 +256,7 @@ end)
 local rows, err = api.query_sync('dev', 'select 1')  -- blocking dual for scripts
 api.execute('dev', 'select * from users')            -- run through :DB, open .dbout
 api.open_query('dev')                                -- fresh scratch buffer bound to dev
-api.switch_buffer('prod')                            -- reassign the current query buffer
+api.buf.switch('prod')                               -- reassign the current query buffer
 ```
 
 ### Introspection

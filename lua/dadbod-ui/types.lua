@@ -372,7 +372,7 @@
 ---@field show_row_count boolean  append `· N rows` to the summary
 
 --- The most recently executed query and its wall-clock runtime, surfaced by
---- `:DBUILastQueryInfo` and the dbout branch of `statusline`. `last_query_time`
+--- `api.buf.last_query_info` and the dbout branch of `statusline`. `last_query_time`
 --- is dadbod's `b:db.runtime` (seconds, as a string) recorded when the async
 --- result lands, or `''` before any query finished.
 ---@class DadbodUI.LastQueryInfo
@@ -427,7 +427,7 @@
 ---@field exit_status? integer  the query exit status (0 = ok)
 
 --- The cancel-hook event (`on_cancel_query` / `on_cancel_query_post`), fired
---- around a `:DBUICancelQuery`. Only fired when there is a cancellable async
+--- around a query cancel. Only fired when there is a cancellable async
 --- query (gated on `bridge.can_cancel()`).
 ---@class DadbodUI.CancelEvent
 ---@field bufnr integer  the query buffer whose running async query is being cancelled

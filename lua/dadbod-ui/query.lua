@@ -845,7 +845,7 @@ function Query:export_query(is_visual)
   end)
 end
 
---- Cancel the running async query for the current query buffer (`:DBUICancelQuery`
+--- Cancel the running async query for the current query buffer (`api.buf.cancel`
 --- / the `cancel` query mapping), through `bridge.cancel`. Gated on
 --- `bridge.can_cancel()`: when dadbod exposes no async cancellation there is
 --- nothing to cancel, so we notify and -- deliberately -- fire NO hooks (the

@@ -27,10 +27,10 @@ local resolve = require('dadbod-ui.api.resolve')
 ---@diagnostic disable-next-line: missing-fields
 local M = {}
 
---- Switch the current query buffer to connection `name` without prompting -- the
---- scriptable dual of `:DBUISwitchBuffer`. The current buffer must already be a
---- dadbod-ui query buffer; its text, table/schema and bind-param context ride
---- across to the new connection. With no `name`, falls back to the interactive
+--- Switch the current query buffer to connection `name` without prompting. The
+--- current buffer must already be a dadbod-ui query buffer; its text, table/schema
+--- and bind-param context ride across to the new connection. With no `name`, falls
+--- back to the interactive
 --- picker (and returns true, as the pick is async). Returns `false, err` when the
 --- name is unknown, the current buffer is not a query buffer, or there is no
 --- other connection to switch to.
@@ -53,14 +53,12 @@ function M.switch(name)
   return ok == true, err
 end
 
---- Find/adopt the query buffer for the current db context -- the Lua equivalent
---- of `:DBUIFindBuffer`.
+--- Find/adopt the query buffer for the current db context.
 function M.find()
   require('dadbod-ui').find_buffer()
 end
 
---- Rename the current query buffer's on-disk file -- the Lua equivalent of
---- `:DBUIRenameBuffer`.
+--- Rename the current query buffer's on-disk file.
 function M.rename()
   require('dadbod-ui').rename_buffer()
 end
@@ -92,14 +90,12 @@ function M.execute_selection(transform)
   require('dadbod-ui').execute_selection(transform)
 end
 
---- Cancel the running async query for the current query buffer -- the Lua
---- equivalent of `:DBUICancelQuery`.
+--- Cancel the running async query for the current query buffer.
 function M.cancel()
   require('dadbod-ui').cancel_query()
 end
 
---- Echo the last executed query and its runtime -- the Lua equivalent of
---- `:DBUILastQueryInfo`.
+--- Echo the last executed query and its runtime.
 function M.last_query_info()
   require('dadbod-ui').print_last_query_info()
 end

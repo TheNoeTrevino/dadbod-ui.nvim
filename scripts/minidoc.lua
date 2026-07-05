@@ -7,11 +7,10 @@ _G.MiniDoc = MiniDoc
 MiniDoc.setup()
 
 -- Documentation order: the public facade first (intro + user-facing verbs), then
--- the configuration surface, then the commands.
+-- the configuration surface.
 local files = {
   'lua/dadbod-ui/init.lua', -- public API + setup()
   'lua/dadbod-ui/config.lua', -- configuration options
-  'plugin/dadbod-ui.lua', -- commands
 }
 
 MiniDoc.generate(files, 'doc/dadbod-ui.txt')

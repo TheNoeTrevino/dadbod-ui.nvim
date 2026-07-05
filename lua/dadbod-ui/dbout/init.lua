@@ -260,7 +260,7 @@ function M._on_post(output_file)
   local runtime = type(db) == 'table' and tonumber(db.runtime) or nil
 
   -- Record the runtime on the drawer's query controller so `get_last_query_info`
-  -- (hence `:DBUILastQueryInfo` and the dbout branch of `statusline`) can report
+  -- (hence `api.buf.last_query_info` and the dbout branch of `statusline`) can report
   -- it, independent of the `query_time` UI config.
   if ctx.attached ~= nil and runtime ~= nil then
     ctx.attached:query().last_query_time = string.format('%.3f', runtime)

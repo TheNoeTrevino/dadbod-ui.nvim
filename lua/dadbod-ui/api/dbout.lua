@@ -14,7 +14,7 @@
 local M = {}
 
 --- Interactively export the current `.dbout` result buffer to a file (prompts for
---- format + path) -- the Lua equivalent of `:DBUIExportResult`. `page_choice`
+--- format + path). `page_choice`
 --- 'current' exports only the on-screen page of a paginated result; 'full' (the
 --- default) exports the whole query. Use the api's `export` for a headless,
 --- prompt-free export driven by a connection name + SQL.

@@ -404,7 +404,7 @@ function M.explain_pick(sql, opts, picker_opts)
 end
 
 --- Add a connection to the `connections.json` store programmatically (the
---- non-interactive dual of `:DBUIAddConnection`). Rediscovers connections on
+--- non-interactive dual of `add_connection`). Rediscovers connections on
 --- success so the new one is immediately resolvable. Returns `false, err` when
 --- no store path is configured (needs `save_location`) or the name/url is
 --- invalid or a duplicate.
@@ -549,8 +549,8 @@ function M.disconnect(name)
   return true
 end
 
---- Add a connection interactively (prompts for url + name) -- the Lua equivalent
---- of `:DBUIAddConnection`. Use `add` to add one programmatically instead.
+--- Add a connection interactively (prompts for url + name). Use `add` to add one
+--- programmatically instead.
 function M.add_connection()
   require('dadbod-ui').add_connection()
 end
@@ -758,7 +758,7 @@ end
 
 --- Run `spec.sql` against `spec.name` and export the result to `spec.path` in
 --- `spec.format`, with no drawer or result buffer involved (the headless dual of
---- `:DBUIExportResult`). Connects first if needed (blocking). The export itself
+--- `dbout.export`). Connects first if needed (blocking). The export itself
 --- is asynchronous and reports success/failure through the plugin's
 --- notifications, as the interactive path does. Returns `false, err` for the
 --- synchronous pre-flight failures (unknown name, connect failure).
