@@ -13,7 +13,7 @@
 ---@field contexts { group: string, title: string }[]
 ---@field builtin_actions table<string, table<string, string>>
 ---@field action_order table<string, string[]>
----@field resolve fun(opts?: table): DadbodUI.Config
+---@field resolve fun(opts?: DadbodUI.Opts): DadbodUI.Config
 
 ---@private
 ---@type DadbodUI.ConfigModule
@@ -313,7 +313,7 @@ end
 --- Resolve effective config: defaults < `opts`. The returned table is frozen
 --- (see `freeze`): it is the session's shared config, so accidental writes to
 --- it raise rather than silently corrupting every reader.
----@param opts? table  partial config overrides
+---@param opts? DadbodUI.Opts  partial config overrides
 ---@return DadbodUI.Config
 function M.resolve(opts)
   return freeze(vim.tbl_deep_extend('force', vim.deepcopy(M.defaults), opts or {}))
