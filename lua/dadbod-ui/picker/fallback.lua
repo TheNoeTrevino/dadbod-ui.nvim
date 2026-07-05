@@ -3,33 +3,23 @@
 -- Used when no picker plugin is installed (or `config.picker = 'fallback'`).
 -- Built into Neovim, so it is always available.
 
-local utils = require('dadbod-ui.picker.utils')
-
 ---@type DadbodUI.PickerBackend
 ---@diagnostic disable-next-line: missing-fields
 local M = {}
 
---- Always true: vim.ui.select is built in.
----@return boolean
-function M.is_available()
-  return true
-end
-
 --- Show the picker via vim.ui.select. `_opts` is unused (vim.ui.select takes
 --- no passthrough config); accepted for backend-interface compliance.
+---@param items DadbodUI.PickerItem[]
 ---@param _opts? table
----@param on_select? DadbodUI.PickerSelect
+---@param on_select DadbodUI.PickerSelect
 ---@return boolean
-function M.show(_opts, on_select)
-  local select = on_select or utils.connect
-  vim.ui.select(utils.build_items(), {
+function M.show(items, _opts, on_select)
+  vim.ui.select(items, {
     prompt = 'Connections',
     format_item = function(item)
       return item.text
     end,
-  }, function(choice)
-    select(choice)
-  end)
+  }, on_select)
   return true
 end
 

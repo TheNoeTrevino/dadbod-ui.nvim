@@ -30,15 +30,16 @@ local function backend(name)
 end
 
 ---@private
+---@param items DadbodUI.PickerItem[]
 ---@param opts? table
----@param on_select? DadbodUI.PickerSelect
-local function show_auto(opts, on_select)
+---@param on_select DadbodUI.PickerSelect
+local function show_auto(items, opts, on_select)
   for _, name in ipairs({ 'snacks', 'telescope', 'fzf' }) do
-    if backend(name).show(opts, on_select) then
+    if backend(name).show(items, opts, on_select) then
       return
     end
   end
-  backend('fallback').show(opts, on_select)
+  backend('fallback').show(items, opts, on_select)
 end
 
 --- Open the connection picker. `opts` is passed straight to the underlying
@@ -48,16 +49,19 @@ end
 ---@param opts? table
 ---@param on_select? DadbodUI.PickerSelect
 function M.show(opts, on_select)
-  if #require('dadbod-ui.picker.utils').build_items() == 0 then
+  local utils = require('dadbod-ui.picker.utils')
+  local items = utils.build_items()
+  if #items == 0 then
     return notifications.info('No connections found')
   end
+  on_select = on_select or utils.connect
 
   local picker_type = require('dadbod-ui.state').config().picker or 'auto'
   if picker_type == 'auto' then
-    return show_auto(opts, on_select)
+    return show_auto(items, opts, on_select)
   end
 
-  if not backend(picker_type).show(opts, on_select) then
+  if not backend(picker_type).show(items, opts, on_select) then
     notifications.warn(string.format("picker '%s' is not available", picker_type))
   end
 end
