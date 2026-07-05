@@ -21,7 +21,7 @@ return {
     { prefix .. "i", function() require("dadbod-ui.api").last_query_info() end, desc = "DBUI last query info" },
   },
   -- default config
-  ---@type DadbodUI.Config
+  ---@type DadbodUI.Opts
   opts = {
     save_location = "~/.local/share/db_ui",  -- where connections.json + saved queries live
     tmp_query_location = "",                 -- persist scratch query buffers here ('' = off)

@@ -77,7 +77,7 @@ end
 
 --- Configure the plugin: resolve options and drop the cached instance/drawer so
 --- the new config takes effect.
----@param opts? table
+---@param opts? DadbodUI.Opts
 ---@return table
 function M.setup(opts)
   M.config = state.setup(opts)

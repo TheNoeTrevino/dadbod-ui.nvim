@@ -303,7 +303,10 @@
 ---@field connection_ok string
 ---@field connection_error string
 
---- Resolved configuration (dadbod-ui.config).
+--- Resolved configuration: every field is present (defaults filled in), so
+--- internal readers index it without nil-checks. This is NOT the type to annotate
+--- a `setup{}` / lazy `opts` table with -- use `DadbodUI.Opts` (all fields
+--- optional) for that, or lua_ls will flag every field you didn't set as missing.
 ---@class DadbodUI.Config
 ---@field save_location string
 ---@field tmp_query_location string
@@ -370,6 +373,79 @@
 ---@field result_buffer boolean  virtual line at the top of the `.dbout` buffer
 ---@field query_buffer boolean  ghost text trailing the executed line in the SQL buffer
 ---@field show_row_count boolean  append `· N rows` to the summary
+
+--- Partial config accepted by `setup{}` / a lazy `opts` table: the same surface
+--- as `DadbodUI.Config` but every field is optional, since defaults fill the rest.
+--- Annotate your `opts` with this (`---@type DadbodUI.Opts`) for field completion
+--- without being told the fields you didn't set are missing.
+---@class DadbodUI.Opts
+---@field save_location? string
+---@field tmp_query_location? string
+---@field table_helpers? table<string, table<string, string>>
+---@field table_helpers_order? string[]
+---@field env_variable_url? string
+---@field env_variable_name? string
+---@field dotenv_variable_prefix? string
+---@field icons? table
+---@field use_nerd_fonts? boolean
+---@field use_postgres_views? boolean
+---@field hide_schemas? string[]
+---@field is_oracle_legacy? boolean
+---@field debug? boolean
+---@field picker? 'auto'|'snacks'|'telescope'|'fzf'|'fallback'
+---@field notifications? DadbodUI.NotificationsOpts
+---@field drawer? DadbodUI.DrawerOpts
+---@field query? DadbodUI.QueryOpts
+---@field results? DadbodUI.ResultsOpts
+---@field actions? table<string, DadbodUI.Action>
+---@field buffer_name_generator? DadbodUI.BufferNameGenerator
+---@field table_name_sorter? DadbodUI.TableNameSorter
+---@field hooks? DadbodUI.Hooks
+
+---@class DadbodUI.NotificationsOpts
+---@field force_echo? boolean
+---@field disable_info? boolean
+---@field use_nvim_notify? boolean
+---@field disable_progress_bar? boolean
+
+---@class DadbodUI.DrawerOpts
+---@field width? integer
+---@field position? 'left'|'right'
+---@field show_help? boolean
+---@field show_database_icon? boolean
+---@field expand_groups? boolean
+---@field sections? string[]
+---@field keys? DadbodUI.Keymaps
+
+---@class DadbodUI.QueryOpts
+---@field default_query? string
+---@field execute_on_save? boolean
+---@field auto_execute_table_helpers? boolean
+---@field bind_param_pattern? string
+---@field show_buffer_connection? boolean
+---@field keys? DadbodUI.Keymaps
+
+---@class DadbodUI.ResultsOpts
+---@field page_size? integer
+---@field layout? 'horizontal'|'vertical'
+---@field list_sort? 'asc'|'desc'
+---@field query_time? DadbodUI.QueryTimeOpts
+---@field export? DadbodUI.ExportConfigOpts
+---@field keys? DadbodUI.Keymaps
+
+---@class DadbodUI.QueryTimeOpts
+---@field enabled? boolean
+---@field result_buffer? boolean
+---@field query_buffer? boolean
+---@field show_row_count? boolean
+
+---@class DadbodUI.ExportConfigOpts
+---@field prefer_native? boolean
+---@field default_path? string
+---@field coerce_numbers? boolean
+---@field csv? table
+---@field tsv? table
+---@field json? table
 
 --- The most recently executed query and its wall-clock runtime, surfaced by
 --- `api.buf.last_query_info` and the dbout branch of `statusline`. `last_query_time`
