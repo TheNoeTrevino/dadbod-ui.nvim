@@ -251,12 +251,12 @@
 
 --- The `export` config block (see config defaults + specs/native-export.md §11).
 ---@class DadbodUI.ExportConfig
----@field prefer_native boolean
----@field default_path string  '' => cwd, else a directory
----@field coerce_numbers boolean
----@field csv table
----@field tsv table
----@field json table
+---@field prefer_native? boolean
+---@field default_path? string  '' => cwd, else a directory
+---@field coerce_numbers? boolean
+---@field csv? table
+---@field tsv? table
+---@field json? table
 
 --- Payload passed to on_pre/on_post subscribers.
 ---@class DadbodUI.ExecuteEvent
@@ -303,86 +303,16 @@
 ---@field connection_ok string
 ---@field connection_error string
 
---- Resolved configuration: every field is present (defaults filled in), so
---- internal readers index it without nil-checks. This is NOT the type to annotate
---- a `setup{}` / lazy `opts` table with -- use `DadbodUI.Opts` (all fields
---- optional) for that, or lua_ls will flag every field you didn't set as missing.
+--- Configuration surface. Annotate a `setup{}` / lazy `opts` table with this
+--- (`---@type DadbodUI.Config`); every field is optional, since defaults fill the
+--- rest -- so lua_ls never flags a field you didn't set as missing. Internal code
+--- reads the resolved config through this same type (optional fields read as
+--- non-nil, so no nil-checks are needed at the call sites).
 ---@class DadbodUI.Config
----@field save_location string
----@field tmp_query_location string
----@field table_helpers table<string, table<string, string>>
----@field table_helpers_order string[]  display order for a table's helpers
----@field env_variable_url string
----@field env_variable_name string
----@field dotenv_variable_prefix string
----@field icons table
----@field use_nerd_fonts boolean
----@field use_postgres_views boolean
----@field hide_schemas string[]
----@field is_oracle_legacy boolean
----@field debug boolean
----@field picker 'auto'|'snacks'|'telescope'|'fzf'|'fallback'  connection picker backend (api.pick)
----@field notifications DadbodUI.NotificationsConfig
----@field drawer DadbodUI.DrawerConfig
----@field query DadbodUI.QueryConfig
----@field results DadbodUI.ResultsConfig
----@field actions table<string, DadbodUI.Action>  user-defined named actions
----@field buffer_name_generator? DadbodUI.BufferNameGenerator
----@field table_name_sorter? DadbodUI.TableNameSorter
----@field hooks? DadbodUI.Hooks
-
---- Notification presentation + routing (`notifications`).
----@class DadbodUI.NotificationsConfig
----@field force_echo boolean
----@field disable_info boolean
----@field use_nvim_notify boolean
----@field disable_progress_bar boolean
-
---- The drawer/sidebar window (`drawer`).
----@class DadbodUI.DrawerConfig
----@field width integer
----@field position 'left'|'right'
----@field show_help boolean
----@field show_database_icon boolean
----@field expand_groups boolean
----@field sections string[]
----@field keys DadbodUI.Keymaps  `lhs -> action`, or `false` to disable the context
-
---- SQL/query buffers (`query`).
----@class DadbodUI.QueryConfig
----@field default_query string
----@field execute_on_save boolean
----@field auto_execute_table_helpers boolean
----@field bind_param_pattern string
----@field show_buffer_connection boolean  right-aligned `group/name` winbar on query buffers
----@field keys DadbodUI.Keymaps  `lhs -> action`, or `false` to disable the context
-
---- `.dbout` result buffers (`results`).
----@class DadbodUI.ResultsConfig
----@field page_size integer  rows per result page (M-pagination LIMIT/OFFSET)
----@field layout 'horizontal'|'vertical'  split direction for the `.dbout` result window
----@field list_sort 'asc'|'desc'
----@field query_time DadbodUI.QueryTimeConfig
----@field export DadbodUI.ExportConfig
----@field keys DadbodUI.Keymaps  `lhs -> action`, or `false` to disable the context
-
---- Inline post-execute feedback (time + row count). See `query_time` in the
---- config defaults.
----@class DadbodUI.QueryTimeConfig
----@field enabled boolean  master switch; also gates suppression of dadbod's echoes
----@field result_buffer boolean  virtual line at the top of the `.dbout` buffer
----@field query_buffer boolean  ghost text trailing the executed line in the SQL buffer
----@field show_row_count boolean  append `· N rows` to the summary
-
---- Partial config accepted by `setup{}` / a lazy `opts` table: the same surface
---- as `DadbodUI.Config` but every field is optional, since defaults fill the rest.
---- Annotate your `opts` with this (`---@type DadbodUI.Opts`) for field completion
---- without being told the fields you didn't set are missing.
----@class DadbodUI.Opts
 ---@field save_location? string
 ---@field tmp_query_location? string
 ---@field table_helpers? table<string, table<string, string>>
----@field table_helpers_order? string[]
+---@field table_helpers_order? string[]  display order for a table's helpers
 ---@field env_variable_url? string
 ---@field env_variable_name? string
 ---@field dotenv_variable_prefix? string
@@ -392,60 +322,58 @@
 ---@field hide_schemas? string[]
 ---@field is_oracle_legacy? boolean
 ---@field debug? boolean
----@field picker? 'auto'|'snacks'|'telescope'|'fzf'|'fallback'
----@field notifications? DadbodUI.NotificationsOpts
----@field drawer? DadbodUI.DrawerOpts
----@field query? DadbodUI.QueryOpts
----@field results? DadbodUI.ResultsOpts
----@field actions? table<string, DadbodUI.Action>
+---@field picker? 'auto'|'snacks'|'telescope'|'fzf'|'fallback'  connection picker backend (api.pick)
+---@field notifications? DadbodUI.NotificationsConfig
+---@field drawer? DadbodUI.DrawerConfig
+---@field query? DadbodUI.QueryConfig
+---@field results? DadbodUI.ResultsConfig
+---@field actions? table<string, DadbodUI.Action>  user-defined named actions
 ---@field buffer_name_generator? DadbodUI.BufferNameGenerator
 ---@field table_name_sorter? DadbodUI.TableNameSorter
 ---@field hooks? DadbodUI.Hooks
 
----@class DadbodUI.NotificationsOpts
+--- Notification presentation + routing (`notifications`).
+---@class DadbodUI.NotificationsConfig
 ---@field force_echo? boolean
 ---@field disable_info? boolean
 ---@field use_nvim_notify? boolean
 ---@field disable_progress_bar? boolean
 
----@class DadbodUI.DrawerOpts
+--- The drawer/sidebar window (`drawer`).
+---@class DadbodUI.DrawerConfig
 ---@field width? integer
 ---@field position? 'left'|'right'
 ---@field show_help? boolean
 ---@field show_database_icon? boolean
 ---@field expand_groups? boolean
 ---@field sections? string[]
----@field keys? DadbodUI.Keymaps
+---@field keys? DadbodUI.Keymaps  `lhs -> action`, or `false` to disable the context
 
----@class DadbodUI.QueryOpts
+--- SQL/query buffers (`query`).
+---@class DadbodUI.QueryConfig
 ---@field default_query? string
 ---@field execute_on_save? boolean
 ---@field auto_execute_table_helpers? boolean
 ---@field bind_param_pattern? string
----@field show_buffer_connection? boolean
----@field keys? DadbodUI.Keymaps
+---@field show_buffer_connection? boolean  right-aligned `group/name` winbar on query buffers
+---@field keys? DadbodUI.Keymaps  `lhs -> action`, or `false` to disable the context
 
----@class DadbodUI.ResultsOpts
----@field page_size? integer
----@field layout? 'horizontal'|'vertical'
+--- `.dbout` result buffers (`results`).
+---@class DadbodUI.ResultsConfig
+---@field page_size? integer  rows per result page (M-pagination LIMIT/OFFSET)
+---@field layout? 'horizontal'|'vertical'  split direction for the `.dbout` result window
 ---@field list_sort? 'asc'|'desc'
----@field query_time? DadbodUI.QueryTimeOpts
----@field export? DadbodUI.ExportConfigOpts
----@field keys? DadbodUI.Keymaps
+---@field query_time? DadbodUI.QueryTimeConfig
+---@field export? DadbodUI.ExportConfig
+---@field keys? DadbodUI.Keymaps  `lhs -> action`, or `false` to disable the context
 
----@class DadbodUI.QueryTimeOpts
----@field enabled? boolean
----@field result_buffer? boolean
----@field query_buffer? boolean
----@field show_row_count? boolean
-
----@class DadbodUI.ExportConfigOpts
----@field prefer_native? boolean
----@field default_path? string
----@field coerce_numbers? boolean
----@field csv? table
----@field tsv? table
----@field json? table
+--- Inline post-execute feedback (time + row count). See `query_time` in the
+--- config defaults.
+---@class DadbodUI.QueryTimeConfig
+---@field enabled? boolean  master switch; also gates suppression of dadbod's echoes
+---@field result_buffer? boolean  virtual line at the top of the `.dbout` buffer
+---@field query_buffer? boolean  ghost text trailing the executed line in the SQL buffer
+---@field show_row_count? boolean  append `· N rows` to the summary
 
 --- The most recently executed query and its wall-clock runtime, surfaced by
 --- `api.buf.last_query_info` and the dbout branch of `statusline`. `last_query_time`
