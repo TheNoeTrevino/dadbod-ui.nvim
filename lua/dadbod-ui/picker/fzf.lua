@@ -3,34 +3,26 @@
 -- Requires fzf-lua (https://github.com/ibhagwan/fzf-lua).
 -- `<CR>` connects the selected connection.
 
-local utils = require('dadbod-ui.picker.utils')
-
 ---@type DadbodUI.PickerBackend
 ---@diagnostic disable-next-line: missing-fields
 local M = {}
 
---- Whether fzf-lua is installed.
----@return boolean
-function M.is_available()
-  return (pcall(require, 'fzf-lua'))
-end
-
 --- Show the fzf-lua picker.
+---@param items DadbodUI.PickerItem[]
 ---@param opts? table  fzf-lua overrides
----@param on_select? DadbodUI.PickerSelect
+---@param on_select DadbodUI.PickerSelect
 ---@return boolean
-function M.show(opts, on_select)
+function M.show(items, opts, on_select)
   local ok, fzf = pcall(require, 'fzf-lua')
   if not ok then
     return false
   end
-  local select = on_select or utils.connect
 
   -- fzf works on display strings, so selections come back as text; map them
   -- back to their items through a lookup.
   local display_list = {}
   local lookup = {}
-  for _, item in ipairs(utils.build_items()) do
+  for _, item in ipairs(items) do
     table.insert(display_list, item.text)
     lookup[item.text] = item
   end
@@ -39,7 +31,7 @@ function M.show(opts, on_select)
     prompt = 'Connections> ',
     actions = {
       default = function(selected)
-        select(selected and lookup[selected[1]])
+        on_select(selected and lookup[selected[1]])
       end,
     },
   }, opts or {})

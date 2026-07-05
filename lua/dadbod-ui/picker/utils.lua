@@ -6,8 +6,7 @@
 
 --- One pickable connection.
 ---@class DadbodUI.PickerItem
----@field idx number  position in the connection list
----@field score number  sort score (same as idx; snacks reads it)
+---@field score number  sort score (list position; snacks reads it)
 ---@field text string  formatted display text (also the fuzzy-match haystack)
 ---@field label string  `group/name`, or the bare name when ungrouped
 ---@field name string  display name
@@ -19,12 +18,12 @@
 --- The `<CR>` action a backend fires with the picked item (nil = cancelled).
 ---@alias DadbodUI.PickerSelect fun(item: DadbodUI.PickerItem|nil)
 
---- The interface every backend implements. `show` returns false when the
---- backend's plugin is not installed, so the router can try the next one.
---- `on_select` overrides the `<CR>` action (default: `utils.connect`).
+--- The interface every backend implements. The router builds the (non-empty)
+--- item list and the `<CR>` action once and passes both in; `show` returns
+--- false when the backend's plugin is not installed, so the router can try
+--- the next one.
 ---@class DadbodUI.PickerBackend
----@field is_available fun(): boolean
----@field show fun(opts?: table, on_select?: DadbodUI.PickerSelect): boolean
+---@field show fun(items: DadbodUI.PickerItem[], opts?: table, on_select: DadbodUI.PickerSelect): boolean
 
 ---@class DadbodUI.PickerUtils
 ---@field build_items fun(): DadbodUI.PickerItem[]
@@ -43,9 +42,8 @@ local M = {}
 function M.build_items()
   local items = {}
   for i, info in ipairs(require('dadbod-ui.api').list()) do
-    local label = info.group ~= '' and (info.group .. '/' .. info.name) or info.name
+    local label = require('dadbod-ui.utils').display_name(info.name, info.group)
     table.insert(items, {
-      idx = i,
       score = i,
       label = label,
       text = label .. (info.is_connected and ' (connected)' or '') .. '  ' .. info.url,
@@ -74,21 +72,32 @@ function M.connect(item)
   end)
 end
 
+--- Build a nil-safe `<CR>` action around `run(item) -> ok, err`, surfacing a
+--- failure as an error notification ("Failed to {verb} against {label}").
+---@param verb string
+---@param run fun(item: DadbodUI.PickerItem): boolean, string|nil
+---@return DadbodUI.PickerSelect
+local function action(verb, run)
+  return function(item)
+    if item == nil then
+      return
+    end
+    local ok, err = run(item)
+    if not ok then
+      notifications.error(err or ('Failed to ' .. verb .. ' against ' .. item.label))
+    end
+  end
+end
+
 --- Build a `<CR>` action that executes `sql` against the selection through
 --- dadbod's `:DB` (connecting first if needed), opening the `.dbout` result
 --- window -- the picker dual of `api.execute`.
 ---@param sql string
 ---@return DadbodUI.PickerSelect
 function M.execute_action(sql)
-  return function(item)
-    if item == nil then
-      return
-    end
-    local ok, err = require('dadbod-ui.api').execute(item.key_name, sql)
-    if not ok then
-      notifications.error(err or ('Failed to execute against ' .. item.label))
-    end
-  end
+  return action('execute', function(item)
+    return require('dadbod-ui.api').execute(item.key_name, sql)
+  end)
 end
 
 --- Build a `<CR>` action that runs `sql`'s EXPLAIN plan against the selection,
@@ -99,15 +108,9 @@ end
 ---@param opts? DadbodUI.ExplainOpts
 ---@return DadbodUI.PickerSelect
 function M.explain_action(sql, opts)
-  return function(item)
-    if item == nil then
-      return
-    end
-    local ok, err = require('dadbod-ui.api').explain_execute(item.key_name, sql, opts)
-    if not ok then
-      notifications.error(err or ('Failed to explain against ' .. item.label))
-    end
-  end
+  return action('explain', function(item)
+    return require('dadbod-ui.api').explain_execute(item.key_name, sql, opts)
+  end)
 end
 
 return M

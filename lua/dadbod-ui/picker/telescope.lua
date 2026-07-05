@@ -3,27 +3,19 @@
 -- Requires Telescope.nvim (https://github.com/nvim-telescope/telescope.nvim).
 -- `<CR>` connects the selected connection.
 
-local utils = require('dadbod-ui.picker.utils')
-
 ---@type DadbodUI.PickerBackend
 ---@diagnostic disable-next-line: missing-fields
 local M = {}
 
---- Whether Telescope.nvim is installed.
----@return boolean
-function M.is_available()
-  return (pcall(require, 'telescope'))
-end
-
 --- Show the Telescope picker.
+---@param items DadbodUI.PickerItem[]
 ---@param opts? table  Telescope picker overrides
----@param on_select? DadbodUI.PickerSelect
+---@param on_select DadbodUI.PickerSelect
 ---@return boolean
-function M.show(opts, on_select)
-  if not M.is_available() then
+function M.show(items, opts, on_select)
+  if not pcall(require, 'telescope') then
     return false
   end
-  local select = on_select or utils.connect
 
   local pickers = require('telescope.pickers')
   local finders = require('telescope.finders')
@@ -31,8 +23,6 @@ function M.show(opts, on_select)
   local actions = require('telescope.actions')
   local action_state = require('telescope.actions.state')
   local entry_display = require('telescope.pickers.entry_display')
-
-  local items = utils.build_items()
 
   local max_label_width = 0
   for _, item in ipairs(items) do
@@ -70,7 +60,7 @@ function M.show(opts, on_select)
       actions.select_default:replace(function()
         local selection = action_state.get_selected_entry()
         actions.close(prompt_bufnr)
-        select(selection and selection.value)
+        on_select(selection and selection.value)
       end)
       return true
     end,
