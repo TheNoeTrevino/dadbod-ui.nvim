@@ -2,6 +2,8 @@
 
 A Neovim-native user interface for [tpope/vim-dadbod](https://github.com/tpope/vim-dadbod) written in lua.
 
+Requires Neovim >= 0.12.
+
 ## Installation & full configuration ([lazy.nvim](https://github.com/folke/lazy.nvim))
 
 ```lua
@@ -86,8 +88,13 @@ return {
     },
 
     -- Lifecycle hooks (see :help dadbod-ui). `on_connect` may return a rewritten
-    -- url (e.g. swap a $password placeholder for a secret); the rest are observers.
-    hooks = {},
+    -- url (e.g. swap a $password placeholder for a secret); `resolve_bind_params`
+    -- supplies bind-param values before prompting; the `on_*` hooks are observers.
+    hooks = {
+      -- resolve_bind_params = function(names, known)  -- names: { ':id', ':env' }
+      --   return { [':env'] = vim.env.APP_ENV }       -- rest fall back to prompts
+      -- end,
+    },
 
     -- Keybindings, grouped by context. Each entry is `{ key, desc, mode? }`; set a
     -- key to 'none' to disable that action. Overrides deep-merge, so you can change

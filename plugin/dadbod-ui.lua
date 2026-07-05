@@ -23,6 +23,10 @@
 if vim.g.loaded_dadbod_ui then
   return
 end
+if vim.fn.has('nvim-0.12') == 0 then
+  vim.notify('dadbod-ui.nvim requires Neovim >= 0.12', vim.log.levels.ERROR)
+  return
+end
 vim.g.loaded_dadbod_ui = true
 
 local function command(name, fn, opts)

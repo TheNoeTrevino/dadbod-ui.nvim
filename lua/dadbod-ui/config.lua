@@ -66,6 +66,11 @@ M.defaults = {
   drawer_sections = { 'new_query', 'buffers', 'saved_queries', 'schemas', 'procedures' },
   expand_groups = true,
   dbout_list_sort = 'asc',
+  -- Backend for the connection picker (`require('dadbod-ui.api').pick()`).
+  -- 'auto' tries Snacks.nvim, Telescope.nvim, then fzf-lua, falling back to
+  -- vim.ui.select when none is installed; naming a backend uses it exclusively
+  -- (warning when its plugin is missing), 'fallback' forces vim.ui.select.
+  picker = 'auto',
   force_echo_notifications = false,
   disable_info_notifications = false,
   use_nvim_notify = false,
