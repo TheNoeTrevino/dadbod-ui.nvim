@@ -323,12 +323,7 @@
 ---@field drawer DadbodUI.DrawerConfig
 ---@field query DadbodUI.QueryConfig
 ---@field results DadbodUI.ResultsConfig
----@field disable_mappings boolean
----@field disable_mappings_dbui boolean
----@field disable_mappings_dbout boolean
----@field disable_mappings_sql boolean
----@field disable_mappings_javascript boolean
----@field mappings table<string, table<string, DadbodUI.Mapping>>
+---@field actions table<string, DadbodUI.Action>  user-defined named actions
 ---@field buffer_name_generator? DadbodUI.BufferNameGenerator
 ---@field table_name_sorter? DadbodUI.TableNameSorter
 ---@field hooks? DadbodUI.Hooks
@@ -348,6 +343,7 @@
 ---@field show_database_icon boolean
 ---@field expand_groups boolean
 ---@field sections string[]
+---@field keys DadbodUI.Keymaps  `lhs -> action`, or `false` to disable the context
 
 --- SQL/query buffers (`query`).
 ---@class DadbodUI.QueryConfig
@@ -356,6 +352,7 @@
 ---@field auto_execute_table_helpers boolean
 ---@field bind_param_pattern string
 ---@field show_buffer_connection boolean  right-aligned `group/name` winbar on query buffers
+---@field keys DadbodUI.Keymaps  `lhs -> action`, or `false` to disable the context
 
 --- `.dbout` result buffers (`results`).
 ---@class DadbodUI.ResultsConfig
@@ -364,6 +361,7 @@
 ---@field list_sort 'asc'|'desc'
 ---@field query_time DadbodUI.QueryTimeConfig
 ---@field export DadbodUI.ExportConfig
+---@field keys DadbodUI.Keymaps  `lhs -> action`, or `false` to disable the context
 
 --- Inline post-execute feedback (time + row count). See `query_time` in the
 --- config defaults.
@@ -453,12 +451,28 @@
 ---@field on_cancel_query_post? fun(event: DadbodUI.CancelEvent)  after a running query is cancelled
 ---@field resolve_bind_params? fun(names: string[], known: DadbodUI.BindParams): table<string, string>|nil  supply bind-param values before prompting; return a name->value map (partial ok), nil/omitted prompts for all
 
---- A single configurable keybinding. `key` is a string, a list of strings
---- (aliases), or `'none'` to disable. `mode` (default `'n'`) is the mode(s) it
---- binds in. `binds` is an escape hatch for actions whose lhs differs per mode;
---- when present it is the authoritative bind list while `key` drives help text.
----@class DadbodUI.Mapping
----@field key string|string[]  the lhs, or 'none' to disable
----@field desc string  one-line description shown in the help window
----@field mode? string|string[]  default 'n'
----@field binds? { mode: string, lhs: string }[]
+--- A context's keymaps: `lhs -> action`, or `false` to disable every mapping in
+--- that context. Merged over the defaults, so a partial table rebinds/adds/
+--- disables individual keys without redeclaring the rest.
+---@alias DadbodUI.Keymaps table<string, DadbodUI.KeySpec>|false
+
+--- What a `keys` entry binds to: an action name (a built-in id or a key in
+--- `config.actions`), `{ '<action>', mode = ... }` to bind in specific mode(s)
+--- (default `'n'`), or `false` to disable just that key.
+---@alias DadbodUI.KeySpec string|{ [1]: string, mode?: string|string[] }|false
+
+--- A user-defined action (`config.actions[name]`): a bare function, or a
+--- `{ desc, fn }` table so it also shows in the `?` help window. The function
+--- receives a per-context action context and (for query/results) is invoked with
+--- the triggering mode on `ctx.mode`.
+---@alias DadbodUI.Action fun(ctx: DadbodUI.ActionContext)|{ desc: string, fn: fun(ctx: DadbodUI.ActionContext) }
+
+--- The context object passed to a user action. Common fields plus context-
+--- specific handles: `drawer`/`item` in the drawer, `query` in a query buffer.
+---@class DadbodUI.ActionContext
+---@field mode string  the triggering mode ('n', 'v', 'o', ...)
+---@field bufnr integer  the buffer the action fired in
+---@field connection? DadbodUI.ConnectionEntry  the resolved connection, when one applies
+---@field drawer? DadbodUI.Drawer  the drawer instance (drawer context only)
+---@field item? DadbodUI.Node  the node under the cursor (drawer context only)
+---@field query? DadbodUI.Query  the query controller (query context only)

@@ -343,12 +343,11 @@ function Drawer:statusline(opts)
   return (opts.prefix or 'DBUI: ') .. table.concat(parts, opts.separator or ' -> ')
 end
 
---- The sidebar action handlers, keyed by the ids in `config.mappings.sidebar`.
---- Drives both keymap setup and (by id) the help window, so the two stay in
---- lockstep. `help` is bound here too but applied separately (always available,
---- before the disable check), so it is excluded from the bulk `apply`.
+--- The drawer's built-in action handlers, keyed by the ids in
+--- `config.builtin_actions.drawer`. `setup_mappings` binds each to whichever
+--- `lhs` names it in `config.drawer.keys`; the same ids drive the help window.
 ---@return table<string, fun()>
-function Drawer:sidebar_handlers()
+function Drawer:drawer_handlers()
   return {
     help = function()
       self:toggle_help()
@@ -413,23 +412,16 @@ end
 
 ---@return nil
 function Drawer:setup_mappings()
-  local config_mod = require('dadbod-ui.config')
   local mappings = require('dadbod-ui.mappings')
-  local handlers = self:sidebar_handlers()
-  local group = self.config.mappings.sidebar
   local opts = { buffer = self.bufnr, nowait = true, silent = true }
-
-  -- The help toggle is always available (even when mappings are disabled), though
-  -- a `key = 'none'` still opts it out.
-  for _, b in ipairs(mappings.binds(group.help)) do
-    vim.keymap.set(b.mode, b.lhs, handlers.help, opts)
+  -- User actions get the node under the cursor + its connection (resolved lazily
+  -- at trigger time, not bind time).
+  local function make_ctx(mode)
+    local item = self:get_current_item()
+    local conn = item and item.key_name and self.instance.dbs[item.key_name] or nil
+    return { mode = mode, bufnr = self.bufnr, drawer = self, item = item, connection = conn }
   end
-  if self.config.disable_mappings or self.config.disable_mappings_dbui then
-    return
-  end
-  -- Bind the rest (help excluded -- already bound above).
-  handlers.help = nil
-  mappings.apply(group, config_mod.mapping_order.sidebar, handlers, opts)
+  mappings.apply(self.config.drawer.keys, self:drawer_handlers(), self.config.actions, make_ctx, opts)
 end
 
 -- Exposed for the line-render spec (asserts line_for matches a full paint).

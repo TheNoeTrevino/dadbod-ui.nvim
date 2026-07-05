@@ -42,10 +42,10 @@ describe('config', function()
     assert.equals(true, c.results.export.csv.header) -- untouched sibling preserved
   end)
 
-  it('registers the results.export mapping and its order entry', function()
+  it('binds the export action in the results context and lists it in the action order', function()
     local c = config.resolve()
-    assert.equals('<Leader>X', c.mappings.results.export.key)
-    assert.is_true(vim.tbl_contains(config.mapping_order.results, 'export'))
+    assert.equals('export', c.results.keys['<Leader>X'])
+    assert.is_true(vim.tbl_contains(config.action_order.results, 'export'))
   end)
 
   it('freezes the resolved config against stray new fields', function()

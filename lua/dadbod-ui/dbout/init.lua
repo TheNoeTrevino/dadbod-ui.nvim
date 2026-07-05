@@ -395,8 +395,8 @@ end
 
 --- Configure a `.dbout` result buffer: Lua expr-folding by result block (first
 --- fold opened), and the navigation maps unless disabled. Wired from the
---- `FileType dbout` autocmd. Folding is always set; only the maps honor
---- `disable_mappings` / `disable_mappings_dbout`.
+--- `FileType dbout` autocmd. Folding is always set; the maps no-op when
+--- `config.results.keys` is `false`.
 ---@param bufnr integer
 ---@return nil
 function M.setup_buffer(bufnr)
@@ -405,15 +405,11 @@ function M.setup_buffer(bufnr)
   pcall(vim.cmd, 'silent! normal! zo') -- open the first fold on load
 
   local config = ctx.current_config()
-  if config.disable_mappings or config.disable_mappings_dbout then
-    return
-  end
-  local config_mod = require('dadbod-ui.config')
   local mappings = require('dadbod-ui.mappings')
-  -- Keyed by the ids in `config.mappings.results`; the same data drives the help
-  -- window. `cell_value` binds different keys per mode (`vic`/`ic`) via its
-  -- explicit `binds`, so the handler ignores the mode argument.
-  mappings.apply(config.mappings.results, config_mod.mapping_order.results, {
+  -- Keyed by the ids in `config.builtin_actions.results`; the same ids drive the
+  -- help window. `cell_value` is named by two keys (`vic` in normal, `ic` in
+  -- operator-pending), so the handler ignores the mode argument.
+  local handlers = {
     jump_foreign = M.jump_to_foreign_table,
     cell_value = M.get_cell_value,
     yank_header = M.yank_header,
@@ -423,7 +419,18 @@ function M.setup_buffer(bufnr)
     export = function()
       require('dadbod-ui.export').export_interactive(bufnr)
     end,
-  }, { buffer = bufnr, silent = true, nowait = true })
+  }
+  local function make_ctx(mode)
+    local key = vim.b[bufnr].dbui_db_key_name
+    return { mode = mode, bufnr = bufnr, connection = key and require('dadbod-ui.state').get().dbs[key] or nil }
+  end
+  mappings.apply(
+    config.results.keys,
+    handlers,
+    config.actions,
+    make_ctx,
+    { buffer = bufnr, silent = true, nowait = true }
+  )
 end
 
 --- Register the session-wide autocmds and bridge subscriptions once: `.dbout`

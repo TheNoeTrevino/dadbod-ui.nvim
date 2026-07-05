@@ -54,7 +54,7 @@ describe('dbout: _nav_keys', function()
   end)
 
   it('reflects a rebound page-step key', function()
-    local cfg = require('dadbod-ui.config').resolve({ mappings = { results = { next_page = { key = '<Tab>' } } } })
+    local cfg = require('dadbod-ui.config').resolve({ results = { keys = { [']'] = false, ['<Tab>'] = 'next_page' } } })
     assert.equals('<Tab>', dbout._nav_keys(cfg).next)
   end)
 end)
