@@ -20,6 +20,12 @@ local bind_params = require('dadbod-ui.bind_params')
 local introspect = require('dadbod-ui.introspect')
 local utils = require('dadbod-ui.utils')
 
+--- A last-mile SQL rewrite hook for `execute_query`/`execute_selection`. Receives
+--- the runnable SQL (a single string, after bind-param substitution) and returns
+--- the SQL to run instead -- e.g. wrapping the query in EXPLAIN. Returning nil
+--- runs the query unchanged.
+---@alias DadbodUI.SqlTransform fun(sql: string): string|nil
+
 ---@class DadbodUI.QueryModule
 ---@field connection_winbar fun(entry: DadbodUI.ConnectionEntry): string
 ---@field new fun(drawer: DadbodUI.Drawer): DadbodUI.Query
@@ -505,6 +511,35 @@ local function prompt_params(input, names, known, on_done)
   step()
 end
 
+---@private
+--- Resolve bind-param values before falling back to prompting. Fires the
+--- `resolve_bind_params` config hook (if any) with the placeholder `names` and the
+--- already-`known` values; any string values it returns for those names are merged
+--- on top of `known` (the hook is authoritative for the keys it answers), so
+--- `prompt_params` only prompts for what is still missing. A missing / throwing
+--- hook is a clean no-op -- the flow degrades to plain prompting. Lets users source
+--- values from env / a vault / a fixed table instead of typing them.
+---@param config DadbodUI.Config
+---@param input DadbodUI.UiInput
+---@param names string[]  placeholder names in query order
+---@param known DadbodUI.BindParams  already-answered values
+---@param on_done fun(values: DadbodUI.BindParams|nil)
+---@return nil
+local function resolve_params(config, input, names, known, on_done)
+  local resolved = require('dadbod-ui.hooks').call(config, 'resolve_bind_params', names, known)
+  if type(resolved) == 'table' then
+    -- Copy so we never mutate the buffer's stored `b:dbui_bind_params` table, and
+    -- only pull string values for the actual placeholders (ignore stray keys).
+    known = vim.tbl_extend('keep', {}, known)
+    for _, name in ipairs(names) do
+      if type(resolved[name]) == 'string' then
+        known[name] = resolved[name]
+      end
+    end
+  end
+  prompt_params(input, names, known, on_done)
+end
+
 --- Run already-substituted `lines` through the engine via a temp file (see
 --- `bridge.execute_lines`). `entry` is captured before prompting so execution
 --- targets the right connection even if focus moved while an async prompt was open.
@@ -566,9 +601,17 @@ end
 --- run the rewritten SQL from a temp file. Cancelling a prompt aborts without
 --- executing or persisting. Dadbod errors (e.g. a query already running for the
 --- tab) surface as a notification rather than a raw stack trace.
+---
+--- `transform` is an optional last-mile rewrite hook: it receives the runnable SQL
+--- (a single string, AFTER any bind params are substituted) and returns the SQL to
+--- run instead -- e.g. wrapping the query in EXPLAIN. This is the sanctioned
+--- MUTATION point, distinct from the observer-only `on_execute_query` event.
+--- Returning nil (or omitting `transform`) runs the buffer unchanged (whole-buffer
+--- runs keep dadbod's `%DB` fast path).
 ---@param is_visual? boolean
+---@param transform? DadbodUI.SqlTransform
 ---@return nil
-function Query:execute_query(is_visual)
+function Query:execute_query(is_visual, transform)
   local notify = require('dadbod-ui.notifications')
   local dbout = require('dadbod-ui.dbout')
   local lines = self:get_lines(is_visual)
@@ -621,15 +664,35 @@ function Query:execute_query(is_visual)
     self.last_query = lines
   end
 
+  -- Apply `transform` (if any) to `sql_lines`, returning the lines to run and
+  -- whether the SQL was rewritten. `mutated` lets callers drop the whole-buffer
+  -- `%DB` fast path (the buffer text no longer matches what runs). A nil transform,
+  -- or one that returns nil, is the identity (mutated=false), preserving today's
+  -- exact execution paths.
+  ---@param sql_lines string[]
+  ---@return string[] lines
+  ---@return boolean mutated
+  local function transformed(sql_lines)
+    if transform == nil then
+      return sql_lines, false
+    end
+    local new_sql = transform(table.concat(sql_lines, '\n'))
+    if new_sql == nil then
+      return sql_lines, false
+    end
+    return vim.split(new_sql, '\n'), true
+  end
+
   if #names == 0 then
     -- No placeholders. Whole-buffer and visual both flow through `dispatch`, which
     -- auto-paginates a plain SELECT (page 1) and otherwise runs unmodified -- the
-    -- whole-buffer non-paginated case still uses the fast `%DB` path.
+    -- whole-buffer non-paginated, non-transformed case still uses the fast `%DB` path.
     local entry = self.instance.dbs[vim.b.dbui_db_key_name]
     if entry == nil then
-      -- Not a tracked dbui query buffer: a visual run needs the connection, but a
-      -- whole-buffer run can still go straight through `%DB` on the buffer's b:db
-      -- (preserving the public execute_query contract for plain buffers).
+      -- Not a tracked dbui query buffer (`transform` is a dbui-query-buffer
+      -- feature, so it does not apply here): a visual run needs the connection, but
+      -- a whole-buffer run can still go straight through `%DB` on the buffer's b:db,
+      -- preserving the public execute_query contract for plain buffers.
       if is_visual then
         return notify.error('Buffer not attached to any database')
       end
@@ -637,8 +700,9 @@ function Query:execute_query(is_visual)
         bridge.execute_buffer(quiet, self.config.result_layout == 'vertical')
       end)
     end
+    local final, mutated = transformed(lines)
     return run(function()
-      self:dispatch(lines, entry, not is_visual, quiet)
+      self:dispatch(final, entry, (not is_visual) and not mutated, quiet)
     end)
   end
 
@@ -649,7 +713,7 @@ function Query:execute_query(is_visual)
   if entry == nil then
     return notify.error('Buffer not attached to any database')
   end
-  prompt_params(self.input, names, stored_params(bufnr), function(values)
+  resolve_params(self.config, self.input, names, stored_params(bufnr), function(values)
     if values == nil then
       return notify.info('Bind parameters cancelled. Query not executed.')
     end
@@ -660,7 +724,11 @@ function Query:execute_query(is_visual)
     if vim.api.nvim_buf_is_valid(bufnr) then
       vim.b[bufnr].dbui_bind_params = values
     end
-    local final = bind_params.substitute(lines, values, pattern)
+    -- Substitute bind params first, THEN transform -- the hook sees the runnable
+    -- SQL, not raw `:placeholder` tokens. This is already a substituted (non-whole-
+    -- buffer) run, so the transform's `mutated` flag is moot: either way it
+    -- dispatches from a temp file.
+    local final = transformed(bind_params.substitute(lines, values, pattern))
     run(function()
       self:dispatch(final, entry, false, quiet)
     end)
@@ -675,7 +743,7 @@ end
 --- Explain output is never paginated. `opts.analyze` selects `EXPLAIN ANALYZE`
 --- (which RUNS the query). An adapter without explain support (or without an
 --- executing form, for `analyze`) surfaces `dadbod-ui.explain`'s user error as a
---- notification and runs nothing. Backs `api.explain_query`/`explain_selection`.
+--- notification and runs nothing. Backs `api.buf.explain`/`explain_selection`.
 ---@param is_visual? boolean
 ---@param opts? DadbodUI.ExplainOpts
 ---@return nil
@@ -713,7 +781,7 @@ function Query:explain_query(is_visual, opts)
 
   -- Capture the buffer now: an async prompt may resolve after focus has moved.
   local bufnr = vim.api.nvim_get_current_buf()
-  prompt_params(self.input, names, stored_params(bufnr), function(values)
+  resolve_params(self.config, self.input, names, stored_params(bufnr), function(values)
     if values == nil then
       return notify.info('Bind parameters cancelled. Query not explained.')
     end
@@ -730,7 +798,7 @@ end
 --- file reflects the query you'd actually execute. Hands the resolved query +
 --- connection to `export.export_prompt`, which prompts for format + path. The
 --- output filename defaults to the buffer's table name (`b:dbui_table_name`) when
---- set, else a name derived from the query. Backs `api.export_query`/`export_selection`.
+--- set, else a name derived from the query. Backs `api.buf.export`/`export_selection`.
 ---@param is_visual? boolean
 ---@return nil
 function Query:export_query(is_visual)
@@ -764,7 +832,7 @@ function Query:export_query(is_visual)
 
   -- Capture the buffer now: an async prompt may resolve after focus has moved.
   local bufnr = vim.api.nvim_get_current_buf()
-  prompt_params(self.input, names, stored_params(bufnr), function(values)
+  resolve_params(self.config, self.input, names, stored_params(bufnr), function(values)
     if values == nil then
       return notify.info('Bind parameters cancelled. Query not exported.')
     end
@@ -867,7 +935,7 @@ end
 ---@param bufnr integer
 ---@return nil
 function Query:remove_buffer(bufnr)
-  local key = vim.fn.getbufvar(bufnr, 'dbui_db_key_name')
+  local key = vim.b[bufnr].dbui_db_key_name
   local entry = self.instance.dbs[key]
   if entry == nil then
     return
@@ -950,8 +1018,8 @@ function Query:get_saved_query_db_name()
       return utils.qualified_name(match.name, match.group)
     end
   end
-  if vim.fn.fnamemodify(dir, ':h') == self.instance.save_path then
-    return vim.fn.fnamemodify(dir, ':t')
+  if vim.fs.dirname(dir) == self.instance.save_path then
+    return vim.fs.basename(dir)
   end
   return ''
 end

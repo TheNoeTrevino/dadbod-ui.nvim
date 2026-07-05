@@ -41,6 +41,8 @@ Please adhere to these separations as much as possible.
 
 `init.lua` - public entry point / `setup()`
 
+`api/` - the stable Lua scripting facade, namespaced by scope (the `vim.lsp.buf` convention): `init.lua` (callable-anywhere verbs, addressed by connection name), `buf.lua` (verbs on the current query buffer), `dbout.lua` (verbs on the current result buffer), `resolve.lua` (shared connection-name resolution).
+
 `bridge.lua` - the only module allowed to touch `vim-dadbod`, the 'bridge'
 
 `config.lua` - defaults and `g:db_ui_*` -> Lua option resolution.
@@ -80,6 +82,8 @@ Please adhere to these separations as much as possible.
 `connections_controller.lua` - interactive connections.json CRUD.
 
 `query.lua` - query buffers: open, set the `b:dbui_*` contract, execute.
+
+`picker/` - the connection picker: `init.lua` routes to the configured/available backend (Snacks, Telescope, fzf-lua, with a `vim.ui.select` fallback), one file per backend, `utils.lua` for the shared items + select action.
 
 `drawer/` - the tree UI: `init.lua` (window + render), `content.lua` (pure `Node[]` builders), `actions.lua` (cursor verbs), `paint.lua` (buffer writes).
 

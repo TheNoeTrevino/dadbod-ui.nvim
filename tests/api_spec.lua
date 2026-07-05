@@ -16,20 +16,38 @@ end
 
 describe('api: surface', function()
   it('exposes a Lua function for every user command', function()
-    -- Each :DBUI* command must have an api equivalent so everything is scriptable.
+    -- Each :DBUI* command must have an api equivalent so everything is
+    -- scriptable; the buffer-scoped ones live in the buf/dbout namespaces.
     for _, fn in ipairs({
       'open', -- :DBUI
       'toggle', -- :DBUIToggle
       'close', -- :DBUIClose
       'add_connection', -- :DBUIAddConnection
-      'find_buffer', -- :DBUIFindBuffer
-      'switch_buffer', -- :DBUISwitchBuffer
-      'rename_buffer', -- :DBUIRenameBuffer
-      'last_query_info', -- :DBUILastQueryInfo
-      'cancel_query', -- :DBUICancelQuery
-      'export_result', -- :DBUIExportResult
     }) do
       assert.equals('function', type(api[fn]), 'missing api.' .. fn)
+    end
+    for _, fn in ipairs({
+      'find', -- :DBUIFindBuffer
+      'switch', -- :DBUISwitchBuffer
+      'rename', -- :DBUIRenameBuffer
+      'last_query_info', -- :DBUILastQueryInfo
+      'cancel', -- :DBUICancelQuery
+    }) do
+      assert.equals('function', type(api.buf[fn]), 'missing api.buf.' .. fn)
+    end
+    assert.equals('function', type(api.dbout.export)) -- :DBUIExportResult
+  end)
+
+  it('exposes the query-buffer verbs on the buf namespace', function()
+    for _, fn in ipairs({
+      'execute',
+      'execute_selection',
+      'explain',
+      'explain_selection',
+      'export',
+      'export_selection',
+    }) do
+      assert.equals('function', type(api.buf[fn]), 'missing api.buf.' .. fn)
     end
   end)
 
@@ -78,12 +96,6 @@ describe('api: resolution and error paths', function()
     assert.is_nil(api.info('nope'))
   end)
 
-  it('is_connected is false for a fresh or unknown connection', function()
-    seed({ dev = 'postgres://h/dev' })
-    assert.is_false(api.is_connected('dev'))
-    assert.is_false(api.is_connected('nope'))
-  end)
-
   it('query_sync errors for an unknown connection', function()
     seed({ dev = 'postgres://h/dev' })
     local rows, err = api.query_sync('nope', 'select 1')
@@ -108,10 +120,10 @@ describe('api: resolution and error paths', function()
     assert.is_truthy(i_err and i_err:match('no connection named nope'))
   end)
 
-  it('switch_buffer errors when the current buffer is not a query buffer', function()
+  it('buf.switch errors when the current buffer is not a query buffer', function()
     seed({ dev = 'postgres://h/dev' })
     vim.cmd('enew')
-    local ok, err = api.switch_buffer('dev')
+    local ok, err = api.buf.switch('dev')
     assert.is_false(ok)
     assert.is_truthy(err and err:match('not a dadbod%-ui query buffer'))
     vim.cmd('silent! %bwipeout!')
@@ -206,14 +218,14 @@ describe('api: grouped connections (name reused across groups)', function()
     assert.is_truthy(err and err:match('no connection named marketing/prod'))
   end)
 
-  it('switch_buffer resolves group/name before reaching the drawer', function()
+  it('buf.switch resolves group/name before reaching the drawer', function()
     vim.cmd('enew') -- not a query buffer
     -- A resolvable group/name gets past name resolution (then fails on the buffer).
-    local ok1, err1 = api.switch_buffer('billing/prod')
+    local ok1, err1 = api.buf.switch('billing/prod')
     assert.is_false(ok1)
     assert.is_truthy(err1 and err1:match('not a dadbod%-ui query buffer'))
     -- An unresolvable one fails at resolution.
-    local ok2, err2 = api.switch_buffer('marketing/prod')
+    local ok2, err2 = api.buf.switch('marketing/prod')
     assert.is_false(ok2)
     assert.is_truthy(err2 and err2:match('no connection named marketing/prod'))
     vim.cmd('silent! %bwipeout!')
@@ -313,15 +325,15 @@ describe('api: disconnect', function()
     state.reset()
   end)
 
-  it('drops the live handle so is_connected flips to false', function()
+  it('drops the live handle so info reports disconnected', function()
     seed({ dev = 'postgres://h/dev' })
     -- Simulate a live connection without a real server.
     local entry = state.get().dbs['dev_g:dbs']
     entry.conn = 'postgres://h/dev'
-    assert.is_true(api.is_connected('dev'))
+    assert.is_true(api.info('dev').connected)
     local ok, err = api.disconnect('dev')
     assert.is_true(ok, err)
-    assert.is_false(api.is_connected('dev'))
+    assert.is_false(api.info('dev').connected)
   end)
 
   it('errors for an unknown name', function()
@@ -423,7 +435,7 @@ describe('api: sqlite end-to-end (guarded)', function()
     assert.is_truthy(vim.iter(rows):any(function(line)
       return line:find('ada', 1, true) ~= nil
     end))
-    assert.is_true(api.is_connected('qa'))
+    assert.is_true(api.info('qa').connected)
   end)
 
   it('query_sync surfaces a query error', function()

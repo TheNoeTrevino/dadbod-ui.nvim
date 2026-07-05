@@ -256,7 +256,7 @@ function M._on_post(output_file)
   -- dadbod fills `b:db.runtime`/`exit_status` (seconds / status, as strings) on the
   -- reloaded result buffer before this hook runs; read them once here for both the
   -- runtime record below and the summary further down.
-  local db = buf >= 0 and vim.fn.getbufvar(buf, 'db') or nil
+  local db = buf >= 0 and vim.b[buf].db or nil
   local runtime = type(db) == 'table' and tonumber(db.runtime) or nil
 
   -- Record the runtime on the drawer's query controller so `get_last_query_info`
@@ -341,9 +341,9 @@ function M._on_post(output_file)
         if buf >= 0 then
           return vim.api.nvim_buf_get_lines(buf, 0, -1, false)
         end
-        return vim.fn.filereadable(output_file) == 1 and vim.fn.readfile(output_file) or {}
+        return utils.is_file(output_file) and vim.fn.readfile(output_file) or {}
       end,
-      query = (input ~= nil and vim.fn.filereadable(input) == 1) and vim.fn.readfile(input) or {},
+      query = (input ~= nil and utils.is_file(input)) and vim.fn.readfile(input) or {},
       runtime = runtime,
       exit_status = status,
     })
@@ -367,7 +367,7 @@ function M.save_dbout(file)
   end
   local content = ''
   local input = bridge.dbout_input(file)
-  if input ~= nil and vim.fn.filereadable(input) == 1 then
+  if input ~= nil and utils.is_file(input) then
     content = vim.fn.readfile(input, '', 1)[1] or ''
     if #content > 30 then
       content = content:sub(1, 31) .. '...'
