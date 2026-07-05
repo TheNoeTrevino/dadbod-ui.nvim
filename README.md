@@ -87,14 +87,6 @@ return {
       },
     },
 
-    -- Set any of these true to skip binding the built-in buffer-local mappings
-    -- (bind your own via `keys`/autocmds instead). `disable_mappings` kills all.
-    disable_mappings = false,
-    disable_mappings_dbui = false,
-    disable_mappings_dbout = false,
-    disable_mappings_sql = false,
-    disable_mappings_javascript = false,
-
     ---@type DadbodUI.BufferNameGenerator|nil
     buffer_name_generator = nil,             -- custom query-buffer name generator
     ---@type DadbodUI.TableNameSorter|nil
@@ -109,50 +101,51 @@ return {
       -- end,
     },
 
-    -- Keybindings, grouped by context. Each entry is `{ key, desc, mode? }`; set a
-    -- key to 'none' to disable that action. Overrides deep-merge, so you can change
-    -- a single mapping's `key` without redeclaring the rest.
-    mappings = {
-      sidebar = {
-        help = { key = "?", desc = "Toggle this help window" },
-        toggle = { key = { "o", "<CR>" }, desc = "Open/Toggle selected item" },
-        toggle_split = { key = "S", desc = "Open selected item in a split" },
-        quit = { key = "q", desc = "Close the drawer" },
-        add_connection = { key = "A", desc = "Add a connection" },
-        delete = { key = "d", desc = "Delete selected item" },
-        rename = { key = "r", desc = "Rename/edit buffer, connection, or saved query" },
-        redraw = { key = "R", desc = "Redraw / refresh" },
-        duplicate = { key = "D", desc = "Duplicate connection" },
-        set_group = { key = "G", desc = "Add/remove connection to a group" },
-        move_up = { key = "<C-Up>", desc = "Move connection up (crosses group boundaries)" },
-        move_down = { key = "<C-Down>", desc = "Move connection down (crosses group boundaries)" },
-        toggle_details = { key = "H", desc = "Toggle database details" },
-        first_sibling = { key = "<C-k>", desc = "Go to first sibling" },
-        last_sibling = { key = "<C-j>", desc = "Go to last sibling" },
-        prev_sibling = { key = "K", desc = "Go to previous sibling" },
-        next_sibling = { key = "J", desc = "Go to next sibling" },
-        goto_parent = { key = "<C-p>", desc = "Go to parent node" },
-        goto_child = { key = "<C-n>", desc = "Go to child node" },
-      },
-      query = {
-        execute = { key = "<Leader>S", desc = "Execute query (whole buffer / visual selection)", mode = { "n", "v" } },
-        edit_bind_params = { key = "<Leader>E", desc = "Edit bind parameters" },
-        save_query = { key = "<Leader>W", desc = "Save the current query (tmp buffers)" },
-        cancel = { key = "<Leader>C", desc = "Cancel the running query" },
-      },
-      results = {
-        jump_foreign = { key = "<C-]>", desc = "Jump to the foreign key table" },
-        cell_value = { key = "vic", desc = "Select the cell value under the cursor" },
-        yank_header = { key = "yh", desc = "Yank the result header as CSV" },
-        toggle_layout = { key = "<Leader>R", desc = "Toggle result layout (row / expanded)" },
-        next_page = { key = "]", desc = "Next page of results" },
-        prev_page = { key = "[", desc = "Previous page of results" },
-        export = { key = "<Leader>X", desc = "Export result to a file" },
-      },
+    -- Custom named actions, referenced by name from a context's `keys` map (see
+    -- below). Each receives a per-context action context: the drawer gets
+    -- `{ mode, bufnr, drawer, item, connection }`, query/results get
+    -- `{ mode, bufnr, connection, query? }`. Use `{ desc, fn }` to also show the
+    -- action in the `?` help window.
+    actions = {
+      -- yank_url = {
+      --   desc = "Yank the connection URL",
+      --   fn = function(ctx) vim.fn.setreg("+", ctx.connection.url) end,
+      -- },
     },
   },
 }
 ```
+
+### Keymaps
+
+Each context (`drawer`, `query`, `results`) carries a `keys` map of `lhs -> action`.
+An action is a built-in id (e.g. `"delete"`, `"execute"`, `"next_page"`), a name from
+your `actions` table, or `{ "<action>", mode = { "n", "v" } }` to bind specific modes.
+Set a key to `false` to disable it, or set a whole context's `keys` to `false` to unbind
+everything there. Overrides deep-merge, so you only declare what you change:
+
+```lua
+opts = {
+  drawer = {
+    keys = {
+      d = false, -- unbind the default delete key
+      x = "delete", -- rebind delete to `x`
+      Y = "yank_url", -- bind a custom action (from `actions` above)
+    },
+  },
+  results = {
+    keys = false, -- no result-buffer keymaps at all
+  },
+}
+```
+
+The built-in actions are the defaults shown in the `?` help window: the drawer's
+`help`, `toggle`, `toggle_split`, `quit`, `add_connection`, `delete`, `rename`,
+`redraw`, `duplicate`, `set_group`, `move_up`, `move_down`, `toggle_details`,
+`first_sibling`, `last_sibling`, `prev_sibling`, `next_sibling`, `goto_parent`,
+`goto_child`; the query buffer's `execute`, `edit_bind_params`, `save_query`, `cancel`;
+and the result buffer's `jump_foreign`, `cell_value`, `yank_header`, `toggle_layout`,
+`next_page`, `prev_page`, `export`.
 
 ## Scripting examples
 

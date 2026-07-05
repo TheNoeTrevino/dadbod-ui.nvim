@@ -335,12 +335,12 @@ function Query:setup_buffer(entry, opts, name)
   local is_tmp = self.instance:is_tmp_location_buffer(entry, name)
   local bufnr = vim.api.nvim_get_current_buf()
 
-  if not (self.config.disable_mappings or self.config.disable_mappings_sql) then
-    local config_mod = require('dadbod-ui.config')
+  do
     local mappings = require('dadbod-ui.mappings')
-    -- Keyed by the ids in `config.mappings.query`; the same data drives the help
-    -- window. `execute` is mode-aware (visual runs the selection). `save_query`
-    -- is offered only for writable tmp SQL buffers, so it is omitted otherwise.
+    -- Keyed by the ids in `config.builtin_actions.query`; the same ids drive the
+    -- help window. `execute` is mode-aware (visual runs the selection).
+    -- `save_query` is offered only for writable tmp SQL buffers, so it is omitted
+    -- otherwise. `apply` no-ops when `config.query.keys` is `false`.
     local handlers = {
       execute = function(mode)
         self:execute_query(mode == 'v')
@@ -357,10 +357,14 @@ function Query:setup_buffer(entry, opts, name)
         self:save_query()
       end
     end
+    local function make_ctx(mode)
+      return { mode = mode, bufnr = bufnr, query = self, connection = self.instance.dbs[vim.b[bufnr].dbui_db_key_name] }
+    end
     mappings.apply(
-      self.config.mappings.query,
-      config_mod.mapping_order.query,
+      self.config.query.keys,
       handlers,
+      self.config.actions,
+      make_ctx,
       { buffer = bufnr, silent = true, nowait = true }
     )
   end

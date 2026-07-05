@@ -1,81 +1,108 @@
 local mappings = require('dadbod-ui.mappings')
 local config = require('dadbod-ui.config')
 
-describe('mappings.binds', function()
-  it('expands a single key in the default normal mode', function()
-    assert.same({ { mode = 'n', lhs = 'q' } }, mappings.binds({ key = 'q', desc = 'x' }))
+describe('mappings.normalize', function()
+  it('binds a bare string action in normal mode', function()
+    assert.same({ action = 'toggle', modes = { 'n' } }, mappings.normalize('toggle'))
   end)
 
-  it('expands a list of aliases', function()
-    assert.same(
-      { { mode = 'n', lhs = 'o' }, { mode = 'n', lhs = '<CR>' } },
-      mappings.binds({ key = { 'o', '<CR>' }, desc = 'x' })
-    )
+  it('reads the action and mode(s) from a table spec', function()
+    assert.same({ action = 'execute', modes = { 'n', 'v' } }, mappings.normalize({ 'execute', mode = { 'n', 'v' } }))
+    assert.same({ action = 'cell_value', modes = { 'o' } }, mappings.normalize({ 'cell_value', mode = 'o' }))
   end)
 
-  it('expands across multiple modes', function()
-    assert.same(
-      { { mode = 'n', lhs = '<Leader>S' }, { mode = 'v', lhs = '<Leader>S' } },
-      mappings.binds({ key = '<Leader>S', desc = 'x', mode = { 'n', 'v' } })
-    )
-  end)
-
-  it('uses an explicit binds list verbatim (per-mode keys)', function()
-    local binds = { { mode = 'n', lhs = 'vic' }, { mode = 'o', lhs = 'ic' } }
-    assert.same(binds, mappings.binds({ key = 'vic', desc = 'x', binds = binds }))
-  end)
-
-  it('returns no binds for a disabled (none) or missing entry', function()
-    assert.same({}, mappings.binds({ key = 'none', desc = 'x' }))
-    assert.same({}, mappings.binds(nil))
+  it('returns nil for a disabled or missing spec', function()
+    assert.is_nil(mappings.normalize(false))
+    assert.is_nil(mappings.normalize(nil))
   end)
 end)
 
 describe('mappings.apply', function()
-  it('binds configured keys to handlers and skips disabled / handlerless ones', function()
+  it('binds keys to built-in handlers and user actions, skipping disabled / unknown', function()
     local buf = vim.api.nvim_create_buf(false, true)
     local hit = {}
-    local group = {
-      go = { key = 'g', desc = 'x' },
-      off = { key = 'none', desc = 'x' },
-      orphan = { key = 'p', desc = 'x' }, -- no handler -> not bound
+    local keys = {
+      ['g'] = 'go', -- built-in handler
+      ['x'] = false, -- disabled
+      ['p'] = 'orphan', -- no handler + not a user action -> unbound
+      ['u'] = 'yank_url', -- user action
     }
-    mappings.apply(group, { 'go', 'off', 'orphan' }, {
+    local ctx_seen
+    mappings.apply(keys, {
       go = function()
         hit.go = true
       end,
-      off = function()
-        hit.off = true
+    }, {
+      yank_url = function(ctx)
+        ctx_seen = ctx
       end,
-    }, { buffer = buf })
+    }, function(mode)
+      return { mode = mode, bufnr = buf }
+    end, { buffer = buf })
 
     local lhs = {}
     for _, m in ipairs(vim.api.nvim_buf_get_keymap(buf, 'n')) do
       lhs[m.lhs] = true
     end
     assert.is_truthy(lhs['g'])
-    assert.is_nil(lhs['p']) -- handlerless, unbound
-    assert.is_nil(lhs['<Nop>'])
-    -- 'off' is disabled, so no key was registered for it at all.
+    assert.is_truthy(lhs['u'])
+    assert.is_nil(lhs['p']) -- unknown action, unbound
+    assert.is_nil(lhs['x']) -- disabled
+    vim.api.nvim_buf_delete(buf, { force = true })
+  end)
+
+  it('is a no-op when the context keys are false', function()
+    local buf = vim.api.nvim_create_buf(false, true)
+    mappings.apply(false, { go = function() end }, {}, function() end, { buffer = buf })
+    assert.same({}, vim.api.nvim_buf_get_keymap(buf, 'n'))
+    vim.api.nvim_buf_delete(buf, { force = true })
+  end)
+
+  it('passes the per-invocation context to a user action', function()
+    local buf = vim.api.nvim_create_buf(false, true)
+    local seen
+    mappings.apply({ ['gu'] = 'grab' }, {}, {
+      grab = {
+        desc = 'x',
+        fn = function(ctx)
+          seen = ctx
+        end,
+      },
+    }, function(mode)
+      return { mode = mode, bufnr = buf, connection = { url = 'x' } }
+    end, { buffer = buf })
+    -- invoke the bound callback directly
+    for _, m in ipairs(vim.api.nvim_buf_get_keymap(buf, 'n')) do
+      if m.lhs == 'gu' and m.callback then
+        m.callback()
+      end
+    end
+    assert.equals('n', seen.mode)
+    assert.equals('x', seen.connection.url)
     vim.api.nvim_buf_delete(buf, { force = true })
   end)
 end)
 
-describe('mappings.display_key', function()
-  it('joins aliases with a slash', function()
-    assert.equals('o / <CR>', mappings.display_key({ key = { 'o', '<CR>' }, desc = 'x' }))
-    assert.equals('q', mappings.display_key({ key = 'q', desc = 'x' }))
+describe('mappings.keys_for_action', function()
+  it('joins the lhs values bound to an action (sorted)', function()
+    local keys = { ['o'] = 'toggle', ['<CR>'] = 'toggle', [']'] = 'next_page' }
+    assert.equals('<CR> / o', mappings.keys_for_action(keys, 'toggle'))
+    assert.equals(']', mappings.keys_for_action(keys, 'next_page'))
+  end)
+
+  it('returns an empty string for an unbound action', function()
+    assert.equals('', mappings.keys_for_action({ ['o'] = 'toggle' }, 'quit'))
+    assert.equals('', mappings.keys_for_action(false, 'toggle'))
   end)
 end)
 
 describe('mappings.help_lines', function()
   it('renders one section per context, key-aligned, omitting disabled actions', function()
     local cfg = config.resolve({
-      mappings = { sidebar = { duplicate = { key = 'none' } } },
+      drawer = { keys = { ['D'] = false } }, -- disable duplicate
     })
     local lines = mappings.help_lines(cfg)
 
-    -- Section headers appear in the fixed order.
     local function index_of(title)
       for i, l in ipairs(lines) do
         if l == title then
@@ -83,10 +110,10 @@ describe('mappings.help_lines', function()
         end
       end
     end
-    assert.is_truthy(index_of('Sidebar'))
+    assert.is_truthy(index_of('Drawer'))
     assert.is_truthy(index_of('Query Buffer'))
     assert.is_truthy(index_of('DB Results'))
-    assert.is_true(index_of('Sidebar') < index_of('Query Buffer'))
+    assert.is_true(index_of('Drawer') < index_of('Query Buffer'))
     assert.is_true(index_of('Query Buffer') < index_of('DB Results'))
 
     local blob = table.concat(lines, '\n')
@@ -96,17 +123,19 @@ describe('mappings.help_lines', function()
     assert.is_falsy(blob:find('Duplicate connection', 1, true))
   end)
 
-  it('drops a whole section when all its actions are disabled', function()
-    local none = function(group)
-      local out = {}
-      for id in pairs(group) do
-        out[id] = { key = 'none' }
-      end
-      return out
-    end
-    local cfg = config.resolve({ mappings = { results = none(config.defaults.mappings.results) } })
+  it('shows a user action with its desc, after the built-ins', function()
+    local cfg = config.resolve({
+      drawer = { keys = { ['Y'] = 'yank_url' } },
+      actions = { yank_url = { desc = 'Yank the connection URL', fn = function() end } },
+    })
+    local blob = table.concat(mappings.help_lines(cfg), '\n')
+    assert.is_truthy(blob:find('Yank the connection URL', 1, true))
+  end)
+
+  it('drops a whole section when all its keys are disabled', function()
+    local cfg = config.resolve({ results = { keys = false } })
     local lines = mappings.help_lines(cfg)
     assert.is_falsy(vim.tbl_contains(lines, 'DB Results'))
-    assert.is_truthy(vim.tbl_contains(lines, 'Sidebar'))
+    assert.is_truthy(vim.tbl_contains(lines, 'Drawer'))
   end)
 end)

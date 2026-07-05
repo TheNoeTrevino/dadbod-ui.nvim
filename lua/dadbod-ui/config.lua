@@ -10,8 +10,9 @@
 
 ---@class DadbodUI.ConfigModule
 ---@field defaults DadbodUI.Config
----@field mapping_sections { group: string, title: string }[]
----@field mapping_order table<string, string[]>
+---@field contexts { group: string, title: string }[]
+---@field builtin_actions table<string, table<string, string>>
+---@field action_order table<string, string[]>
 ---@field resolve fun(opts?: table): DadbodUI.Config
 
 ---@private
@@ -81,6 +82,29 @@ M.defaults = {
     -- nest them per schema); it renders only when the adapter supports routines
     -- and at least one exists, so it is invisible for e.g. sqlite.
     sections = { 'new_query', 'buffers', 'saved_queries', 'schemas', 'procedures' },
+    -- Keymaps for the drawer buffer, `lhs -> action`. See the `keys` note above.
+    keys = {
+      ['?'] = 'help',
+      ['o'] = 'toggle',
+      ['<CR>'] = 'toggle',
+      ['S'] = 'toggle_split',
+      ['q'] = 'quit',
+      ['A'] = 'add_connection',
+      ['d'] = 'delete',
+      ['r'] = 'rename',
+      ['R'] = 'redraw',
+      ['D'] = 'duplicate',
+      ['G'] = 'set_group',
+      ['<C-Up>'] = 'move_up',
+      ['<C-Down>'] = 'move_down',
+      ['H'] = 'toggle_details',
+      ['<C-k>'] = 'first_sibling',
+      ['<C-j>'] = 'last_sibling',
+      ['K'] = 'prev_sibling',
+      ['J'] = 'next_sibling',
+      ['<C-p>'] = 'goto_parent',
+      ['<C-n>'] = 'goto_child',
+    },
   },
 
   -- SQL/query buffers.
@@ -94,6 +118,13 @@ M.defaults = {
     -- the connection is ungrouped). Follows the buffer into new splits; the
     -- `.dbout` result buffers (which own their winbar) and the drawer are untouched.
     show_buffer_connection = true,
+    -- Keymaps for SQL/query buffers, `lhs -> action`. See the `keys` note above.
+    keys = {
+      ['<Leader>S'] = { 'execute', mode = { 'n', 'v' } },
+      ['<Leader>E'] = 'edit_bind_params',
+      ['<Leader>W'] = 'save_query',
+      ['<Leader>C'] = 'cancel',
+    },
   },
 
   -- `.dbout` result buffers.
@@ -132,75 +163,86 @@ M.defaults = {
       tsv = { line_feed_escape = '\\n' },
       json = { wrap_table_name = true, indent = '\t' },
     },
+    -- Keymaps for `.dbout` result buffers, `lhs -> action`. See the `keys` note
+    -- above. `cell_value` binds twice on purpose: `vic` selects in normal mode,
+    -- `ic` is the operator-pending text object.
+    keys = {
+      ['<C-]>'] = 'jump_foreign',
+      ['vic'] = { 'cell_value', mode = 'n' },
+      ['ic'] = { 'cell_value', mode = 'o' },
+      ['yh'] = 'yank_header',
+      ['<Leader>R'] = 'toggle_layout',
+      [']'] = 'next_page',
+      ['['] = 'prev_page',
+      ['<Leader>X'] = 'export',
+    },
   },
 
-  disable_mappings = false,
-  disable_mappings_dbui = false,
-  disable_mappings_dbout = false,
-  disable_mappings_sql = false,
-  disable_mappings_javascript = false,
-  -- Keybindings, grouped by context. Each entry is `{ key, desc, mode? }`; set a
-  -- key to 'none' to disable that action (it is then neither bound nor shown in
-  -- the `?` help window). Overrides deep-merge, so `mappings.sidebar.delete.key`
-  -- can be changed on its own. Display order + section titles are fixed (see
-  -- `M.mapping_order` / `M.mapping_sections`). The single source of truth for
-  -- both the live keymaps and the help window -- see `dadbod-ui.mappings`.
-  mappings = {
-    sidebar = {
-      help = { key = '?', desc = 'Toggle this help window' },
-      toggle = { key = { 'o', '<CR>' }, desc = 'Open/Toggle selected item' },
-      toggle_split = { key = 'S', desc = 'Open selected item in a split' },
-      quit = { key = 'q', desc = 'Close the drawer' },
-      add_connection = { key = 'A', desc = 'Add a connection' },
-      delete = { key = 'd', desc = 'Delete selected item' },
-      rename = { key = 'r', desc = 'Rename/edit buffer, connection, or saved query' },
-      redraw = { key = 'R', desc = 'Redraw / refresh' },
-      duplicate = { key = 'D', desc = 'Duplicate connection' },
-      set_group = { key = 'G', desc = 'Add/remove connection to a group' },
-      move_up = { key = '<C-Up>', desc = 'Move connection up (crosses group boundaries)' },
-      move_down = { key = '<C-Down>', desc = 'Move connection down (crosses group boundaries)' },
-      toggle_details = { key = 'H', desc = 'Toggle database details' },
-      first_sibling = { key = '<C-k>', desc = 'Go to first sibling' },
-      last_sibling = { key = '<C-j>', desc = 'Go to last sibling' },
-      prev_sibling = { key = 'K', desc = 'Go to previous sibling' },
-      next_sibling = { key = 'J', desc = 'Go to next sibling' },
-      goto_parent = { key = '<C-p>', desc = 'Go to parent node' },
-      goto_child = { key = '<C-n>', desc = 'Go to child node' },
-    },
-    query = {
-      execute = { key = '<Leader>S', desc = 'Execute query (whole buffer / visual selection)', mode = { 'n', 'v' } },
-      edit_bind_params = { key = '<Leader>E', desc = 'Edit bind parameters' },
-      save_query = { key = '<Leader>W', desc = 'Save the current query (tmp buffers)' },
-      cancel = { key = '<Leader>C', desc = 'Cancel the running query' },
-    },
-    results = {
-      jump_foreign = { key = '<C-]>', desc = 'Jump to the foreign key table' },
-      cell_value = {
-        key = 'vic',
-        desc = 'Select the cell value under the cursor',
-        binds = { { mode = 'n', lhs = 'vic' }, { mode = 'o', lhs = 'ic' } },
-      },
-      yank_header = { key = 'yh', desc = 'Yank the result header as CSV' },
-      toggle_layout = { key = '<Leader>R', desc = 'Toggle result layout (row / expanded)' },
-      next_page = { key = ']', desc = 'Next page of results' },
-      prev_page = { key = '[', desc = 'Previous page of results' },
-      export = { key = '<Leader>X', desc = 'Export result to a file' },
-    },
-  },
+  -- User-defined named actions, referenced by name from a context's `keys` map
+  -- (e.g. `drawer = { keys = { Y = 'yank_url' } }`). Each is a function receiving
+  -- a per-context action context (see `DadbodUI.*ActionContext`), or a
+  -- `{ desc, fn }` table so the action also shows in the `?` help window.
+  ---@type table<string, DadbodUI.Action>
+  actions = {},
 }
 
--- Fixed (non-overridable) presentation metadata for `mappings`: the section
--- titles + their order in the help window, and the id order within each context
--- (used for both deterministic help rendering and keymap setup). Kept off
--- `defaults` so user overrides only touch keys/descriptions, never structure.
-M.mapping_sections = {
-  { group = 'sidebar', title = 'Sidebar' },
+-- Fixed (non-overridable) presentation metadata for keymaps: the context titles
+-- + their order in the help window, the built-in action descriptions, and the
+-- action order within each context. Kept off `defaults` so user overrides only
+-- touch `keys`/`actions`, never this structure. `dadbod-ui.mappings` renders the
+-- help window and binds keys from `<context>.keys` against these tables.
+M.contexts = {
+  { group = 'drawer', title = 'Drawer' },
   { group = 'query', title = 'Query Buffer' },
   { group = 'results', title = 'DB Results' },
 }
 
-M.mapping_order = {
-  sidebar = {
+-- Built-in action id -> help description, per context. A key in a context's
+-- `keys` map that names one of these binds the built-in handler supplied by the
+-- owning module; any other name is looked up in `config.actions`.
+M.builtin_actions = {
+  drawer = {
+    help = 'Toggle this help window',
+    toggle = 'Open/Toggle selected item',
+    toggle_split = 'Open selected item in a split',
+    quit = 'Close the drawer',
+    add_connection = 'Add a connection',
+    delete = 'Delete selected item',
+    rename = 'Rename/edit buffer, connection, or saved query',
+    redraw = 'Redraw / refresh',
+    duplicate = 'Duplicate connection',
+    set_group = 'Add/remove connection to a group',
+    move_up = 'Move connection up (crosses group boundaries)',
+    move_down = 'Move connection down (crosses group boundaries)',
+    toggle_details = 'Toggle database details',
+    first_sibling = 'Go to first sibling',
+    last_sibling = 'Go to last sibling',
+    prev_sibling = 'Go to previous sibling',
+    next_sibling = 'Go to next sibling',
+    goto_parent = 'Go to parent node',
+    goto_child = 'Go to child node',
+  },
+  query = {
+    execute = 'Execute query (whole buffer / visual selection)',
+    edit_bind_params = 'Edit bind parameters',
+    save_query = 'Save the current query (tmp buffers)',
+    cancel = 'Cancel the running query',
+  },
+  results = {
+    jump_foreign = 'Jump to the foreign key table',
+    cell_value = 'Select the cell value under the cursor',
+    yank_header = 'Yank the result header as CSV',
+    toggle_layout = 'Toggle result layout (row / expanded)',
+    next_page = 'Next page of results',
+    prev_page = 'Previous page of results',
+    export = 'Export result to a file',
+  },
+}
+
+-- Built-in action order within each context, for the help window. User actions
+-- (bound in `keys` but absent here) render after these, sorted by name.
+M.action_order = {
+  drawer = {
     'help',
     'toggle',
     'toggle_split',
