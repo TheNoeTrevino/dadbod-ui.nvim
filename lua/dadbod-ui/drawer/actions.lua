@@ -538,7 +538,7 @@ function Drawer:pick_db(saved_name, cb)
 end
 
 --- Jump to (or adopt) the query buffer for the current db context, backing
---- `:DBUIFindBuffer`. A buffer that already carries the `b:dbui_*` contract is
+--- `api.buf.find`. A buffer that already carries the `b:dbui_*` contract is
 --- registered and revealed in the drawer directly; a bare buffer first resolves a
 --- connection (`pick_db`), connects it, and writes the contract before revealing.
 --- Opens the drawer, moves the cursor onto the buffer's node, expands its
@@ -637,7 +637,7 @@ function Drawer:refresh_db(key_name)
 end
 
 --- Switch the current query buffer from its connection to another one
---- (`:DBUISwitchBuffer`) -- the "oops, wrong connection" verb. Unlike
+--- (`api.buf.switch`) -- the "oops, wrong connection" verb. Unlike
 --- `find_buffer`, which only ASSIGNS a bare buffer and no-ops on an
 --- already-attached one, this reassigns a buffer that already carries the
 --- contract: it prompts for a different db, re-registers the buffer under it, and

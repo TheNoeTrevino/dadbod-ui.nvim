@@ -111,7 +111,7 @@ function Controller:commit_connections(list)
   self.render()
 end
 
---- Add a new file-source connection (also `:DBUIAddConnection`). Prompts for a
+--- Add a new file-source connection (also `api.add_connection`). Prompts for a
 --- url then a name; rejects an invalid url, a blank name, or a duplicate name.
 ---@return nil
 function Controller:add_connection()

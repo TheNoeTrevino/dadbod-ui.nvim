@@ -1,6 +1,4 @@
--- Specs for the M11 events/commands wiring: the `User DBUIOpened` autocmd fired
--- on a real drawer open, and the presence of the public user commands registered
--- by plugin/dadbod-ui.lua.
+-- Specs for the `User DBUIOpened` autocmd fired on a real drawer open.
 
 local drawer_mod = require('dadbod-ui.drawer')
 local state = require('dadbod-ui.state')
@@ -40,17 +38,5 @@ describe('User DBUIOpened', function()
     d:open() -- already open: focuses without re-firing
     vim.api.nvim_del_augroup_by_id(group)
     assert.equals(1, fired)
-  end)
-end)
-
-describe('public user commands', function()
-  it('registers the M11 commands', function()
-    -- The boot file is not sourced by minimal_init; load it (idempotent via its
-    -- own `g:loaded_dadbod_ui` guard) so its user commands exist.
-    vim.cmd('runtime plugin/dadbod-ui.lua')
-    local commands = vim.api.nvim_get_commands({})
-    for _, name in ipairs({ 'DBUIFindBuffer', 'DBUIRenameBuffer', 'DBUILastQueryInfo' }) do
-      assert.is_not_nil(commands[name], name .. ' should be registered')
-    end
   end)
 end)
