@@ -34,8 +34,8 @@ Fields ~
 {close} `(fun())`
 {add_connection} `(fun())`
 {connections_list} `(fun(): DadbodUI.ConnectionInfo[])`
-{execute_query} `(fun())`
-{execute_selection} `(fun())`
+{execute_query} `(fun(transform?: DadbodUI.SqlTransform))`
+{execute_selection} `(fun(transform?: DadbodUI.SqlTransform))`
 {explain_query} `(fun(opts?: DadbodUI.ExplainOpts))`
 {explain_selection} `(fun(opts?: DadbodUI.ExplainOpts))`
 {export_query} `(fun())`
@@ -105,15 +105,23 @@ Return ~
 
 ------------------------------------------------------------------------------
                                                              *M.execute_query()*
-                              `M.execute_query`()
-Execute the current query buffer through dadbod (the whole buffer).
+                         `M.execute_query`({transform})
+Execute the current query buffer through dadbod (the whole buffer). An optional
+`transform` rewrites the runnable SQL before it is dispatched (see
+`DadbodUI.SqlTransform`); omitting it runs the buffer unchanged. Backs
+`api.buf.execute`.
+Parameters ~
+{transform} `(optional)` `(DadbodUI.SqlTransform)`
 Return ~
 `(nil)`
 
 ------------------------------------------------------------------------------
                                                          *M.execute_selection()*
-                            `M.execute_selection`()
-Execute the current visual selection through dadbod.
+                       `M.execute_selection`({transform})
+Execute the current visual selection through dadbod. Takes the same optional
+`transform` as `execute_query`. Backs `api.buf.execute_selection`.
+Parameters ~
+{transform} `(optional)` `(DadbodUI.SqlTransform)`
 Return ~
 `(nil)`
 
@@ -122,7 +130,7 @@ Return ~
                            `M.explain_query`({opts})
 Explain the current query buffer: wrap its SQL in the adapter's EXPLAIN syntax
 and run the plan into the `.dbout` window. `opts.analyze` selects EXPLAIN
-ANALYZE (which runs the query). Backs `api.explain_query`.
+ANALYZE (which runs the query). Backs `api.buf.explain`.
 Parameters ~
 {opts} `(optional)` `(DadbodUI.ExplainOpts)`
 Return ~
@@ -131,7 +139,7 @@ Return ~
 ------------------------------------------------------------------------------
                                                          *M.explain_selection()*
                          `M.explain_selection`({opts})
-Explain the current visual selection. Backs `api.explain_selection`.
+Explain the current visual selection. Backs `api.buf.explain_selection`.
 Parameters ~
 {opts} `(optional)` `(DadbodUI.ExplainOpts)`
 Return ~
@@ -141,14 +149,14 @@ Return ~
                                                               *M.export_query()*
                                `M.export_query`()
 Export the current query buffer: run its SQL and write the results to a file,
-prompting for format + path. Backs `api.export_query`.
+prompting for format + path. Backs `api.buf.export`.
 Return ~
 `(nil)`
 
 ------------------------------------------------------------------------------
                                                           *M.export_selection()*
                              `M.export_selection`()
-Export the current visual selection to a file. Backs `api.export_selection`.
+Export the current visual selection to a file. Backs `api.buf.export_selection`.
 Return ~
 `(nil)`
 
@@ -191,7 +199,7 @@ Switch the current query buffer's connection to another one. Backs
 (rewriting `b:db`/`b:dbui_db_key_name`, the winbar and the execute-on-save
 autocmds) without touching the buffer text. A bare buffer falls back to the
 `find_buffer` assign path. Pass `name` to switch straight to that connection
-with no prompt (returns `ok, err`); see `dadbod-ui.api.switch_buffer`.
+with no prompt (returns `ok, err`); see `dadbod-ui.api.buf.switch`.
 Parameters ~
 {name} `(optional)` `(string)`
 Return ~
