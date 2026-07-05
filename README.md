@@ -1,10 +1,66 @@
 # dadbod-ui.nvim
 
-A Neovim-native user interface for [tpope/vim-dadbod](https://github.com/tpope/vim-dadbod) written in lua.
+A Neovim-native user interface for [tpope/vim-dadbod](https://github.com/tpope/vim-dadbod),
+written in Lua.
 
-Requires Neovim >= 0.12.
+Browse your connections, schemas, and tables in a drawer, fire off queries, and
+read the results - all without leaving Neovim. It's a ground-up Lua rewrite of
+[vim-dadbod-ui](https://github.com/kristijanhusak/vim-dadbod-ui): the same
+familiar workflow, but API-first, deeply configurable, and typed to the teeth.
 
-## Installation & full configuration ([lazy.nvim](https://github.com/folke/lazy.nvim))
+<!--toc:start-->
+
+- [Features](#features)
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [Configuration](#configuration)
+- [Usage](#usage)
+  - [Prefer `:DBUI*` commands?](#prefer-dbui-commands)
+  - [Drawer](#drawer)
+  - [Connections](#connections)
+  - [Querying](#querying)
+  - [Introspection](#introspection)
+  - [Export](#export)
+  - [Events](#events)
+- [Migrating from vim-dadbod-ui](#migrating-from-vim-dadbod-ui)
+- [Contributing](#contributing)
+<!--toc:end-->
+
+> [!NOTE]
+> Considering migrating from [kristijanhusak/vim-dadbod-ui](https://github.com/kristijanhusak/vim-dadbod-ui)?
+> Read the [migration guide](MIGRATION.md) for a tutorial
+
+## Features
+
+- A drawer for your databases
+  - browse connections, schemas, tables, saved queries, and stored procedures
+- Scratch & saved query buffers
+  - SQL filetype so formatters and LSPs attach and work as expected
+- Paginated result buffers
+  - don't bomb your ran, keep things quick and responsive
+- Inline query timing and row counts, right where you executed
+- Native CLI export to CSV / TSV / JSON (and consistent Lua formatters as a fallback)
+- A connection picker backed by `snacks.nvim`, `telescope.nvim`, or `fzf-lua`
+- Fully remappable, per-buffer keymaps - and your own named actions
+- Lifecycle hooks for scripting
+- API focused: everything is reachable from `require('dadbod-ui.api')`, no
+  commands to memorise
+
+## Requirements
+
+- Neovim >= 0.12
+- [tpope/vim-dadbod](https://github.com/tpope/vim-dadbod) - the engine
+- [snacks.nvim](https://github.com/folke/snacks.nvim) /
+  [telescope.nvim](https://github.com/nvim-telescope/telescope.nvim) /
+  [fzf-lua](https://github.com/ibhagwan/fzf-lua) - connection picker. _(optional)_
+- [nvim-notify](https://github.com/rcarriga/nvim-notify) - prettier
+  notifications. _(optional)_
+
+## Installation
+
+Here's a recommended setup for [lazy.nvim](https://github.com/folke/lazy.nvim)
+that shows off the good stuff. Every option is optional - trim it to taste, or
+drop `opts` entirely to run on defaults.
 
 ```lua
 local prefix = "<localleader>d"
@@ -16,202 +72,77 @@ return {
   keys = {
     { prefix .. "d", function() require("dadbod-ui.api").toggle() end, desc = "Toggle DBUI" },
     { prefix .. "o", function() require("dadbod-ui.api").open() end, desc = "Open DBUI" },
-    { prefix .. "f", function() require("dadbod-ui.api").find_buffer() end, desc = "DBUI find buffer" },
+    { prefix .. "f", function() require("dadbod-ui.api").buf.find() end, desc = "DBUI find buffer" },
     { prefix .. "a", function() require("dadbod-ui.api").add_connection() end, desc = "DBUI add connection" },
-    { prefix .. "i", function() require("dadbod-ui.api").last_query_info() end, desc = "DBUI last query info" },
+    { prefix .. "i", function() require("dadbod-ui.api").buf.last_query_info() end, desc = "DBUI last query info" },
   },
-  -- default config
   ---@type DadbodUI.Config
   opts = {
-    save_location = "~/.local/share/db_ui",  -- where connections.json + saved queries live
-    tmp_query_location = "",                 -- persist scratch query buffers here ('' = off)
-    table_helpers = {},                      -- extra per-adapter helper templates
-    table_helpers_order = { "List", "Columns", "Indexes", "Primary Keys", "Foreign Keys", "References" },
-    env_variable_url = "DBUI_URL",
-    env_variable_name = "DBUI_NAME",
-    dotenv_variable_prefix = "DB_UI_",
-    use_nerd_fonts = false,
-    icons = {},                              -- icon overrides (see dadbod-ui.icons)
-    use_postgres_views = true,
-    hide_schemas = {},                       -- Vim regexes; matching schemas are hidden
-    is_oracle_legacy = false,
-    debug = false,
+    use_nerd_fonts = true,
+    -- Pick a connection with your fuzzy finder of choice (api.pick())
+    -- auto goes snacks -> telescope -> fzf -> `vim.ui.select`, picking the first available.
+    picker = "snacks", -- "auto" | "snacks" | "telescope" | "fzf" | "fallback"
 
-    -- Notification presentation + routing.
-    notifications = {
-      force_echo = false,
-      disable_info = false,
-      use_nvim_notify = false,
-      disable_progress_bar = false,
-    },
-
-    -- The drawer/sidebar window.
     drawer = {
-      width = 40,
-      position = "left",                     -- 'left' | 'right'
-      show_help = true,                      -- show the ? help hint in the drawer
-      show_database_icon = false,
-      expand_groups = true,                  -- groups start expanded
-      sections = { "new_query", "buffers", "saved_queries", "schemas", "procedures" },
-      -- `lhs -> action`. An action is a built-in id (below), a name from `actions`,
-      -- or `{ "<action>", mode = ... }`. Set a key to `false` to unbind it, or set
-      -- `keys = false` to disable every drawer mapping. Merges over these defaults.
+      position = "right",
+      show_database_icon = true,
+      -- Each context's `keys` deep-merges over the defaults, so you only
+      -- declare what you change. `false` unbinds a key; `keys = false` disables
+      -- the whole context.
       keys = {
-        ["?"] = "help",                      -- Toggle this help window
-        ["o"] = "toggle",                    -- Open/Toggle selected item
-        ["<CR>"] = "toggle",                 -- Open/Toggle selected item
-        ["S"] = "toggle_split",              -- Open selected item in a split
-        ["q"] = "quit",                      -- Close the drawer
-        ["A"] = "add_connection",            -- Add a connection
-        ["d"] = "delete",                    -- Delete selected item
-        ["r"] = "rename",                    -- Rename/edit buffer, connection, or saved query
-        ["R"] = "redraw",                    -- Redraw / refresh
-        ["D"] = "duplicate",                 -- Duplicate connection
-        ["G"] = "set_group",                 -- Add/remove connection to a group
-        ["<C-Up>"] = "move_up",              -- Move connection up (crosses group boundaries)
-        ["<C-Down>"] = "move_down",          -- Move connection down (crosses group boundaries)
-        ["H"] = "toggle_details",            -- Toggle database details
-        ["<C-k>"] = "first_sibling",         -- Go to first sibling
-        ["<C-j>"] = "last_sibling",          -- Go to last sibling
-        ["K"] = "prev_sibling",              -- Go to previous sibling
-        ["J"] = "next_sibling",              -- Go to next sibling
-        ["<C-p>"] = "goto_parent",           -- Go to parent node
-        ["<C-n>"] = "goto_child",            -- Go to child node
+        Y = "yank_url", -- a custom action, defined below
       },
     },
 
-    -- SQL/query buffers.
     query = {
-      default_query = 'SELECT * from "{table}" LIMIT 200;',
-      execute_on_save = false,               -- run the query buffer on :w
-      auto_execute_table_helpers = false,
-      bind_param_pattern = ":\\w\\+",
-      show_buffer_connection = true,         -- winbar showing the query buffer's connection
-      keys = {
-        ["<Leader>S"] = { "execute", mode = { "n", "v" } }, -- Execute query (buffer / visual selection)
-        ["<Leader>E"] = "edit_bind_params",  -- Edit bind parameters
-        ["<Leader>W"] = "save_query",        -- Save the current query (tmp buffers)
-        ["<Leader>C"] = "cancel",            -- Cancel the running query
-      },
+      execute_on_save = false,
     },
 
-    -- .dbout result buffers.
-    results = {
-      page_size = 200,                       -- rows per result page (pagination)
-      layout = "horizontal",                 -- 'horizontal' | 'vertical' .dbout split
-      list_sort = "asc",                     -- 'asc' | 'desc' order of the result list
-      -- Inline post-execute feedback instead of dadbod's command-line echoes.
-      query_time = {
-        enabled = true,
-        result_buffer = true,                -- winbar summary on the .dbout window
-        query_buffer = true,                 -- ghost text on the executed line
-        show_row_count = true,
-      },
-      -- Native CLI result export (see :help dadbod-ui). Per-format sub-tables tune
-      -- each formatter (dadbod-ui.export_formats).
-      export = {
-        prefer_native = true,                -- use the CLI's own output when it can emit the format
-        default_path = "",                   -- '' => cwd; directory the export prompt defaults to
-        coerce_numbers = false,              -- emit numeric/boolean literals in json/sql
-        csv = { delimiter = ",", header = true, quote = '"', null_string = "", line_feed_escape = "" },
-        tsv = { line_feed_escape = "\\n" },
-        json = { wrap_table_name = true, indent = "\t" },
-      },
-      keys = {
-        ["<C-]>"] = "jump_foreign",          -- Jump to the foreign key table
-        ["vic"] = { "cell_value", mode = "n" }, -- Select the cell value under the cursor
-        ["ic"] = { "cell_value", mode = "o" },  -- ... as an operator-pending text object
-        ["yh"] = "yank_header",              -- Yank the result header as CSV
-        ["<Leader>R"] = "toggle_layout",     -- Toggle result layout (row / expanded)
-        ["]"] = "next_page",                 -- Next page of results
-        ["["] = "prev_page",                 -- Previous page of results
-        ["<Leader>X"] = "export",            -- Export result to a file
-      },
-    },
-
-    ---@type DadbodUI.BufferNameGenerator|nil
-    buffer_name_generator = nil,             -- custom query-buffer name generator
-    ---@type DadbodUI.TableNameSorter|nil
-    table_name_sorter = nil,                 -- custom table-list sorter
-
-    -- Lifecycle hooks (see :help dadbod-ui). `on_connect` may return a rewritten
-    -- url (e.g. swap a $password placeholder for a secret); `resolve_bind_params`
-    -- supplies bind-param values before prompting; the `on_*` hooks are observers.
-    hooks = {
-      -- resolve_bind_params = function(names, known)  -- names: { ':id', ':env' }
-      --   return { [':env'] = vim.env.APP_ENV }       -- rest fall back to prompts
-      -- end,
-    },
-
-    -- Custom named actions, referenced by name from a context's `keys` map (see
-    -- below). Each receives a per-context action context: the drawer gets
-    -- `{ mode, bufnr, drawer, item, connection }`, query/results get
-    -- `{ mode, bufnr, connection, query? }`. Use `{ desc, fn }` to also show the
-    -- action in the `?` help window.
+    -- Custom named actions, referenced by name from any context's `keys`. The
+    -- drawer ctx carries `{ mode, bufnr, drawer, item, connection }`.
     actions = {
-      -- yank_url = {
-      --   desc = "Yank the connection URL",
-      --   fn = function(ctx) vim.fn.setreg("+", ctx.connection.url) end,
-      -- },
+      yank_url = {
+        desc = "Yank the connection URL",
+        fn = function(ctx) vim.fn.setreg("+", ctx.connection.url) end,
+      },
+    },
+
+    -- Lifecycle hooks. `resolve_bind_params` supplies bind-param values before
+    -- dadbod-ui prompts; `on_connect` may rewrite the url (e.g. inject a secret).
+    hooks = {
+      resolve_bind_params = function(_names, _known)
+        return { [":env"] = vim.env.APP_ENV }
+      end,
     },
   },
 }
 ```
 
-### Keymaps
-
-Each context's `keys` map (see the defaults above) is `lhs -> action`, where an
-action is a built-in id, a name from your `actions` table, or `{ "<action>", mode = ... }`.
-`keys` overrides deep-merge, so you only declare what you change - rebind a key,
-disable one with `false`, or unbind a whole context with `keys = false`:
+Point it at your databases with `vim.g.dbs` (or dadbod's other connection
+sources), then open the drawer:
 
 ```lua
-opts = {
-  drawer = {
-    keys = {
-      d = false, -- unbind the default delete key
-      x = "delete", -- rebind delete to `x`
-      Y = "yank_url", -- bind a custom action (from `actions`)
-    },
-  },
-  results = {
-    keys = false, -- no result-buffer keymaps at all
-  },
+vim.g.dbs = {
+  { name = "dev", url = "postgres://localhost/dev" },
+  { name = "staging", url = "postgres://localhost/staging" },
 }
 ```
 
-## Scripting examples
+## Configuration
 
-Everything the plugin does is reachable from Lua through `require('dadbod-ui.api')`.
+The block above is a curated slice. For the **complete option reference** -
+every setting, its default, and how to use it, plus the deep dive on keymaps,
+custom actions, and hooks - see [`CONFIGURATION.md`](CONFIGURATION.md).
 
-Connections are addressed by **name**. When a name is reused across groups,
-disambiguate with `"{group}/{name}"` or the full `key_name` from `api.list()`.
+## Usage
 
-```lua
-local api = require('dadbod-ui.api')
-```
-
-### Prefer `:DBUI*` commands?
-
-The plugin ships none, but they are a few lines over the api if you want them:
+Everything the plugin does is reachable from Lua through
+`require('dadbod-ui.api')`. Connections are addressed by **name**; when a name is
+reused across groups, disambiguate with `"{group}/{name}"` or the full `key_name`
+from `api.list()`.
 
 ```lua
 local api = require('dadbod-ui.api')
-local function cmd(name, fn, opts) vim.api.nvim_create_user_command(name, fn, opts or {}) end
-
-cmd('DBUI', function(a) api.open(a.mods) end)
-cmd('DBUIToggle', api.toggle)
-cmd('DBUIClose', api.close)
-cmd('DBUIAddConnection', api.add_connection)
-cmd('DBUIFindBuffer', api.buf.find)
-cmd('DBUISwitchBuffer', function() api.buf.switch() end) -- no arg -> interactive picker
-cmd('DBUIRenameBuffer', api.buf.rename)
-cmd('DBUILastQueryInfo', api.buf.last_query_info)
-cmd('DBUICancelQuery', api.buf.cancel)
-cmd('DBUIExportResult', function(a) api.dbout.export(a.args == 'current' and 'current' or 'full') end, {
-  nargs = '?',
-  complete = function() return { 'full', 'current' } end,
-})
 ```
 
 ### Drawer
@@ -291,6 +222,12 @@ api.off(handle)  -- unsubscribe
 
 Events: `on_connect`, `on_connect_post`, `on_execute_query`, `on_execute_query_post`,
 `on_cancel_query`, `on_cancel_query_post`.
+
+## Migrating from vim-dadbod-ui
+
+Every `g:db_ui_*` global maps to a grouped `opts` field, your connections and
+default keys carry over untouched, and the old `:DBUI*` commands are a few lines
+away. See [`MIGRATION.md`](MIGRATION.md) for the full mapping.
 
 ## Contributing
 
