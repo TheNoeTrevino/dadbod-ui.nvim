@@ -4,9 +4,8 @@
 --- # Configuration ~
 ---
 --- Options are passed to |dadbod-ui.setup()| as a table with snake_case keys
---- (the field surface is |DadbodUI.Config|). The `g:db_ui_*` globals are also
---- read; precedence is defaults < `g:db_ui_*` globals < `setup()` opts. Every option has a
---- sensible default, so `setup()` is optional. See `M.defaults` in
+--- (the field surface is |DadbodUI.Config|). Every option has a sensible
+--- default, so `setup()` is optional. See `M.defaults` in
 --- `lua/dadbod-ui/config.lua` for the full default table.
 
 ---@class DadbodUI.ConfigModule
@@ -20,9 +19,7 @@
 ---@diagnostic disable-next-line: missing-fields
 local M = {}
 
---- Built-in defaults. Keys mirror the `g:db_ui_*` options with the
---- `db_ui_` prefix dropped. Booleans are real Lua booleans (the `g:db_ui_*`
---- globals use 0/1 and are coerced on read).
+--- Built-in defaults.
 ---@type DadbodUI.Config
 M.defaults = {
   save_location = '~/.local/share/db_ui',
@@ -211,43 +208,6 @@ M.mapping_order = {
 }
 
 ---@private
--- The two function-valued options used the capitalized `g:Db_ui_*` globals.
-local funcref_globals = {
-  buffer_name_generator = 'Db_ui_buffer_name_generator',
-  table_name_sorter = 'Db_ui_table_name_sorter',
-}
-
----@private
--- vimscript stores booleans as 0/1; in Lua 0 is truthy, so coerce per type.
----@param default any
----@param value any
----@return any
-local function coerce(default, value)
-  if type(default) == 'boolean' and type(value) == 'number' then
-    return value ~= 0
-  end
-  return value
-end
-
----@private
--- Read a legacy global for `key`, or nil when unset. `0` funcref globals (the
--- "disabled" sentinel) are treated as nil.
----@param key string
----@param default any
----@return any
-local function legacy_global(key, default)
-  local g = funcref_globals[key]
-  if g then
-    local v = vim.g[g]
-    if v == nil or v == 0 then
-      return nil
-    end
-    return v
-  end
-  return coerce(default, vim.g['db_ui_' .. key])
-end
-
----@private
 -- Deep copy `t` as plain (unfrozen) tables, dropping any read-only metatable.
 -- Backs the `__deepcopy` metamethod below so `vim.deepcopy(frozen)` yields a
 -- mutable working copy (what e.g. `dadbod-ui.icons` wants) instead of tripping
@@ -290,20 +250,13 @@ local function freeze(t)
   })
 end
 
---- Resolve effective config: defaults < `g:db_ui_*` globals < `opts`. The
---- returned table is frozen (see `freeze`): it is the session's shared config, so
---- accidental writes to it raise rather than silently corrupting every reader.
+--- Resolve effective config: defaults < `opts`. The returned table is frozen
+--- (see `freeze`): it is the session's shared config, so accidental writes to
+--- it raise rather than silently corrupting every reader.
 ---@param opts? table  partial config overrides
 ---@return DadbodUI.Config
 function M.resolve(opts)
-  local out = vim.deepcopy(M.defaults)
-  for key, default in pairs(M.defaults) do
-    local legacy = legacy_global(key, default)
-    if legacy ~= nil then
-      out[key] = legacy
-    end
-  end
-  return freeze(vim.tbl_deep_extend('force', out, opts or {}))
+  return freeze(vim.tbl_deep_extend('force', vim.deepcopy(M.defaults), opts or {}))
 end
 
 return M

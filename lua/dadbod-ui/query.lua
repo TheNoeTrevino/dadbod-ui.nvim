@@ -960,7 +960,7 @@ function Query:save_query()
     return notify.error('Buffer not attached to any database')
   end
   if entry.save_path == '' then
-    return notify.error('Save location is empty. Please provide valid directory to g:db_ui_save_location')
+    return notify.error('Save location is empty. Please provide a valid directory via setup({ save_location = ... })')
   end
   if not utils.is_dir(entry.save_path) then
     vim.fn.mkdir(entry.save_path, 'p')

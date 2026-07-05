@@ -1,27 +1,6 @@
 local config = require('dadbod-ui.config')
 
 describe('config', function()
-  -- Sentinel so a global that was ORIGINALLY unset is restored to nil rather than
-  -- left set. Storing a bare nil in `saved` wouldn't create the key, so after_each
-  -- would skip it and the global would leak across specs (harmless under plenary's
-  -- per-file nvim, but the mini.test runner shares one process).
-  local UNSET = {}
-  local saved = {}
-  local function set_global(name, value)
-    if saved[name] == nil then
-      local current = vim.g[name]
-      saved[name] = current == nil and UNSET or current
-    end
-    vim.g[name] = value
-  end
-
-  after_each(function()
-    for name, value in pairs(saved) do
-      vim.g[name] = value ~= UNSET and value or nil
-    end
-    saved = {}
-  end)
-
   it('exposes defaults', function()
     local c = config.resolve()
     assert.equals(40, c.winwidth)
@@ -39,28 +18,6 @@ describe('config', function()
 
   it('lets setup opts switch the result layout to vertical', function()
     assert.equals('vertical', config.resolve({ result_layout = 'vertical' }).result_layout)
-  end)
-
-  it('reads g:db_ui_* globals', function()
-    set_global('db_ui_winwidth', 100)
-    assert.equals(100, config.resolve().winwidth)
-  end)
-
-  it('coerces legacy 0/1 booleans to real booleans', function()
-    set_global('db_ui_show_help', 0)
-    assert.equals(false, config.resolve().show_help)
-    set_global('db_ui_use_nerd_fonts', 1)
-    assert.equals(true, config.resolve().use_nerd_fonts)
-  end)
-
-  it('gives setup opts precedence over legacy globals', function()
-    set_global('db_ui_winwidth', 100)
-    assert.equals(25, config.resolve({ winwidth = 25 }).winwidth)
-  end)
-
-  it('treats the 0 funcref sentinel as unset', function()
-    set_global('Db_ui_buffer_name_generator', 0)
-    assert.is_nil(config.resolve().buffer_name_generator)
   end)
 
   it('takes a function from setup opts by identity', function()
