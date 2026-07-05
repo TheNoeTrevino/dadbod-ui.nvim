@@ -349,7 +349,7 @@ function Drawer:delete_buffer(item)
     if not self.confirm('Are you sure you want to delete this saved query?') then
       return
     end
-    vim.fn.delete(file)
+    pcall(vim.fs.rm, file)
     entry.saved_queries.list = drop(entry.saved_queries.list)
     entry.buffers.list = drop(entry.buffers.list)
     notify.info('Deleted.')
@@ -357,7 +357,7 @@ function Drawer:delete_buffer(item)
     if not self.confirm('Are you sure you want to delete query?') then
       return
     end
-    vim.fn.delete(file)
+    pcall(vim.fs.rm, file)
     entry.buffers.list = drop(entry.buffers.list)
     notify.info('Deleted.')
   else

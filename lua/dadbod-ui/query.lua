@@ -1018,8 +1018,8 @@ function Query:get_saved_query_db_name()
       return utils.qualified_name(match.name, match.group)
     end
   end
-  if vim.fn.fnamemodify(dir, ':h') == self.instance.save_path then
-    return vim.fn.fnamemodify(dir, ':t')
+  if vim.fs.dirname(dir) == self.instance.save_path then
+    return vim.fs.basename(dir)
   end
   return ''
 end
