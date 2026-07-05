@@ -52,6 +52,31 @@ return {
       show_database_icon = false,
       expand_groups = true,                  -- groups start expanded
       sections = { "new_query", "buffers", "saved_queries", "schemas", "procedures" },
+      -- `lhs -> action`. An action is a built-in id (below), a name from `actions`,
+      -- or `{ "<action>", mode = ... }`. Set a key to `false` to unbind it, or set
+      -- `keys = false` to disable every drawer mapping. Merges over these defaults.
+      keys = {
+        ["?"] = "help",                      -- Toggle this help window
+        ["o"] = "toggle",                    -- Open/Toggle selected item
+        ["<CR>"] = "toggle",                 -- Open/Toggle selected item
+        ["S"] = "toggle_split",              -- Open selected item in a split
+        ["q"] = "quit",                      -- Close the drawer
+        ["A"] = "add_connection",            -- Add a connection
+        ["d"] = "delete",                    -- Delete selected item
+        ["r"] = "rename",                    -- Rename/edit buffer, connection, or saved query
+        ["R"] = "redraw",                    -- Redraw / refresh
+        ["D"] = "duplicate",                 -- Duplicate connection
+        ["G"] = "set_group",                 -- Add/remove connection to a group
+        ["<C-Up>"] = "move_up",              -- Move connection up (crosses group boundaries)
+        ["<C-Down>"] = "move_down",          -- Move connection down (crosses group boundaries)
+        ["H"] = "toggle_details",            -- Toggle database details
+        ["<C-k>"] = "first_sibling",         -- Go to first sibling
+        ["<C-j>"] = "last_sibling",          -- Go to last sibling
+        ["K"] = "prev_sibling",              -- Go to previous sibling
+        ["J"] = "next_sibling",              -- Go to next sibling
+        ["<C-p>"] = "goto_parent",           -- Go to parent node
+        ["<C-n>"] = "goto_child",            -- Go to child node
+      },
     },
 
     -- SQL/query buffers.
@@ -61,6 +86,12 @@ return {
       auto_execute_table_helpers = false,
       bind_param_pattern = ":\\w\\+",
       show_buffer_connection = true,         -- winbar showing the query buffer's connection
+      keys = {
+        ["<Leader>S"] = { "execute", mode = { "n", "v" } }, -- Execute query (buffer / visual selection)
+        ["<Leader>E"] = "edit_bind_params",  -- Edit bind parameters
+        ["<Leader>W"] = "save_query",        -- Save the current query (tmp buffers)
+        ["<Leader>C"] = "cancel",            -- Cancel the running query
+      },
     },
 
     -- .dbout result buffers.
@@ -84,6 +115,16 @@ return {
         csv = { delimiter = ",", header = true, quote = '"', null_string = "", line_feed_escape = "" },
         tsv = { line_feed_escape = "\\n" },
         json = { wrap_table_name = true, indent = "\t" },
+      },
+      keys = {
+        ["<C-]>"] = "jump_foreign",          -- Jump to the foreign key table
+        ["vic"] = { "cell_value", mode = "n" }, -- Select the cell value under the cursor
+        ["ic"] = { "cell_value", mode = "o" },  -- ... as an operator-pending text object
+        ["yh"] = "yank_header",              -- Yank the result header as CSV
+        ["<Leader>R"] = "toggle_layout",     -- Toggle result layout (row / expanded)
+        ["]"] = "next_page",                 -- Next page of results
+        ["["] = "prev_page",                 -- Previous page of results
+        ["<Leader>X"] = "export",            -- Export result to a file
       },
     },
 
@@ -118,11 +159,10 @@ return {
 
 ### Keymaps
 
-Each context (`drawer`, `query`, `results`) carries a `keys` map of `lhs -> action`.
-An action is a built-in id (e.g. `"delete"`, `"execute"`, `"next_page"`), a name from
-your `actions` table, or `{ "<action>", mode = { "n", "v" } }` to bind specific modes.
-Set a key to `false` to disable it, or set a whole context's `keys` to `false` to unbind
-everything there. Overrides deep-merge, so you only declare what you change:
+Each context's `keys` map (see the defaults above) is `lhs -> action`, where an
+action is a built-in id, a name from your `actions` table, or `{ "<action>", mode = ... }`.
+`keys` overrides deep-merge, so you only declare what you change - rebind a key,
+disable one with `false`, or unbind a whole context with `keys = false`:
 
 ```lua
 opts = {
@@ -130,7 +170,7 @@ opts = {
     keys = {
       d = false, -- unbind the default delete key
       x = "delete", -- rebind delete to `x`
-      Y = "yank_url", -- bind a custom action (from `actions` above)
+      Y = "yank_url", -- bind a custom action (from `actions`)
     },
   },
   results = {
@@ -139,19 +179,9 @@ opts = {
 }
 ```
 
-The built-in actions are the defaults shown in the `?` help window: the drawer's
-`help`, `toggle`, `toggle_split`, `quit`, `add_connection`, `delete`, `rename`,
-`redraw`, `duplicate`, `set_group`, `move_up`, `move_down`, `toggle_details`,
-`first_sibling`, `last_sibling`, `prev_sibling`, `next_sibling`, `goto_parent`,
-`goto_child`; the query buffer's `execute`, `edit_bind_params`, `save_query`, `cancel`;
-and the result buffer's `jump_foreign`, `cell_value`, `yank_header`, `toggle_layout`,
-`next_page`, `prev_page`, `export`.
-
 ## Scripting examples
 
-Everything the plugin does is reachable from Lua through `require('dadbod-ui.api')`
-- a thin, stable facade with no default mappings, so you can wire your own. There
-are no `:DBUI*` commands you can't script.
+Everything the plugin does is reachable from Lua through `require('dadbod-ui.api')`.
 
 Connections are addressed by **name**. When a name is reused across groups,
 disambiguate with `"{group}/{name}"` or the full `key_name` from `api.list()`.
