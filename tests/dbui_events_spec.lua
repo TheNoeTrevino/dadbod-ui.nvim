@@ -7,7 +7,7 @@ local state = require('dadbod-ui.state')
 local config = require('dadbod-ui.config')
 
 local function make_drawer(g_dbs)
-  local cfg = config.resolve({ save_location = '/tmp/dbui_events', show_help = false })
+  local cfg = config.resolve({ save_location = '/tmp/dbui_events', drawer = { show_help = false } })
   local instance = state.new(cfg):populate({ env = {}, g_dbs = g_dbs, file_entries = {} })
   local d = drawer_mod.new(instance)
   d.connector = function(url)

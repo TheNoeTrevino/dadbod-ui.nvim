@@ -777,7 +777,7 @@ function M.export(spec)
     end
   end
   local export = require('dadbod-ui.export')
-  local cfg = state.config().export or {}
+  local cfg = state.config().results.export or {}
   export.export({
     url = entry.conn,
     scheme = entry.scheme,

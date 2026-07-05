@@ -13,15 +13,15 @@ describe('query_time: config', function()
       result_buffer = true,
       query_buffer = true,
       show_row_count = true,
-    }, cfg.query_time)
+    }, cfg.results.query_time)
   end)
 
   it('deep-merges a partial override, keeping the other keys at their defaults', function()
-    local cfg = config.resolve({ query_time = { query_buffer = false } })
-    assert.is_false(cfg.query_time.query_buffer)
-    assert.is_true(cfg.query_time.enabled)
-    assert.is_true(cfg.query_time.result_buffer)
-    assert.is_true(cfg.query_time.show_row_count)
+    local cfg = config.resolve({ results = { query_time = { query_buffer = false } } })
+    assert.is_false(cfg.results.query_time.query_buffer)
+    assert.is_true(cfg.results.query_time.enabled)
+    assert.is_true(cfg.results.query_time.result_buffer)
+    assert.is_true(cfg.results.query_time.show_row_count)
   end)
 end)
 
@@ -156,8 +156,8 @@ describe('query_time: end-to-end (sqlite)', function()
     end
     local cfg = config.resolve({
       save_location = '/tmp/dbui_query_time',
-      show_help = false,
-      execute_on_save = true,
+      drawer = { show_help = false },
+      query = { execute_on_save = true },
     })
     local instance = state.new(cfg):populate({
       env = {},

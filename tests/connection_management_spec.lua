@@ -10,8 +10,8 @@ local function make_drawer(opts)
   opts = opts or {}
   local cfg = config.resolve({
     save_location = opts.save_location,
-    show_help = false,
-    disable_info_notifications = false,
+    drawer = { show_help = false },
+    notifications = { disable_info = false },
   })
   local instance = state.new(cfg):populate({
     env = {},

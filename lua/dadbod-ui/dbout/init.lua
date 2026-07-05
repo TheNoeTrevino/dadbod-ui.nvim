@@ -166,7 +166,7 @@ end
 ---@param output_file string
 ---@return nil
 function M._show(output_file)
-  if ctx.attached == nil or ctx.attached.config.disable_progress_bar then
+  if ctx.attached == nil or ctx.attached.config.notifications.disable_progress_bar then
     return
   end
   local buf = utils.loaded_bufnr(output_file)
@@ -215,7 +215,7 @@ function M._on_pre(output_file)
   M._show(output_file)
 
   local config = ctx.current_config()
-  local cfg = config.query_time
+  local cfg = config.results.query_time
   local page = (by_file[output_file] or {}).page
   if not winbar.wants_winbar(cfg, page) then
     return
@@ -245,7 +245,7 @@ function M._on_post(output_file)
   local page = ctx_pending.page
 
   local config = ctx.current_config()
-  local cfg = config.query_time
+  local cfg = config.results.query_time
   local buf = utils.loaded_bufnr(output_file)
 
   -- Tag the result buffer so `[` / `]` can re-paginate, independent of query_time.
@@ -387,7 +387,7 @@ function M.sort_dbout(a, b)
   -- leading-dot name intact, matching Vim's `:r` (which never strips a dotfile).
   local na = tonumber((vim.fs.basename(a):gsub('(.)%.[^.]*$', '%1'))) or 0
   local nb = tonumber((vim.fs.basename(b):gsub('(.)%.[^.]*$', '%1'))) or 0
-  if ctx.attached ~= nil and ctx.attached.config.dbout_list_sort == 'desc' then
+  if ctx.attached ~= nil and ctx.attached.config.results.list_sort == 'desc' then
     return na > nb
   end
   return na < nb

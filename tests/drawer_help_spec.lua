@@ -29,7 +29,7 @@ describe('drawer: help banner', function()
   end)
 
   it('omits the banner when show_help is false', function()
-    d = make_drawer({ dev = 'postgres://h/dev' }, { show_help = false })
+    d = make_drawer({ dev = 'postgres://h/dev' }, { drawer = { show_help = false } })
     d:open()
     assert.equals('▸ dev', lines(d)[1])
   end)
@@ -45,7 +45,7 @@ describe('drawer: help banner', function()
   end
 
   it('opens a floating window on first toggle and closes it on second', function()
-    d = make_drawer({ dev = 'postgres://h/dev' }, { show_help = false })
+    d = make_drawer({ dev = 'postgres://h/dev' }, { drawer = { show_help = false } })
     d:open()
     assert.equals('▸ dev', lines(d)[1])
 
@@ -77,7 +77,7 @@ describe('drawer: help banner', function()
 
   it('omits an action whose key is set to none, and rebinds from config', function()
     d = make_drawer({ dev = 'postgres://h/dev' }, {
-      show_help = false,
+      drawer = { show_help = false },
       mappings = { sidebar = { duplicate = { key = 'none' }, delete = { key = 'x' } } },
     })
     d:open()
@@ -101,7 +101,7 @@ describe('drawer: connection details', function()
   end)
 
   it('appends (scheme - source) when details are on', function()
-    d = make_drawer({ dev = 'postgres://h/dev' }, { show_help = false })
+    d = make_drawer({ dev = 'postgres://h/dev' }, { drawer = { show_help = false } })
     d:open()
     assert.equals('▸ dev', lines(d)[1])
     d:toggle_details()
@@ -121,7 +121,7 @@ describe('drawer: empty state', function()
   end)
 
   it('shows the add-connection prompt when there are no connections', function()
-    d = make_drawer({}, { show_help = false })
+    d = make_drawer({}, { drawer = { show_help = false } })
     d:open()
     local l = lines(d)
     assert.equals('" No connections', l[1])

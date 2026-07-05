@@ -10,7 +10,7 @@ local SAVE_ROOT = '/tmp/dbui_saved'
 
 local function make_drawer(input)
   vim.fn.delete(SAVE_ROOT, 'rf')
-  local cfg = config.resolve({ save_location = SAVE_ROOT, show_help = false })
+  local cfg = config.resolve({ save_location = SAVE_ROOT, drawer = { show_help = false } })
   local instance = state.new(cfg):populate({ env = {}, g_dbs = { qa = 'sqlite:/tmp/qa.db' }, file_entries = {} })
   local d = drawer_mod.new(instance)
   d.connector = function(url)

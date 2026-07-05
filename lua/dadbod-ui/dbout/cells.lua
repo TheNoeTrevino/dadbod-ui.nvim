@@ -282,7 +282,7 @@ function M.jump_to_foreign_table()
   -- Run quietly when the inline summary is on, so dadbod's `Running query...`
   -- echo doesn't reappear for the jump (the summary still renders via on_post).
   local config = ctx.current_config()
-  bridge.execute(url, query, config.query_time.enabled, config.result_layout == 'vertical')
+  bridge.execute(url, query, config.results.query_time.enabled, config.results.layout == 'vertical')
 end
 
 --- Visually select the cell value under the cursor (the `vic` text object / the

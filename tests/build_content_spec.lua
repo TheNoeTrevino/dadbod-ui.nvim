@@ -10,8 +10,9 @@ local config = require('dadbod-ui.config')
 -- A drawer over an instance seeded with injected connections, connector stubbed
 -- offline. Mirrors tests/schema_introspection_spec.lua's helper.
 local function make_drawer(g_dbs, overrides)
-  local cfg =
-    config.resolve(vim.tbl_extend('force', { save_location = '/tmp/dbui_schemas', show_help = false }, overrides or {}))
+  local cfg = config.resolve(
+    vim.tbl_extend('force', { save_location = '/tmp/dbui_schemas', drawer = { show_help = false } }, overrides or {})
+  )
   local instance = state.new(cfg):populate({ env = {}, g_dbs = g_dbs, file_entries = {} })
   local d = drawer_mod.new(instance)
   d.connector = function()
@@ -77,7 +78,7 @@ describe('drawer build_content (no window)', function()
   end)
 
   it('honours show_help by prepending the help hint nodes', function()
-    local d = make_drawer({ dev = 'postgres://h/dev' }, { show_help = true })
+    local d = make_drawer({ dev = 'postgres://h/dev' }, { drawer = { show_help = true } })
     local nodes = d:build_content()
     assert.equals('" Press ? for help', nodes[1].label)
     assert.equals('help', nodes[1].type)

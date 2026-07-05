@@ -7,8 +7,9 @@ local state = require('dadbod-ui.state')
 local config = require('dadbod-ui.config')
 
 local function make_drawer(g_dbs, overrides)
-  local cfg =
-    config.resolve(vim.tbl_extend('force', { save_location = '/tmp/dbui_switch', show_help = false }, overrides or {}))
+  local cfg = config.resolve(
+    vim.tbl_extend('force', { save_location = '/tmp/dbui_switch', drawer = { show_help = false } }, overrides or {})
+  )
   local instance = state.new(cfg):populate({ env = {}, g_dbs = g_dbs, file_entries = {} })
   local d = drawer_mod.new(instance)
   d.connector = function(url)
@@ -36,7 +37,7 @@ describe('switch_buffer', function()
   end)
 
   it('reassigns the contract, winbar, and buffer tracking to the chosen db', function()
-    d = make_drawer({ a = 'sqlite:/tmp/a.db', b = 'sqlite:/tmp/b.db' }, { show_buffer_connection = true })
+    d = make_drawer({ a = 'sqlite:/tmp/a.db', b = 'sqlite:/tmp/b.db' }, { query = { show_buffer_connection = true } })
     d:open()
     local a = entry_named(d, 'a')
     local b = entry_named(d, 'b')
@@ -174,7 +175,7 @@ describe('switch_buffer', function()
 
   it('labels the picker and prompt with group/name (issue #58)', function()
     -- Two groups, a name (qa) that only makes sense with its group shown.
-    local cfg = config.resolve({ save_location = '/tmp/dbui_switch', show_help = false })
+    local cfg = config.resolve({ save_location = '/tmp/dbui_switch', drawer = { show_help = false } })
     local instance = state.new(cfg):populate({
       env = {},
       g_dbs = {},

@@ -152,7 +152,7 @@ end
 ---@return { expanded: boolean }
 function Drawer:group_state(name)
   if self.groups[name] == nil then
-    self.groups[name] = { expanded = self.config.expand_groups }
+    self.groups[name] = { expanded = self.config.drawer.expand_groups }
   end
   return self.groups[name]
 end
@@ -170,7 +170,7 @@ function Drawer:open(mods)
     vim.api.nvim_set_current_win(self.winid)
     return self
   end
-  local side = self.config.win_position == 'right' and 'botright' or 'topleft'
+  local side = self.config.drawer.position == 'right' and 'botright' or 'topleft'
   -- Open the split WITHOUT `silent!` and under pcall: a swallowed failure (e.g.
   -- E36 "not enough room" on a narrow terminal) would leave us in the user's
   -- ORIGINAL window/buffer, which we would then convert to a scratch drawer and
@@ -179,7 +179,7 @@ function Drawer:open(mods)
   -- mutating anything; on failure notify and bail without touching the user's UI.
   local prev_win = vim.api.nvim_get_current_win()
   local prev_buf = vim.api.nvim_get_current_buf()
-  local ok = pcall(vim.cmd, string.format('%s vertical %s %dnew', mods or '', side, self.config.winwidth))
+  local ok = pcall(vim.cmd, string.format('%s vertical %s %dnew', mods or '', side, self.config.drawer.width))
   local win = vim.api.nvim_get_current_win()
   if not ok or win == prev_win or vim.api.nvim_get_current_buf() == prev_buf then
     require('dadbod-ui.notifications').error('Could not open the DBUI drawer window (no room to split).')
@@ -357,7 +357,7 @@ function Drawer:sidebar_handlers()
       self:toggle_line()
     end,
     toggle_split = function()
-      local pos = utils.opposite_position(self.config.win_position)
+      local pos = utils.opposite_position(self.config.drawer.position)
       self:toggle_line('vertical ' .. pos .. ' split')
     end,
     quit = function()
