@@ -177,7 +177,7 @@ end
 --- on the side opposite the drawer.
 ---@return nil
 function Query:focus_window()
-  local win_cmd = 'vertical ' .. utils.opposite_position(self.config.win_position) .. ' new'
+  local win_cmd = 'vertical ' .. utils.opposite_position(self.config.drawer.position) .. ' new'
   local wins = vim.api.nvim_tabpage_list_wins(0)
   if #wins == 1 then
     vim.cmd('silent! ' .. win_cmd)
@@ -217,7 +217,7 @@ function Query:open_buffer(entry, name, edit_action, opts)
   opts = opts or {}
   local table_name = opts.table or ''
   local schema = opts.schema or ''
-  local default_content = opts.content or self.config.default_query
+  local default_content = opts.content or self.config.query.default_query
 
   -- Ensure a live connection so b:db works for execution even when the buffer
   -- is opened on a not-yet-expanded connection (mirrors find_buffer's connect).
@@ -244,7 +244,7 @@ function Query:open_buffer(entry, name, edit_action, opts)
     -- The window could not take the buffer (modified buffer + 'nohidden'). Open
     -- in a fresh split so the query buffer still appears -- a split keeps the
     -- modified buffer visible in its original window, so it is never abandoned.
-    local pos = utils.opposite_position(self.config.win_position)
+    local pos = utils.opposite_position(self.config.drawer.position)
     vim.cmd('silent! vertical ' .. pos .. ' split ' .. vim.fn.fnameescape(name))
   end
   self:setup_buffer(entry, vim.tbl_extend('force', opts, { existing_buffer = is_existing }), name)
@@ -271,8 +271,8 @@ function Query:open_buffer(entry, name, edit_action, opts)
 
   vim.api.nvim_buf_set_lines(0, 0, -1, false, vim.split(content, '\n'))
 
-  if self.config.auto_execute_table_helpers then
-    if self.config.execute_on_save then
+  if self.config.query.auto_execute_table_helpers then
+    if self.config.query.execute_on_save then
       vim.cmd('write')
     else
       self:execute_query()
@@ -366,7 +366,7 @@ function Query:setup_buffer(entry, opts, name)
   end
 
   local group = vim.api.nvim_create_augroup('dadbod_ui_query_' .. bufnr, { clear = true })
-  if self.config.execute_on_save and is_sql then
+  if self.config.query.execute_on_save and is_sql then
     vim.api.nvim_create_autocmd('BufWritePost', {
       group = group,
       buffer = bufnr,
@@ -395,7 +395,7 @@ function Query:setup_buffer(entry, opts, name)
   -- buffer clears the winbar, then the entering buffer's own BufWinEnter re-applies
   -- its connection. Result/drawer buffers are separate and untouched -- these
   -- autocmds are buffer-local to the query buffer.
-  if self.config.show_buffer_connection then
+  if self.config.query.show_buffer_connection then
     local winbar = M.connection_winbar(entry)
     local function apply()
       for _, win in ipairs(vim.fn.win_findbuf(bufnr)) do
@@ -548,7 +548,7 @@ end
 ---@param quiet? boolean  suppress dadbod's command-line echo (inline feedback path)
 ---@return nil
 function Query:run_from_file(lines, entry, quiet)
-  bridge.execute_lines(lines, entry.conn, quiet, self.config.result_layout == 'vertical')
+  bridge.execute_lines(lines, entry.conn, quiet, self.config.results.layout == 'vertical')
 end
 
 --- Dispatch `lines` for `entry`, auto-paginating as page 1 when the adapter and
@@ -567,7 +567,7 @@ function Query:dispatch(lines, entry, whole_buffer, quiet)
   local paginator = require('dadbod-ui.paginator')
   local dbout = require('dadbod-ui.dbout')
   local sql = table.concat(lines, '\n')
-  local page_size = self.config.page_size
+  local page_size = self.config.results.page_size
   local paginated = paginator.paginate(entry.scheme, sql, 1, page_size)
   if paginated ~= nil then
     dbout.set_pending({
@@ -580,7 +580,7 @@ function Query:dispatch(lines, entry, whole_buffer, quiet)
     return self:run_from_file(vim.split(paginated, '\n'), entry, quiet)
   end
   if whole_buffer then
-    return bridge.execute_buffer(quiet, self.config.result_layout == 'vertical')
+    return bridge.execute_buffer(quiet, self.config.results.layout == 'vertical')
   end
   self:run_from_file(lines, entry, quiet)
 end
@@ -615,13 +615,13 @@ function Query:execute_query(is_visual, transform)
   local notify = require('dadbod-ui.notifications')
   local dbout = require('dadbod-ui.dbout')
   local lines = self:get_lines(is_visual)
-  local pattern = self.config.bind_param_pattern
+  local pattern = self.config.query.bind_param_pattern
   local names = bind_params.detect(lines, pattern)
 
   -- Inline post-execute feedback (time + row count) replaces dadbod's command-
   -- line echoes when enabled: run quietly, and remember WHERE we executed from so
   -- dbout can trail ghost text on that line once the result lands.
-  local quiet = self.config.query_time.enabled
+  local quiet = self.config.results.query_time.enabled
   local origin = { bufnr = vim.api.nvim_get_current_buf(), lnum = vim.fn.line('.') }
 
   -- Fire `on_execute_query` before anything is dispatched to the engine. The
@@ -697,7 +697,7 @@ function Query:execute_query(is_visual, transform)
         return notify.error('Buffer not attached to any database')
       end
       return run(function()
-        bridge.execute_buffer(quiet, self.config.result_layout == 'vertical')
+        bridge.execute_buffer(quiet, self.config.results.layout == 'vertical')
       end)
     end
     local final, mutated = transformed(lines)
@@ -755,7 +755,7 @@ function Query:explain_query(is_visual, opts)
   if entry == nil then
     return notify.error('Buffer not attached to any database')
   end
-  local pattern = self.config.bind_param_pattern
+  local pattern = self.config.query.bind_param_pattern
   local names = bind_params.detect(lines, pattern)
 
   -- Wrap the (already param-substituted) SQL in the adapter's EXPLAIN syntax and
@@ -813,7 +813,7 @@ function Query:export_query(is_visual)
   -- has moved off this buffer. Empty (a scratch query) => let export derive one.
   local raw_table = vim.b.dbui_table_name
   local source = (type(raw_table) == 'string' and raw_table ~= '') and raw_table or nil
-  local pattern = self.config.bind_param_pattern
+  local pattern = self.config.query.bind_param_pattern
   local names = bind_params.detect(lines, pattern)
 
   -- Hand the (already param-substituted) SQL to the shared interactive export core.
@@ -880,7 +880,7 @@ function Query:edit_bind_parameters()
   -- Candidates: placeholders in the buffer first (query order, already distinct
   -- from detect), then any stored names no longer in the buffer (sorted, for
   -- stability).
-  local names = bind_params.detect(self:get_lines(), self.config.bind_param_pattern)
+  local names = bind_params.detect(self:get_lines(), self.config.query.bind_param_pattern)
   local orphans = vim
     .iter(vim.tbl_keys(params))
     :filter(function(name)

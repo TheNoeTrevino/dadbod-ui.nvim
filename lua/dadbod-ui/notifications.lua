@@ -77,7 +77,7 @@ local function build_opts(kind, config, opts)
   if opts.delay then
     out.timeout = opts.delay
   end
-  if config.use_nvim_notify and kind == 'info' then
+  if config.notifications.use_nvim_notify and kind == 'info' then
     out.id = 'dadbod-ui-info'
   end
   return out
@@ -94,14 +94,14 @@ local function emit(msg, kind, opts)
   end
   opts = opts or {}
   local config = require('dadbod-ui.state').config()
-  if kind == 'info' and config.disable_info_notifications then
+  if kind == 'info' and config.notifications.disable_info then
     return
   end
 
   local text = to_text(msg)
   last_msg = text
 
-  if opts.echo or config.force_echo_notifications then
+  if opts.echo or config.notifications.force_echo then
     vim.api.nvim_echo({ { (opts.title or TITLE) .. ' ' .. text, ECHO_HL[kind] } }, true, {})
     return
   end

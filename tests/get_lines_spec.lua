@@ -8,7 +8,7 @@ local state = require('dadbod-ui.state')
 local config = require('dadbod-ui.config')
 
 local function make_query()
-  local cfg = config.resolve({ save_location = '/tmp/dbui_getlines', show_help = false })
+  local cfg = config.resolve({ save_location = '/tmp/dbui_getlines', drawer = { show_help = false } })
   local instance = state.new(cfg):populate({ env = {}, g_dbs = { qa = 'sqlite:/tmp/qa.db' }, file_entries = {} })
   return drawer_mod.new(instance):query()
 end

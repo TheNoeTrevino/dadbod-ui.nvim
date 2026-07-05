@@ -12,8 +12,9 @@ local bridge = require('dadbod-ui.bridge')
 local fixture = '/tmp/dbui_bp_integration.db'
 
 local function make_drawer(overrides)
-  local cfg =
-    config.resolve(vim.tbl_extend('force', { save_location = '/tmp/dbui_bp_int', show_help = false }, overrides or {}))
+  local cfg = config.resolve(
+    vim.tbl_extend('force', { save_location = '/tmp/dbui_bp_int', drawer = { show_help = false } }, overrides or {})
+  )
   local instance = state.new(cfg):populate({ env = {}, g_dbs = { qa = 'sqlite:' .. fixture }, file_entries = {} })
   local d = drawer_mod.new(instance)
   d.connector = bridge.connect -- real connection
@@ -132,7 +133,7 @@ describe('bind params: end-to-end (sqlite)', function()
     if vim.fn.executable('sqlite3') ~= 1 then
       return pending('sqlite3 not installed')
     end
-    d = make_drawer({ bind_param_pattern = '\\$\\d\\+' })
+    d = make_drawer({ query = { bind_param_pattern = '\\$\\d\\+' } })
     open_query(d, { 'SELECT name FROM users WHERE id = $1;' })
     d:query().input = function(_, on_confirm)
       on_confirm('1')

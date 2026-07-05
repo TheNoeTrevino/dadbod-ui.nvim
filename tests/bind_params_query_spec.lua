@@ -9,8 +9,9 @@ local config = require('dadbod-ui.config')
 local bridge = require('dadbod-ui.bridge')
 
 local function make_drawer(overrides)
-  local cfg =
-    config.resolve(vim.tbl_extend('force', { save_location = '/tmp/dbui_bp', show_help = false }, overrides or {}))
+  local cfg = config.resolve(
+    vim.tbl_extend('force', { save_location = '/tmp/dbui_bp', drawer = { show_help = false } }, overrides or {})
+  )
   local instance = state.new(cfg):populate({ env = {}, g_dbs = { qa = 'sqlite:/tmp/qa.db' }, file_entries = {} })
   local d = drawer_mod.new(instance)
   d.connector = function(url)
@@ -179,7 +180,7 @@ describe('bind params: execute flow', function()
   end)
 
   it('honors a custom bind_param_pattern', function()
-    d = make_drawer({ bind_param_pattern = '\\$\\d\\+' })
+    d = make_drawer({ query = { bind_param_pattern = '\\$\\d\\+' } })
     open_query({ 'WHERE a = $1' })
     d:query().input = function(opts, on_confirm)
       assert.is_truthy(opts.prompt:find('$1', 1, true))

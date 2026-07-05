@@ -272,7 +272,7 @@ function M.get(scheme, config)
     -- SQLite's List comes from the configured default query; built here so a
     -- non-sqlite call never allocates it.
     base = {
-      List = config.default_query,
+      List = config.query.default_query,
       Columns = "SELECT * FROM pragma_table_info('{table}')",
       Indexes = "SELECT * FROM pragma_index_list('{table}')",
       ['Foreign Keys'] = "SELECT * FROM pragma_foreign_key_list('{table}')",

@@ -3,21 +3,21 @@ local config = require('dadbod-ui.config')
 describe('config', function()
   it('exposes defaults', function()
     local c = config.resolve()
-    assert.equals(40, c.winwidth)
-    assert.equals('left', c.win_position)
-    assert.equals(true, c.show_help)
-    assert.equals('horizontal', c.result_layout)
-    assert.same({ 'new_query', 'buffers', 'saved_queries', 'schemas', 'procedures' }, c.drawer_sections)
+    assert.equals(40, c.drawer.width)
+    assert.equals('left', c.drawer.position)
+    assert.equals(true, c.drawer.show_help)
+    assert.equals('horizontal', c.results.layout)
+    assert.same({ 'new_query', 'buffers', 'saved_queries', 'schemas', 'procedures' }, c.drawer.sections)
   end)
 
   it('lets setup opts override defaults', function()
-    local c = config.resolve({ winwidth = 80, win_position = 'right' })
-    assert.equals(80, c.winwidth)
-    assert.equals('right', c.win_position)
+    local c = config.resolve({ drawer = { width = 80, position = 'right' } })
+    assert.equals(80, c.drawer.width)
+    assert.equals('right', c.drawer.position)
   end)
 
   it('lets setup opts switch the result layout to vertical', function()
-    assert.equals('vertical', config.resolve({ result_layout = 'vertical' }).result_layout)
+    assert.equals('vertical', config.resolve({ results = { layout = 'vertical' } }).results.layout)
   end)
 
   it('takes a function from setup opts by identity', function()
@@ -29,17 +29,17 @@ describe('config', function()
 
   it('exposes the export defaults', function()
     local c = config.resolve()
-    assert.equals(true, c.export.prefer_native)
-    assert.equals(false, c.export.coerce_numbers)
-    assert.equals(',', c.export.csv.delimiter)
-    assert.equals(true, c.export.json.wrap_table_name)
+    assert.equals(true, c.results.export.prefer_native)
+    assert.equals(false, c.results.export.coerce_numbers)
+    assert.equals(',', c.results.export.csv.delimiter)
+    assert.equals(true, c.results.export.json.wrap_table_name)
   end)
 
   it('deep-merges export overrides, leaving sibling keys intact', function()
-    local c = config.resolve({ export = { prefer_native = false, csv = { delimiter = ';' } } })
-    assert.equals(false, c.export.prefer_native)
-    assert.equals(';', c.export.csv.delimiter)
-    assert.equals(true, c.export.csv.header) -- untouched sibling preserved
+    local c = config.resolve({ results = { export = { prefer_native = false, csv = { delimiter = ';' } } } })
+    assert.equals(false, c.results.export.prefer_native)
+    assert.equals(';', c.results.export.csv.delimiter)
+    assert.equals(true, c.results.export.csv.header) -- untouched sibling preserved
   end)
 
   it('registers the results.export mapping and its order entry', function()
@@ -60,16 +60,16 @@ describe('config', function()
     local c = config.resolve()
     assert.has_error(function()
       ---@diagnostic disable-next-line: inject-field
-      c.export.new_format = {}
+      c.results.export.new_format = {}
     end)
   end)
 
   it('leaves reads, iteration and deepcopy working through the freeze', function()
     local c = config.resolve()
-    assert.equals(200, c.page_size) -- index
-    assert.same({ 'new_query', 'buffers', 'saved_queries', 'schemas', 'procedures' }, c.drawer_sections) -- pairs
+    assert.equals(200, c.results.page_size) -- index
+    assert.same({ 'new_query', 'buffers', 'saved_queries', 'schemas', 'procedures' }, c.drawer.sections) -- pairs
     -- deepcopy of a (non-empty) frozen subtable yields a mutable copy, not a crash
-    local copy = vim.deepcopy(c.export)
+    local copy = vim.deepcopy(c.results.export)
     assert.equals(',', copy.csv.delimiter)
     copy.csv.delimiter = ';' -- the copy must be writable
     assert.equals(';', copy.csv.delimiter)

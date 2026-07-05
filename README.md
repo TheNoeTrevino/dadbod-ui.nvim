@@ -26,34 +26,66 @@ return {
     tmp_query_location = "",                 -- persist scratch query buffers here ('' = off)
     table_helpers = {},                      -- extra per-adapter helper templates
     table_helpers_order = { "List", "Columns", "Indexes", "Primary Keys", "Foreign Keys", "References" },
-    default_query = 'SELECT * from "{table}" LIMIT 200;',
-    execute_on_save = false,                 -- run the query buffer on :w
-    auto_execute_table_helpers = false,
-    page_size = 200,                         -- rows per result page (pagination)
     env_variable_url = "DBUI_URL",
     env_variable_name = "DBUI_NAME",
     dotenv_variable_prefix = "DB_UI_",
-    disable_progress_bar = false,
-    notification_width = 40,
-    winwidth = 40,
-    win_position = "left",                   -- 'left' | 'right'
-    result_layout = "horizontal",            -- 'horizontal' | 'vertical' .dbout split
-    show_help = true,                        -- show the ? help hint in the drawer
-    show_database_icon = false,
     use_nerd_fonts = false,
     icons = {},                              -- icon overrides (see dadbod-ui.icons)
     use_postgres_views = true,
     hide_schemas = {},                       -- Vim regexes; matching schemas are hidden
-    bind_param_pattern = ":\\w\\+",
-    drawer_sections = { "new_query", "buffers", "saved_queries", "schemas", "procedures" },
-    expand_groups = true,                    -- groups start expanded
-    dbout_list_sort = "asc",                 -- 'asc' | 'desc' order of the result list
-    show_buffer_connection = true,           -- winbar showing the query buffer's connection
-    force_echo_notifications = false,
-    disable_info_notifications = false,
-    use_nvim_notify = false,
     is_oracle_legacy = false,
     debug = false,
+
+    -- Notification presentation + routing.
+    notifications = {
+      force_echo = false,
+      disable_info = false,
+      use_nvim_notify = false,
+      disable_progress_bar = false,
+    },
+
+    -- The drawer/sidebar window.
+    drawer = {
+      width = 40,
+      position = "left",                     -- 'left' | 'right'
+      show_help = true,                      -- show the ? help hint in the drawer
+      show_database_icon = false,
+      expand_groups = true,                  -- groups start expanded
+      sections = { "new_query", "buffers", "saved_queries", "schemas", "procedures" },
+    },
+
+    -- SQL/query buffers.
+    query = {
+      default_query = 'SELECT * from "{table}" LIMIT 200;',
+      execute_on_save = false,               -- run the query buffer on :w
+      auto_execute_table_helpers = false,
+      bind_param_pattern = ":\\w\\+",
+      show_buffer_connection = true,         -- winbar showing the query buffer's connection
+    },
+
+    -- .dbout result buffers.
+    results = {
+      page_size = 200,                       -- rows per result page (pagination)
+      layout = "horizontal",                 -- 'horizontal' | 'vertical' .dbout split
+      list_sort = "asc",                     -- 'asc' | 'desc' order of the result list
+      -- Inline post-execute feedback instead of dadbod's command-line echoes.
+      query_time = {
+        enabled = true,
+        result_buffer = true,                -- winbar summary on the .dbout window
+        query_buffer = true,                 -- ghost text on the executed line
+        show_row_count = true,
+      },
+      -- Native CLI result export (see :help dadbod-ui). Per-format sub-tables tune
+      -- each formatter (dadbod-ui.export_formats).
+      export = {
+        prefer_native = true,                -- use the CLI's own output when it can emit the format
+        default_path = "",                   -- '' => cwd; directory the export prompt defaults to
+        coerce_numbers = false,              -- emit numeric/boolean literals in json/sql
+        csv = { delimiter = ",", header = true, quote = '"', null_string = "", line_feed_escape = "" },
+        tsv = { line_feed_escape = "\\n" },
+        json = { wrap_table_name = true, indent = "\t" },
+      },
+    },
 
     -- Set any of these true to skip binding the built-in buffer-local mappings
     -- (bind your own via `keys`/autocmds instead). `disable_mappings` kills all.
@@ -67,25 +99,6 @@ return {
     buffer_name_generator = nil,             -- custom query-buffer name generator
     ---@type DadbodUI.TableNameSorter|nil
     table_name_sorter = nil,                 -- custom table-list sorter
-
-    -- Inline post-execute feedback instead of dadbod's command-line echoes.
-    query_time = {
-      enabled = true,
-      result_buffer = true,                  -- winbar summary on the .dbout window
-      query_buffer = true,                   -- ghost text on the executed line
-      show_row_count = true,
-    },
-
-    -- Native CLI result export (see :help dadbod-ui). Per-format sub-tables tune
-    -- each formatter (dadbod-ui.export_formats).
-    export = {
-      prefer_native = true,                  -- use the CLI's own output when it can emit the format
-      default_path = "",                     -- '' => cwd; directory the export prompt defaults to
-      coerce_numbers = false,                -- emit numeric/boolean literals in json/sql
-      csv = { delimiter = ",", header = true, quote = '"', null_string = "", line_feed_escape = "" },
-      tsv = { line_feed_escape = "\\n" },
-      json = { wrap_table_name = true, indent = "\t" },
-    },
 
     -- Lifecycle hooks (see :help dadbod-ui). `on_connect` may return a rewritten
     -- url (e.g. swap a $password placeholder for a secret); `resolve_bind_params`

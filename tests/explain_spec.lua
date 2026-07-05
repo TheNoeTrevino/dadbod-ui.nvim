@@ -10,7 +10,8 @@ local state = require('dadbod-ui.state')
 -- Seed the session singleton with injected connections (mirrors api_spec).
 local function seed(g_dbs, overrides)
   vim.g.dbs = g_dbs
-  local opts = vim.tbl_extend('force', { save_location = '/tmp/dbui_explain', show_help = false }, overrides or {})
+  local opts =
+    vim.tbl_extend('force', { save_location = '/tmp/dbui_explain', drawer = { show_help = false } }, overrides or {})
   state.setup(opts)
   state.get()
 end
@@ -169,7 +170,7 @@ describe('explain: buffer-level (explain_query)', function()
   local notifications = require('dadbod-ui.notifications')
 
   local function make_drawer(g_dbs)
-    local cfg = config.resolve({ save_location = '/tmp/dbui_explain_buf', show_help = false })
+    local cfg = config.resolve({ save_location = '/tmp/dbui_explain_buf', drawer = { show_help = false } })
     local instance = state.new(cfg):populate({ env = {}, g_dbs = g_dbs, file_entries = {} })
     local d = drawer_mod.new(instance)
     d.connector = function(url)

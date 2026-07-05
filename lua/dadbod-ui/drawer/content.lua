@@ -57,7 +57,7 @@ end
 
 ---@return nil
 function Drawer:render_help()
-  if self.config.show_help then
+  if self.config.drawer.show_help then
     self:add({ label = '" Press ? for help', icon = '', level = 0, type = 'help', action = 'noaction' })
     self:add({ label = '', icon = '', level = 0, type = 'help', action = 'noaction' })
   end
@@ -195,7 +195,7 @@ end
 ---@param entry DadbodUI.ConnectionEntry
 ---@param level integer
 function Drawer:render_db_sections(entry, level)
-  for _, section in ipairs(self.config.drawer_sections) do
+  for _, section in ipairs(self.config.drawer.sections) do
     if section == 'new_query' then
       self:add({
         label = 'New query',

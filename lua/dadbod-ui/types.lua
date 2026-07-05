@@ -309,46 +309,61 @@
 ---@field tmp_query_location string
 ---@field table_helpers table<string, table<string, string>>
 ---@field table_helpers_order string[]  display order for a table's helpers
----@field default_query string
----@field execute_on_save boolean
----@field auto_execute_table_helpers boolean
----@field page_size integer  rows per result page (M-pagination LIMIT/OFFSET)
 ---@field env_variable_url string
 ---@field env_variable_name string
 ---@field dotenv_variable_prefix string
----@field disable_progress_bar boolean
----@field notification_width integer
----@field winwidth integer
----@field win_position 'left'|'right'
----@field result_layout 'horizontal'|'vertical'  split direction for the `.dbout` result window
----@field show_help boolean
----@field show_database_icon boolean
+---@field icons table
 ---@field use_nerd_fonts boolean
 ---@field use_postgres_views boolean
 ---@field hide_schemas string[]
----@field bind_param_pattern string
----@field drawer_sections string[]
----@field expand_groups boolean
----@field dbout_list_sort 'asc'|'desc'
----@field picker 'auto'|'snacks'|'telescope'|'fzf'|'fallback'  connection picker backend (api.pick)
----@field force_echo_notifications boolean
----@field disable_info_notifications boolean
----@field use_nvim_notify boolean
 ---@field is_oracle_legacy boolean
 ---@field debug boolean
+---@field picker 'auto'|'snacks'|'telescope'|'fzf'|'fallback'  connection picker backend (api.pick)
+---@field notifications DadbodUI.NotificationsConfig
+---@field drawer DadbodUI.DrawerConfig
+---@field query DadbodUI.QueryConfig
+---@field results DadbodUI.ResultsConfig
 ---@field disable_mappings boolean
 ---@field disable_mappings_dbui boolean
 ---@field disable_mappings_dbout boolean
 ---@field disable_mappings_sql boolean
 ---@field disable_mappings_javascript boolean
----@field icons table
----@field query_time DadbodUI.QueryTimeConfig
----@field show_buffer_connection boolean  right-aligned `group/name` winbar on query buffers
----@field export DadbodUI.ExportConfig
 ---@field mappings table<string, table<string, DadbodUI.Mapping>>
 ---@field buffer_name_generator? DadbodUI.BufferNameGenerator
 ---@field table_name_sorter? DadbodUI.TableNameSorter
 ---@field hooks? DadbodUI.Hooks
+
+--- Notification presentation + routing (`notifications`).
+---@class DadbodUI.NotificationsConfig
+---@field force_echo boolean
+---@field disable_info boolean
+---@field use_nvim_notify boolean
+---@field disable_progress_bar boolean
+
+--- The drawer/sidebar window (`drawer`).
+---@class DadbodUI.DrawerConfig
+---@field width integer
+---@field position 'left'|'right'
+---@field show_help boolean
+---@field show_database_icon boolean
+---@field expand_groups boolean
+---@field sections string[]
+
+--- SQL/query buffers (`query`).
+---@class DadbodUI.QueryConfig
+---@field default_query string
+---@field execute_on_save boolean
+---@field auto_execute_table_helpers boolean
+---@field bind_param_pattern string
+---@field show_buffer_connection boolean  right-aligned `group/name` winbar on query buffers
+
+--- `.dbout` result buffers (`results`).
+---@class DadbodUI.ResultsConfig
+---@field page_size integer  rows per result page (M-pagination LIMIT/OFFSET)
+---@field layout 'horizontal'|'vertical'  split direction for the `.dbout` result window
+---@field list_sort 'asc'|'desc'
+---@field query_time DadbodUI.QueryTimeConfig
+---@field export DadbodUI.ExportConfig
 
 --- Inline post-execute feedback (time + row count). See `query_time` in the
 --- config defaults.

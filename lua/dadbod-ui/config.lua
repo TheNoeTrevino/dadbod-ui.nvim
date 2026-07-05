@@ -32,84 +32,21 @@ M.defaults = {
   -- shown blank); any present helper not named here falls back after those,
   -- sorted alphabetically. Defaults to the standard drawer help-key sequence.
   table_helpers_order = { 'List', 'Columns', 'Indexes', 'Primary Keys', 'Foreign Keys', 'References' },
-  default_query = 'SELECT * from "{table}" LIMIT 200;',
-  execute_on_save = false,
-  auto_execute_table_helpers = false,
-  page_size = 200,
   env_variable_url = 'DBUI_URL',
   env_variable_name = 'DBUI_NAME',
   dotenv_variable_prefix = 'DB_UI_',
-  disable_progress_bar = false,
-  notification_width = 40,
-  winwidth = 40,
-  win_position = 'left',
-  -- Split direction dadbod opens the `.dbout` result window in. dadbod itself
-  -- decides horizontal vs. vertical off the command modifiers on `:DB`/`%DB`
-  -- (see bridge.lua's execute functions), so this only steers which modifier we
-  -- prefix. 'horizontal' is the default layout.
-  result_layout = 'horizontal',
-  show_help = true,
-  show_database_icon = false,
-  use_nerd_fonts = false,
   ---@type table  icon overrides (see dadbod-ui.icons)
   icons = {},
+  use_nerd_fonts = false,
   use_postgres_views = true,
   hide_schemas = {},
-  bind_param_pattern = ':\\w\\+',
-  -- Drawer sections under an expanded connection, in render order. `procedures`
-  -- lists the connection's stored procedures/functions (schema-supporting
-  -- adapters nest them per schema); it renders only when the adapter supports
-  -- routines and at least one exists, so it is invisible for e.g. sqlite.
-  drawer_sections = { 'new_query', 'buffers', 'saved_queries', 'schemas', 'procedures' },
-  expand_groups = true,
-  dbout_list_sort = 'asc',
+  is_oracle_legacy = false,
+  debug = false,
   -- Backend for the connection picker (`require('dadbod-ui.api').pick()`).
   -- 'auto' tries Snacks.nvim, Telescope.nvim, then fzf-lua, falling back to
   -- vim.ui.select when none is installed; naming a backend uses it exclusively
   -- (warning when its plugin is missing), 'fallback' forces vim.ui.select.
   picker = 'auto',
-  force_echo_notifications = false,
-  disable_info_notifications = false,
-  use_nvim_notify = false,
-  -- Post-execute feedback: instead of dadbod's `DB: Running query...` /
-  -- `finished in ...` command-line echoes (and our own "Executing query..."
-  -- notification), show the completion + elapsed time inline. `result_buffer`
-  -- pins a `winbar` summary to the top of the `.dbout` window; `query_buffer` puts
-  -- ghost text trailing the line you executed from. When `enabled`, dadbod's two
-  -- echoes are suppressed so the inline summary is the single source of feedback.
-  query_time = {
-    enabled = true,
-    result_buffer = true,
-    query_buffer = true,
-    show_row_count = true,
-  },
-  -- Show the connection a query buffer targets in a right-aligned `winbar` at the
-  -- top of the buffer's window, formatted `group/name` (or just `name` when the
-  -- connection is ungrouped). Follows the buffer into new splits; the `.dbout`
-  -- result buffers (which own their winbar) and the drawer are untouched.
-  show_buffer_connection = true,
-  -- Native CLI result export (see specs/native-export.md). `prefer_native` writes
-  -- the CLI's own output when it can emit the target format directly (DECISION-001);
-  -- turn it off to force the consistent Lua formatters for every adapter.
-  -- `default_path` ('' => cwd) is the directory the export-path prompt defaults to;
-  -- `coerce_numbers` opts the JSON/SQL formatters into emitting numeric/boolean
-  -- literals (off by default since the CSV extract is untyped). The per-format
-  -- sub-tables tune each formatter (see the format docs in dadbod-ui.export_formats).
-  export = {
-    prefer_native = true,
-    default_path = '',
-    coerce_numbers = false,
-    csv = { delimiter = ',', header = true, quote = '"', null_string = '', line_feed_escape = '' },
-    tsv = { line_feed_escape = '\\n' },
-    json = { wrap_table_name = true, indent = '\t' },
-  },
-  is_oracle_legacy = false,
-  debug = false,
-  disable_mappings = false,
-  disable_mappings_dbui = false,
-  disable_mappings_dbout = false,
-  disable_mappings_sql = false,
-  disable_mappings_javascript = false,
   ---@type DadbodUI.BufferNameGenerator|nil  custom buffer name generator
   buffer_name_generator = nil,
   ---@type DadbodUI.TableNameSorter|nil  custom table-list sorter
@@ -121,6 +58,87 @@ M.defaults = {
   -- cancel siblings are observers. A throwing hook is caught + notified, never
   -- aborting the underlying operation. Empty by default; set via `setup{}` opts.
   hooks = {},
+
+  -- Notification presentation + routing. `disable_progress_bar` silences the
+  -- schema-loading progress bar; `use_nvim_notify` routes through nvim-notify;
+  -- `force_echo` always uses command-line echo; `disable_info` mutes info-level.
+  notifications = {
+    force_echo = false,
+    disable_info = false,
+    use_nvim_notify = false,
+    disable_progress_bar = false,
+  },
+
+  -- The drawer/sidebar window.
+  drawer = {
+    width = 40,
+    position = 'left',
+    show_help = true,
+    show_database_icon = false,
+    expand_groups = true,
+    -- Sections under an expanded connection, in render order. `procedures` lists
+    -- the connection's stored procedures/functions (schema-supporting adapters
+    -- nest them per schema); it renders only when the adapter supports routines
+    -- and at least one exists, so it is invisible for e.g. sqlite.
+    sections = { 'new_query', 'buffers', 'saved_queries', 'schemas', 'procedures' },
+  },
+
+  -- SQL/query buffers.
+  query = {
+    default_query = 'SELECT * from "{table}" LIMIT 200;',
+    execute_on_save = false,
+    auto_execute_table_helpers = false,
+    bind_param_pattern = ':\\w\\+',
+    -- Show the connection a query buffer targets in a right-aligned `winbar` at
+    -- the top of the buffer's window, formatted `group/name` (or just `name` when
+    -- the connection is ungrouped). Follows the buffer into new splits; the
+    -- `.dbout` result buffers (which own their winbar) and the drawer are untouched.
+    show_buffer_connection = true,
+  },
+
+  -- `.dbout` result buffers.
+  results = {
+    page_size = 200,
+    -- Split direction dadbod opens the `.dbout` result window in. dadbod itself
+    -- decides horizontal vs. vertical off the command modifiers on `:DB`/`%DB`
+    -- (see bridge.lua's execute functions), so this only steers which modifier we
+    -- prefix. 'horizontal' is the default layout.
+    layout = 'horizontal',
+    list_sort = 'asc',
+    -- Post-execute feedback: instead of dadbod's `DB: Running query...` /
+    -- `finished in ...` command-line echoes (and our own "Executing query..."
+    -- notification), show the completion + elapsed time inline. `result_buffer`
+    -- pins a `winbar` summary to the top of the `.dbout` window; `query_buffer` puts
+    -- ghost text trailing the line you executed from. When `enabled`, dadbod's two
+    -- echoes are suppressed so the inline summary is the single source of feedback.
+    query_time = {
+      enabled = true,
+      result_buffer = true,
+      query_buffer = true,
+      show_row_count = true,
+    },
+    -- Native CLI result export (see specs/native-export.md). `prefer_native` writes
+    -- the CLI's own output when it can emit the target format directly (DECISION-001);
+    -- turn it off to force the consistent Lua formatters for every adapter.
+    -- `default_path` ('' => cwd) is the directory the export-path prompt defaults to;
+    -- `coerce_numbers` opts the JSON/SQL formatters into emitting numeric/boolean
+    -- literals (off by default since the CSV extract is untyped). The per-format
+    -- sub-tables tune each formatter (see the format docs in dadbod-ui.export_formats).
+    export = {
+      prefer_native = true,
+      default_path = '',
+      coerce_numbers = false,
+      csv = { delimiter = ',', header = true, quote = '"', null_string = '', line_feed_escape = '' },
+      tsv = { line_feed_escape = '\\n' },
+      json = { wrap_table_name = true, indent = '\t' },
+    },
+  },
+
+  disable_mappings = false,
+  disable_mappings_dbui = false,
+  disable_mappings_dbout = false,
+  disable_mappings_sql = false,
+  disable_mappings_javascript = false,
   -- Keybindings, grouped by context. Each entry is `{ key, desc, mode? }`; set a
   -- key to 'none' to disable that action (it is then neither bound nor shown in
   -- the `?` help window). Overrides deep-merge, so `mappings.sidebar.delete.key`

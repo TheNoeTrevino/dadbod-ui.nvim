@@ -11,8 +11,9 @@ local config = require('dadbod-ui.config')
 local bridge = require('dadbod-ui.bridge')
 
 local function make_drawer(overrides)
-  local cfg =
-    config.resolve(vim.tbl_extend('force', { save_location = '/tmp/dbui_tx', show_help = false }, overrides or {}))
+  local cfg = config.resolve(
+    vim.tbl_extend('force', { save_location = '/tmp/dbui_tx', drawer = { show_help = false } }, overrides or {})
+  )
   local instance = state.new(cfg):populate({ env = {}, g_dbs = { qa = 'sqlite:/tmp/qa.db' }, file_entries = {} })
   local d = drawer_mod.new(instance)
   d.connector = function(url)

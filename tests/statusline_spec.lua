@@ -10,7 +10,7 @@ local config = require('dadbod-ui.config')
 -- echoes the url back, so entries "connect" offline and b:db is set.
 local function make_drawer(g_dbs, overrides)
   local cfg = config.resolve(
-    vim.tbl_extend('force', { save_location = '/tmp/dbui_statusline', show_help = false }, overrides or {})
+    vim.tbl_extend('force', { save_location = '/tmp/dbui_statusline', drawer = { show_help = false } }, overrides or {})
   )
   local instance = state.new(cfg):populate({ env = {}, g_dbs = g_dbs, file_entries = {} })
   local d = drawer_mod.new(instance)
