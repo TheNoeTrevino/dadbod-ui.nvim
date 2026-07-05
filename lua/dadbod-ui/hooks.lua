@@ -38,16 +38,7 @@ local M = {}
 ---@param event DadbodUI.HookEvent
 ---@return any  the config hook's return value, or nil (no hook / error)
 function M.run(config, name, event)
-  local result = nil
-  local hooks = config.hooks
-  if type(hooks) == 'table' and type(hooks[name]) == 'function' then
-    local ok, ret = pcall(hooks[name], event)
-    if ok then
-      result = ret
-    else
-      require('dadbod-ui.notifications').error(string.format('Error in %s hook: %s', name, tostring(ret)))
-    end
-  end
+  local result = M.call(config, name, event)
   require('dadbod-ui.events').emit(name, event)
   return result
 end
