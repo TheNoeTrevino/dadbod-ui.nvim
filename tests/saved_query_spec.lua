@@ -3,8 +3,15 @@
 -- No DB binary is needed -- nothing is executed.
 
 local drawer_mod = require('dadbod-ui.drawer')
+local ids = require('dadbod-ui.drawer.ids')
 local state = require('dadbod-ui.state')
 local config = require('dadbod-ui.config')
+
+-- Expand the connection + its Saved queries section in the drawer's expand map.
+local function expand_saved(d, entry)
+  d:set_expanded(ids.db(entry.key_name), true)
+  d:set_expanded(ids.section(entry.key_name, 'saved_queries'), true)
+end
 
 local SAVE_ROOT = '/tmp/dbui_saved'
 
@@ -79,8 +86,7 @@ describe('saved queries', function()
 
     local saved = entry.save_path .. '/myquery.sql'
     assert.equals(1, vim.fn.filereadable(saved))
-    entry.expanded = true
-    entry.saved_queries.expanded = true
+    expand_saved(d, entry)
     d:render()
     assert.is_true(has_line(d, 'Saved queries (1)'))
     assert.is_true(has_line(d, 'myquery.sql'))
@@ -94,8 +100,7 @@ describe('saved queries', function()
     local saved = entry.save_path .. '/keep.sql'
     vim.fn.writefile({ 'select 1' }, saved)
     d:load_saved_queries(entry)
-    entry.expanded = true
-    entry.saved_queries.expanded = true
+    expand_saved(d, entry)
     d:render()
 
     local ln = line_of(d, function(n)
@@ -119,8 +124,7 @@ describe('saved queries', function()
     local saved = entry.save_path .. '/orig.sql'
     vim.fn.writefile({ 'select 1' }, saved)
     d:load_saved_queries(entry)
-    entry.expanded = true
-    entry.saved_queries.expanded = true
+    expand_saved(d, entry)
     d:render()
 
     local ln = line_of(d, function(n)
@@ -145,8 +149,7 @@ describe('saved queries', function()
     local saved = entry.save_path .. '/orig.sql'
     vim.fn.writefile({ 'select 1' }, saved)
     d:load_saved_queries(entry)
-    entry.expanded = true
-    entry.saved_queries.expanded = true
+    expand_saved(d, entry)
     d:render()
 
     local ln = line_of(d, function(n)
@@ -187,8 +190,7 @@ describe('saved queries', function()
     vim.fn.writefile({ 'select 1' }, saved)
     vim.fn.writefile({ 'select 2' }, taken)
     d:load_saved_queries(entry)
-    entry.expanded = true
-    entry.saved_queries.expanded = true
+    expand_saved(d, entry)
     d:render()
 
     local ln = line_of(d, function(n)

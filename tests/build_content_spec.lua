@@ -4,6 +4,7 @@
 -- it. These assert the node shapes directly -- never calling d:open().
 
 local drawer_mod = require('dadbod-ui.drawer')
+local ids = require('dadbod-ui.drawer.ids')
 local state = require('dadbod-ui.state')
 local config = require('dadbod-ui.config')
 
@@ -55,13 +56,14 @@ describe('drawer build_content (no window)', function()
     assert.equals('call_method', nodes[2].action)
   end)
 
-  it('expands nested section nodes purely from instance state', function()
+  it('expands nested section nodes purely from instance + expand-map state', function()
     local d = make_drawer({ qa = 'sqlite:/tmp/whatever.db' })
     -- seed expand state directly; no window, no render
     local record = d.instance.dbs_list[1]
     local entry = d.instance.dbs[record.key_name]
-    entry.expanded = true
-    entry.tables = { expanded = true, list = { 'contacts' }, items = { contacts = { expanded = false } } }
+    d:set_expanded(ids.db(entry.key_name), true)
+    d:set_expanded(ids.section(entry.key_name, 'tables'), true)
+    entry.tables = { list = { 'contacts' } }
     local nodes = d:build_content()
     local types = vim.tbl_map(function(n)
       return n.type
