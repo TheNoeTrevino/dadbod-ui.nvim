@@ -9,7 +9,8 @@ local state = require('dadbod-ui.state')
 -- `state.get()`, so we drive discovery via `vim.g.dbs` and reset around it.
 local function seed(g_dbs, overrides)
   vim.g.dbs = g_dbs
-  local opts = vim.tbl_extend('force', { save_location = '/tmp/dbui_api', show_help = false }, overrides or {})
+  local opts =
+    vim.tbl_extend('force', { save_location = '/tmp/dbui_api', drawer = { show_help = false } }, overrides or {})
   state.setup(opts)
   state.get() -- force discovery now
 end
@@ -176,7 +177,7 @@ describe('api: grouped connections (name reused across groups)', function()
       { name = 'stage', url = 'postgres://h/stage' },
     })
     vim.g.dbs = nil
-    require('dadbod-ui.state').setup({ save_location = dir, show_help = false })
+    require('dadbod-ui.state').setup({ save_location = dir, drawer = { show_help = false } })
     require('dadbod-ui.state').get()
   end)
   after_each(function()
@@ -243,7 +244,7 @@ describe('api: connection mutation (store CRUD)', function()
       { name = 'stage', url = 'postgres://h/stage' },
     })
     vim.g.dbs = nil
-    state.setup({ save_location = dir, show_help = false })
+    state.setup({ save_location = dir, drawer = { show_help = false } })
     state.get()
   end)
   after_each(function()

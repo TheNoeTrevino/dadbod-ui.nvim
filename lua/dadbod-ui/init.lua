@@ -19,8 +19,8 @@
 --- Setup is optional -- dadbod-ui works with sensible defaults: >lua
 ---   require('dadbod-ui').setup()
 --- <
---- Open the drawer with the `:DBUI` command, or from Lua: >lua
----   require('dadbod-ui').open()
+--- Open the drawer from Lua (dadbod-ui ships no user commands): >lua
+---   require('dadbod-ui.api').open()
 --- <
 
 ---@class DadbodUI.InitModule
@@ -77,7 +77,7 @@ end
 
 --- Configure the plugin: resolve options and drop the cached instance/drawer so
 --- the new config takes effect.
----@param opts? table
+---@param opts? DadbodUI.Config
 ---@return table
 function M.setup(opts)
   M.config = state.setup(opts)
@@ -102,7 +102,7 @@ function M.close()
 end
 
 --- Add a connection interactively (prompts for url + name), independent of
---- whether the drawer is open. Backs `:DBUIAddConnection`.
+--- whether the drawer is open. Exposed as `api.add_connection`.
 function M.add_connection()
   drawer():connections():add_connection()
 end
@@ -160,8 +160,8 @@ function M.export_selection()
   drawer():query():export_query(true)
 end
 
---- Cancel the running async query for the current query buffer. Backs
---- `:DBUICancelQuery` and the `cancel` query mapping; fires the `on_cancel_query`
+--- Cancel the running async query for the current query buffer. Exposed as
+--- `api.buf.cancel` and the `cancel` query mapping; fires the `on_cancel_query`
 --- / `on_cancel_query_post` hooks around the cancel.
 ---@return nil
 function M.cancel_query()
@@ -190,16 +190,16 @@ function M.get_conn_info(key_name)
   }
 end
 
---- Jump to (or adopt) the query buffer for the current db context. Backs
---- `:DBUIFindBuffer`: a buffer already carrying the `b:dbui_*` contract is
+--- Jump to (or adopt) the query buffer for the current db context. Exposed as
+--- `api.buf.find`: a buffer already carrying the `b:dbui_*` contract is
 --- revealed in the drawer; a bare buffer resolves/connects a db and adopts it.
 ---@return nil
 function M.find_buffer()
   drawer():find_buffer()
 end
 
---- Switch the current query buffer's connection to another one. Backs
---- `:DBUISwitchBuffer`: prompts for a different db, reassigns the buffer
+--- Switch the current query buffer's connection to another one. Exposed as
+--- `api.buf.switch`: prompts for a different db, reassigns the buffer
 --- (rewriting `b:db`/`b:dbui_db_key_name`, the winbar and the execute-on-save
 --- autocmds) without touching the buffer text. A bare buffer falls back to the
 --- `find_buffer` assign path. Pass `name` to switch straight to that connection
@@ -242,14 +242,14 @@ function M.refresh(key_name)
 end
 
 --- Rename the current query buffer's on-disk file (and move its buffer tracking).
---- Backs `:DBUIRenameBuffer`; delegates to the drawer's rename path for the buffer
---- under the cursor / in focus.
+--- Exposed as `api.buf.rename`; delegates to the drawer's rename path for the
+--- buffer under the cursor / in focus.
 ---@return nil
 function M.rename_buffer()
   drawer():rename_buffer(vim.api.nvim_buf_get_name(0), vim.b.dbui_db_key_name, false)
 end
 
---- Echo the last executed query and its runtime. Backs `:DBUILastQueryInfo`.
+--- Echo the last executed query and its runtime. Exposed as `api.buf.last_query_info`.
 ---@return nil
 function M.print_last_query_info()
   local notify = require('dadbod-ui.notifications')

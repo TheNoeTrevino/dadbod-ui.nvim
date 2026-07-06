@@ -384,16 +384,15 @@ function M._nav_segment(state, prev_key, next_key)
 end
 
 --- The configured `[`/`]` page-step keys for the nav segment, formatted the same
---- way the help window shows them (aliases joined) via `mappings.display_key` --
---- the single source of truth for key display, so a rebound or aliased mapping is
---- reflected here rather than diverging. The entries are always present in a
---- resolved config (the defaults define them).
+--- way the help window shows them (aliases joined) via `mappings.keys_for_action`
+--- -- the single source of truth for key display, so a rebound or aliased mapping
+--- is reflected here rather than diverging. Returns `''` for an unbound action.
 ---@param config DadbodUI.Config
 ---@return { prev: string, next: string }
 function M._nav_keys(config)
-  local display_key = require('dadbod-ui.mappings').display_key
-  local results = config.mappings.results
-  return { prev = display_key(results.prev_page), next = display_key(results.next_page) }
+  local keys_for = require('dadbod-ui.mappings').keys_for_action
+  local keys = config.results.keys
+  return { prev = keys_for(keys, 'prev_page'), next = keys_for(keys, 'next_page') }
 end
 
 --- Compose the result-window winbar from its blocks, in display order: pagination

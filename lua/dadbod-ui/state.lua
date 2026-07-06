@@ -290,7 +290,7 @@ local current_instance = nil
 
 --- Resolve and store config for the session, dropping any built instance so the
 --- new config takes effect on next `get()`. Returns the resolved config.
----@param opts? table
+---@param opts? DadbodUI.Config
 ---@return DadbodUI.Config
 function M.setup(opts)
   current_config = config_mod.resolve(opts)

@@ -69,7 +69,7 @@ local function run_export(adapter, fmt, prefer_native)
     source = SOURCE,
     path = '(captured)',
     prefer_native = prefer_native,
-    format_opts = export.format_opts(config.defaults.export, fmt, adapter.scheme),
+    format_opts = export.format_opts(config.defaults.results.export, fmt, adapter.scheme),
   }, {
     write = function(_, content)
       captured.content = content

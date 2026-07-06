@@ -166,7 +166,7 @@ end
 ---@param output_file string
 ---@return nil
 function M._show(output_file)
-  if ctx.attached == nil or ctx.attached.config.disable_progress_bar then
+  if ctx.attached == nil or ctx.attached.config.notifications.disable_progress_bar then
     return
   end
   local buf = utils.loaded_bufnr(output_file)
@@ -215,7 +215,7 @@ function M._on_pre(output_file)
   M._show(output_file)
 
   local config = ctx.current_config()
-  local cfg = config.query_time
+  local cfg = config.results.query_time
   local page = (by_file[output_file] or {}).page
   if not winbar.wants_winbar(cfg, page) then
     return
@@ -245,7 +245,7 @@ function M._on_post(output_file)
   local page = ctx_pending.page
 
   local config = ctx.current_config()
-  local cfg = config.query_time
+  local cfg = config.results.query_time
   local buf = utils.loaded_bufnr(output_file)
 
   -- Tag the result buffer so `[` / `]` can re-paginate, independent of query_time.
@@ -260,7 +260,7 @@ function M._on_post(output_file)
   local runtime = type(db) == 'table' and tonumber(db.runtime) or nil
 
   -- Record the runtime on the drawer's query controller so `get_last_query_info`
-  -- (hence `:DBUILastQueryInfo` and the dbout branch of `statusline`) can report
+  -- (hence `api.buf.last_query_info` and the dbout branch of `statusline`) can report
   -- it, independent of the `query_time` UI config.
   if ctx.attached ~= nil and runtime ~= nil then
     ctx.attached:query().last_query_time = string.format('%.3f', runtime)
@@ -387,7 +387,7 @@ function M.sort_dbout(a, b)
   -- leading-dot name intact, matching Vim's `:r` (which never strips a dotfile).
   local na = tonumber((vim.fs.basename(a):gsub('(.)%.[^.]*$', '%1'))) or 0
   local nb = tonumber((vim.fs.basename(b):gsub('(.)%.[^.]*$', '%1'))) or 0
-  if ctx.attached ~= nil and ctx.attached.config.dbout_list_sort == 'desc' then
+  if ctx.attached ~= nil and ctx.attached.config.results.list_sort == 'desc' then
     return na > nb
   end
   return na < nb
@@ -395,8 +395,8 @@ end
 
 --- Configure a `.dbout` result buffer: Lua expr-folding by result block (first
 --- fold opened), and the navigation maps unless disabled. Wired from the
---- `FileType dbout` autocmd. Folding is always set; only the maps honor
---- `disable_mappings` / `disable_mappings_dbout`.
+--- `FileType dbout` autocmd. Folding is always set; the maps no-op when
+--- `config.results.keys` is `false`.
 ---@param bufnr integer
 ---@return nil
 function M.setup_buffer(bufnr)
@@ -405,15 +405,11 @@ function M.setup_buffer(bufnr)
   pcall(vim.cmd, 'silent! normal! zo') -- open the first fold on load
 
   local config = ctx.current_config()
-  if config.disable_mappings or config.disable_mappings_dbout then
-    return
-  end
-  local config_mod = require('dadbod-ui.config')
   local mappings = require('dadbod-ui.mappings')
-  -- Keyed by the ids in `config.mappings.results`; the same data drives the help
-  -- window. `cell_value` binds different keys per mode (`vic`/`ic`) via its
-  -- explicit `binds`, so the handler ignores the mode argument.
-  mappings.apply(config.mappings.results, config_mod.mapping_order.results, {
+  -- Keyed by the ids in `config.builtin_actions.results`; the same ids drive the
+  -- help window. `cell_value` is named by two keys (`vic` in normal, `ic` in
+  -- operator-pending), so the handler ignores the mode argument.
+  local handlers = {
     jump_foreign = M.jump_to_foreign_table,
     cell_value = M.get_cell_value,
     yank_header = M.yank_header,
@@ -423,7 +419,18 @@ function M.setup_buffer(bufnr)
     export = function()
       require('dadbod-ui.export').export_interactive(bufnr)
     end,
-  }, { buffer = bufnr, silent = true, nowait = true })
+  }
+  local function make_ctx(mode)
+    local key = vim.b[bufnr].dbui_db_key_name
+    return { mode = mode, bufnr = bufnr, connection = key and require('dadbod-ui.state').get().dbs[key] or nil }
+  end
+  mappings.apply(
+    config.results.keys,
+    handlers,
+    config.actions,
+    make_ctx,
+    { buffer = bufnr, silent = true, nowait = true }
+  )
 end
 
 --- Register the session-wide autocmds and bridge subscriptions once: `.dbout`

@@ -29,7 +29,7 @@ describe('drawer: help banner', function()
   end)
 
   it('omits the banner when show_help is false', function()
-    d = make_drawer({ dev = 'postgres://h/dev' }, { show_help = false })
+    d = make_drawer({ dev = 'postgres://h/dev' }, { drawer = { show_help = false } })
     d:open()
     assert.equals('▸ dev', lines(d)[1])
   end)
@@ -45,7 +45,7 @@ describe('drawer: help banner', function()
   end
 
   it('opens a floating window on first toggle and closes it on second', function()
-    d = make_drawer({ dev = 'postgres://h/dev' }, { show_help = false })
+    d = make_drawer({ dev = 'postgres://h/dev' }, { drawer = { show_help = false } })
     d:open()
     assert.equals('▸ dev', lines(d)[1])
 
@@ -56,11 +56,11 @@ describe('drawer: help banner', function()
     local float_buf = vim.api.nvim_win_get_buf(d.help_winid)
     local float_lines = vim.api.nvim_buf_get_lines(float_buf, 0, -1, false)
     -- Sectioned by context, each header followed by its mappings.
-    assert.is_truthy(vim.tbl_contains(float_lines, 'Sidebar'))
+    assert.is_truthy(vim.tbl_contains(float_lines, 'Drawer'))
     assert.is_truthy(vim.tbl_contains(float_lines, 'Query Buffer'))
     assert.is_truthy(vim.tbl_contains(float_lines, 'DB Results'))
-    -- Sidebar entries, now key-aligned and aggregating aliases (o / <CR>).
-    assert.is_truthy(has(float_lines, 'o / <CR>'))
+    -- Drawer entries, key-aligned and aggregating the keys bound to one action.
+    assert.is_truthy(has(float_lines, '<CR> / o'))
     assert.is_truthy(has(float_lines, 'Open/Toggle selected item'))
     assert.is_truthy(has(float_lines, 'Toggle database details'))
     assert.is_truthy(has(float_lines, 'Duplicate connection'))
@@ -75,10 +75,9 @@ describe('drawer: help banner', function()
     assert.is_nil(d.help_winid)
   end)
 
-  it('omits an action whose key is set to none, and rebinds from config', function()
+  it('omits an action whose key is disabled, and rebinds from config', function()
     d = make_drawer({ dev = 'postgres://h/dev' }, {
-      show_help = false,
-      mappings = { sidebar = { duplicate = { key = 'none' }, delete = { key = 'x' } } },
+      drawer = { show_help = false, keys = { D = false, d = false, x = 'delete' } },
     })
     d:open()
     d:toggle_help()
@@ -101,7 +100,7 @@ describe('drawer: connection details', function()
   end)
 
   it('appends (scheme - source) when details are on', function()
-    d = make_drawer({ dev = 'postgres://h/dev' }, { show_help = false })
+    d = make_drawer({ dev = 'postgres://h/dev' }, { drawer = { show_help = false } })
     d:open()
     assert.equals('▸ dev', lines(d)[1])
     d:toggle_details()
@@ -121,7 +120,7 @@ describe('drawer: empty state', function()
   end)
 
   it('shows the add-connection prompt when there are no connections', function()
-    d = make_drawer({}, { show_help = false })
+    d = make_drawer({}, { drawer = { show_help = false } })
     d:open()
     local l = lines(d)
     assert.equals('" No connections', l[1])

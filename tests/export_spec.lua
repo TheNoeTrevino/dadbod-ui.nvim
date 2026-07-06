@@ -573,7 +573,7 @@ describe('export.export_query (query buffer)', function()
   local notifications = require('dadbod-ui.notifications')
 
   local function make_drawer(g_dbs)
-    local cfg = config.resolve({ save_location = '/tmp/dbui_export_q', show_help = false })
+    local cfg = config.resolve({ save_location = '/tmp/dbui_export_q', drawer = { show_help = false } })
     local instance = state.new(cfg):populate({ env = {}, g_dbs = g_dbs, file_entries = {} })
     local d = drawer_mod.new(instance)
     d.connector = function(url)

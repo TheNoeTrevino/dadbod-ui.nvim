@@ -79,7 +79,7 @@ function M._step_page(delta)
   -- No "Loading page N" notification: the result winbar carries the page state
   -- and shows a "running" segment for the load (painted from `_on_pre`), so the
   -- feedback stays inline and the command line stays quiet.
-  bridge.execute_lines(vim.split(sql, '\n'), state.url, nil, ctx.current_config().result_layout == 'vertical')
+  bridge.execute_lines(vim.split(sql, '\n'), state.url, nil, ctx.current_config().results.layout == 'vertical')
 end
 
 --- `]` -- load the next page of results.

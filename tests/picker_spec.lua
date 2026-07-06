@@ -10,7 +10,8 @@ local notifications = require('dadbod-ui.notifications')
 -- Seed the session singleton with injected connections (see api_spec.lua).
 local function seed(g_dbs, overrides)
   vim.g.dbs = g_dbs
-  local opts = vim.tbl_extend('force', { save_location = '/tmp/dbui_picker', show_help = false }, overrides or {})
+  local opts =
+    vim.tbl_extend('force', { save_location = '/tmp/dbui_picker', drawer = { show_help = false } }, overrides or {})
   state.setup(opts)
   state.get() -- force discovery now
 end

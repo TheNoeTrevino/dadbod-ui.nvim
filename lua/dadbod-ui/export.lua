@@ -486,7 +486,7 @@ local function export_config(deps)
     return deps.config
   end
   local cfg = require('dadbod-ui.state').config()
-  return type(cfg.export) == 'table' and cfg.export or {}
+  return type(cfg.results.export) == 'table' and cfg.results.export or {}
 end
 
 --- Prompt for a target format + output path for `info` and export -- the shared

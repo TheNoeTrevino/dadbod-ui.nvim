@@ -45,7 +45,7 @@ Please adhere to these separations as much as possible.
 
 `bridge.lua` - the only module allowed to touch `vim-dadbod`, the 'bridge'
 
-`config.lua` - defaults and `g:db_ui_*` -> Lua option resolution.
+`config.lua` - defaults and option resolution.
 
 `state.lua` - the central instance (connections, entries, paths). We treat this the single source of truth for anything stateful
 

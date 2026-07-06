@@ -9,8 +9,9 @@ local state = require('dadbod-ui.state')
 local config = require('dadbod-ui.config')
 
 local function make_drawer(g_dbs, overrides)
-  local cfg =
-    config.resolve(vim.tbl_extend('force', { save_location = '/tmp/dbui_winbar', show_help = false }, overrides or {}))
+  local cfg = config.resolve(
+    vim.tbl_extend('force', { save_location = '/tmp/dbui_winbar', drawer = { show_help = false } }, overrides or {})
+  )
   local instance = state.new(cfg):populate({ env = {}, g_dbs = g_dbs, file_entries = {} })
   local d = drawer_mod.new(instance)
   d.connector = function(url)
@@ -103,7 +104,7 @@ describe('connection winbar: application', function()
   end)
 
   it('leaves the winbar unset when show_buffer_connection is disabled', function()
-    d = make_drawer({ qa = 'sqlite:/tmp/qa.db' }, { show_buffer_connection = false })
+    d = make_drawer({ qa = 'sqlite:/tmp/qa.db' }, { query = { show_buffer_connection = false } })
     d:open()
     local entry = entry_named(d, 'qa')
     d:query():open({ type = 'query', key_name = entry.key_name }, 'edit')

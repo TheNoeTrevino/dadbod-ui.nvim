@@ -251,12 +251,12 @@
 
 --- The `export` config block (see config defaults + specs/native-export.md §11).
 ---@class DadbodUI.ExportConfig
----@field prefer_native boolean
----@field default_path string  '' => cwd, else a directory
----@field coerce_numbers boolean
----@field csv table
----@field tsv table
----@field json table
+---@field prefer_native? boolean
+---@field default_path? string  '' => cwd, else a directory
+---@field coerce_numbers? boolean
+---@field csv? table
+---@field tsv? table
+---@field json? table
 
 --- Payload passed to on_pre/on_post subscribers.
 ---@class DadbodUI.ExecuteEvent
@@ -303,63 +303,80 @@
 ---@field connection_ok string
 ---@field connection_error string
 
---- Resolved configuration (dadbod-ui.config).
+--- Configuration surface. Annotate a `setup{}` / lazy `opts` table with this
+--- (`---@type DadbodUI.Config`); every field is optional, since defaults fill the
+--- rest -- so lua_ls never flags a field you didn't set as missing. Internal code
+--- reads the resolved config through this same type (optional fields read as
+--- non-nil, so no nil-checks are needed at the call sites).
 ---@class DadbodUI.Config
----@field save_location string
----@field tmp_query_location string
----@field table_helpers table<string, table<string, string>>
----@field table_helpers_order string[]  display order for a table's helpers
----@field default_query string
----@field execute_on_save boolean
----@field auto_execute_table_helpers boolean
----@field page_size integer  rows per result page (M-pagination LIMIT/OFFSET)
----@field env_variable_url string
----@field env_variable_name string
----@field dotenv_variable_prefix string
----@field disable_progress_bar boolean
----@field notification_width integer
----@field winwidth integer
----@field win_position 'left'|'right'
----@field result_layout 'horizontal'|'vertical'  split direction for the `.dbout` result window
----@field show_help boolean
----@field show_database_icon boolean
----@field use_nerd_fonts boolean
----@field use_postgres_views boolean
----@field hide_schemas string[]
----@field bind_param_pattern string
----@field drawer_sections string[]
----@field expand_groups boolean
----@field dbout_list_sort 'asc'|'desc'
----@field picker 'auto'|'snacks'|'telescope'|'fzf'|'fallback'  connection picker backend (api.pick)
----@field force_echo_notifications boolean
----@field disable_info_notifications boolean
----@field use_nvim_notify boolean
----@field is_oracle_legacy boolean
----@field debug boolean
----@field disable_mappings boolean
----@field disable_mappings_dbui boolean
----@field disable_mappings_dbout boolean
----@field disable_mappings_sql boolean
----@field disable_mappings_javascript boolean
----@field icons table
----@field query_time DadbodUI.QueryTimeConfig
----@field show_buffer_connection boolean  right-aligned `group/name` winbar on query buffers
----@field export DadbodUI.ExportConfig
----@field mappings table<string, table<string, DadbodUI.Mapping>>
+---@field save_location? string
+---@field tmp_query_location? string
+---@field table_helpers? table<string, table<string, string>>
+---@field table_helpers_order? string[]  display order for a table's helpers
+---@field env_variable_url? string
+---@field env_variable_name? string
+---@field dotenv_variable_prefix? string
+---@field icons? table
+---@field use_nerd_fonts? boolean
+---@field use_postgres_views? boolean
+---@field hide_schemas? string[]
+---@field is_oracle_legacy? boolean
+---@field debug? boolean
+---@field picker? 'auto'|'snacks'|'telescope'|'fzf'|'fallback'  connection picker backend (api.pick)
+---@field notifications? DadbodUI.NotificationsConfig
+---@field drawer? DadbodUI.DrawerConfig
+---@field query? DadbodUI.QueryConfig
+---@field results? DadbodUI.ResultsConfig
+---@field actions? table<string, DadbodUI.Action>  user-defined named actions
 ---@field buffer_name_generator? DadbodUI.BufferNameGenerator
 ---@field table_name_sorter? DadbodUI.TableNameSorter
 ---@field hooks? DadbodUI.Hooks
 
+--- Notification presentation + routing (`notifications`).
+---@class DadbodUI.NotificationsConfig
+---@field force_echo? boolean
+---@field disable_info? boolean
+---@field use_nvim_notify? boolean
+---@field disable_progress_bar? boolean
+
+--- The drawer/sidebar window (`drawer`).
+---@class DadbodUI.DrawerConfig
+---@field width? integer
+---@field position? 'left'|'right'
+---@field show_help? boolean
+---@field show_database_icon? boolean
+---@field expand_groups? boolean
+---@field sections? string[]
+---@field keys? DadbodUI.Keymaps  `lhs -> action`, or `false` to disable the context
+
+--- SQL/query buffers (`query`).
+---@class DadbodUI.QueryConfig
+---@field default_query? string
+---@field execute_on_save? boolean
+---@field auto_execute_table_helpers? boolean
+---@field bind_param_pattern? string
+---@field show_buffer_connection? boolean  right-aligned `group/name` winbar on query buffers
+---@field keys? DadbodUI.Keymaps  `lhs -> action`, or `false` to disable the context
+
+--- `.dbout` result buffers (`results`).
+---@class DadbodUI.ResultsConfig
+---@field page_size? integer  rows per result page (M-pagination LIMIT/OFFSET)
+---@field layout? 'horizontal'|'vertical'  split direction for the `.dbout` result window
+---@field list_sort? 'asc'|'desc'
+---@field query_time? DadbodUI.QueryTimeConfig
+---@field export? DadbodUI.ExportConfig
+---@field keys? DadbodUI.Keymaps  `lhs -> action`, or `false` to disable the context
+
 --- Inline post-execute feedback (time + row count). See `query_time` in the
 --- config defaults.
 ---@class DadbodUI.QueryTimeConfig
----@field enabled boolean  master switch; also gates suppression of dadbod's echoes
----@field result_buffer boolean  virtual line at the top of the `.dbout` buffer
----@field query_buffer boolean  ghost text trailing the executed line in the SQL buffer
----@field show_row_count boolean  append `· N rows` to the summary
+---@field enabled? boolean  master switch; also gates suppression of dadbod's echoes
+---@field result_buffer? boolean  virtual line at the top of the `.dbout` buffer
+---@field query_buffer? boolean  ghost text trailing the executed line in the SQL buffer
+---@field show_row_count? boolean  append `· N rows` to the summary
 
 --- The most recently executed query and its wall-clock runtime, surfaced by
---- `:DBUILastQueryInfo` and the dbout branch of `statusline`. `last_query_time`
+--- `api.buf.last_query_info` and the dbout branch of `statusline`. `last_query_time`
 --- is dadbod's `b:db.runtime` (seconds, as a string) recorded when the async
 --- result lands, or `''` before any query finished.
 ---@class DadbodUI.LastQueryInfo
@@ -414,7 +431,7 @@
 ---@field exit_status? integer  the query exit status (0 = ok)
 
 --- The cancel-hook event (`on_cancel_query` / `on_cancel_query_post`), fired
---- around a `:DBUICancelQuery`. Only fired when there is a cancellable async
+--- around a query cancel. Only fired when there is a cancellable async
 --- query (gated on `bridge.can_cancel()`).
 ---@class DadbodUI.CancelEvent
 ---@field bufnr integer  the query buffer whose running async query is being cancelled
@@ -438,12 +455,28 @@
 ---@field on_cancel_query_post? fun(event: DadbodUI.CancelEvent)  after a running query is cancelled
 ---@field resolve_bind_params? fun(names: string[], known: DadbodUI.BindParams): table<string, string>|nil  supply bind-param values before prompting; return a name->value map (partial ok), nil/omitted prompts for all
 
---- A single configurable keybinding. `key` is a string, a list of strings
---- (aliases), or `'none'` to disable. `mode` (default `'n'`) is the mode(s) it
---- binds in. `binds` is an escape hatch for actions whose lhs differs per mode;
---- when present it is the authoritative bind list while `key` drives help text.
----@class DadbodUI.Mapping
----@field key string|string[]  the lhs, or 'none' to disable
----@field desc string  one-line description shown in the help window
----@field mode? string|string[]  default 'n'
----@field binds? { mode: string, lhs: string }[]
+--- A context's keymaps: `lhs -> action`, or `false` to disable every mapping in
+--- that context. Merged over the defaults, so a partial table rebinds/adds/
+--- disables individual keys without redeclaring the rest.
+---@alias DadbodUI.Keymaps table<string, DadbodUI.KeySpec>|false
+
+--- What a `keys` entry binds to: an action name (a built-in id or a key in
+--- `config.actions`), `{ '<action>', mode = ... }` to bind in specific mode(s)
+--- (default `'n'`), or `false` to disable just that key.
+---@alias DadbodUI.KeySpec string|{ [1]: string, mode?: string|string[] }|false
+
+--- A user-defined action (`config.actions[name]`): a bare function, or a
+--- `{ desc, fn }` table so it also shows in the `?` help window. The function
+--- receives a per-context action context and (for query/results) is invoked with
+--- the triggering mode on `ctx.mode`.
+---@alias DadbodUI.Action fun(ctx: DadbodUI.ActionContext)|{ desc: string, fn: fun(ctx: DadbodUI.ActionContext) }
+
+--- The context object passed to a user action. Common fields plus context-
+--- specific handles: `drawer`/`item` in the drawer, `query` in a query buffer.
+---@class DadbodUI.ActionContext
+---@field mode string  the triggering mode ('n', 'v', 'o', ...)
+---@field bufnr integer  the buffer the action fired in
+---@field connection? DadbodUI.ConnectionEntry  the resolved connection, when one applies
+---@field drawer? DadbodUI.Drawer  the drawer instance (drawer context only)
+---@field item? DadbodUI.Node  the node under the cursor (drawer context only)
+---@field query? DadbodUI.Query  the query controller (query context only)

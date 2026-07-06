@@ -111,13 +111,13 @@ function Controller:commit_connections(list)
   self.render()
 end
 
---- Add a new file-source connection (also `:DBUIAddConnection`). Prompts for a
+--- Add a new file-source connection (also `api.add_connection`). Prompts for a
 --- url then a name; rejects an invalid url, a blank name, or a duplicate name.
 ---@return nil
 function Controller:add_connection()
   local notify = require('dadbod-ui.notifications')
   if self.instance.connections_path == nil then
-    return notify.error('Please set up valid save location via g:db_ui_save_location')
+    return notify.error('Please set up a valid save location via setup({ save_location = ... })')
   end
   self.input({ prompt = 'Enter connection url: ' }, function(url)
     if url == nil then
@@ -207,7 +207,7 @@ end
 function Controller:duplicate_connection(entry)
   local notify = require('dadbod-ui.notifications')
   if self.instance.connections_path == nil then
-    return notify.error('Please set up valid save location via g:db_ui_save_location')
+    return notify.error('Please set up a valid save location via setup({ save_location = ... })')
   end
   self.input({ prompt = 'Enter name for the duplicate: ', default = entry.name }, function(name)
     if name == nil then

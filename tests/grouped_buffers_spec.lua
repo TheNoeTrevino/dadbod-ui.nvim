@@ -17,7 +17,7 @@ local function make_drawer()
   local cfg = config.resolve({
     save_location = SAVE_ROOT,
     tmp_query_location = TMP_ROOT,
-    show_help = false,
+    drawer = { show_help = false },
   })
   local instance = state.new(cfg):populate({
     env = {},
