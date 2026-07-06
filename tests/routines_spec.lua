@@ -136,11 +136,11 @@ describe('routines: apply_routines', function()
       { 'pg_catalog', 'internal', 'function' },
     })
     assert.same({ 'public', 'app' }, entry.routines.list)
-    assert.equals(2, #entry.routines.items.public.list)
-    assert.equals('do_thing', entry.routines.items.public.list[1].name)
-    assert.equals('procedure', entry.routines.items.public.list[1].kind)
+    assert.equals(2, #entry.routines.items.public)
+    assert.equals('do_thing', entry.routines.items.public[1].name)
+    assert.equals('procedure', entry.routines.items.public[1].kind)
     -- the pre-built definition query rides on the item (drives the open action)
-    assert.is_truthy(entry.routines.items.public.list[1].content:match('pg_get_functiondef'))
+    assert.is_truthy(entry.routines.items.public[1].content:match('pg_get_functiondef'))
     -- hidden schema dropped
     assert.is_nil(entry.routines.items.pg_catalog)
   end)
@@ -233,9 +233,9 @@ describe('routines: concurrent populate', function()
     end
     d:introspect():populate_schemas(entry)
     assert.same({ 'public' }, entry.schemas.list)
-    assert.same({ 'users' }, entry.schemas.items.public.tables.list)
+    assert.same({ 'users' }, entry.schemas.items.public)
     assert.same({ 'public' }, entry.routines.list)
-    assert.equals('do_thing', entry.routines.items.public.list[1].name)
+    assert.equals('do_thing', entry.routines.items.public[1].name)
   end)
 end)
 
@@ -258,10 +258,8 @@ describe('routines: drawer rendering', function()
     entry.routines.list = { 'public' }
     entry.routines.items = {
       public = {
-        list = {
-          { name = 'do_thing', kind = 'procedure', content = 'x' },
-          { name = 'calc', kind = 'function', content = 'y' },
-        },
+        { name = 'do_thing', kind = 'procedure', content = 'x' },
+        { name = 'calc', kind = 'function', content = 'y' },
       },
     }
     d:render()

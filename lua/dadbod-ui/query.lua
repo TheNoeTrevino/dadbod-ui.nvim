@@ -317,7 +317,7 @@ function Query:setup_buffer(entry, opts, name)
     if #db_buffers.list == 0 then
       -- The connection's first open buffer: expand its Buffers section so the
       -- buffer is visible in the drawer right away.
-      self.drawer:set_expanded(require('dadbod-ui.drawer.ids').section(entry.key_name, 'buffers'), true)
+      self.drawer:expand_section(entry.key_name, 'buffers')
     end
     table.insert(db_buffers.list, name)
     self.drawer:render()

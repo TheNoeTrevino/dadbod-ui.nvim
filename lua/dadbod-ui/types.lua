@@ -62,29 +62,17 @@
 -- Pure domain containers: drawer expand/collapse state lives in the drawer's
 -- `expand` map (keyed by drawer/ids.lua ids), never on these.
 
---- A tables collection.
----@class DadbodUI.TablesNode
----@field list string[]
-
 --- A connection's open query buffers. `list` holds full buffer file paths;
 --- `tmp` is the subset living in the tmp-query location.
 ---@class DadbodUI.BuffersNode
 ---@field list string[]
 ---@field tmp string[]
 
---- A connection's persisted saved queries. `list` holds full file paths under
---- the connection's save_path.
----@class DadbodUI.SavedQueriesNode
----@field list string[]
-
---- A single schema and the tables under it.
----@class DadbodUI.SchemaItem
----@field tables DadbodUI.TablesNode
-
---- The schemas collection for a connection.
+--- The schemas collection for a connection: schema names in introspection
+--- order, plus each schema's (sorted) table names.
 ---@class DadbodUI.SchemasNode
 ---@field list string[]
----@field items table<string, DadbodUI.SchemaItem>
+---@field items table<string, string[]>
 
 --- A single stored procedure or function. `content` is the pre-built DDL/source
 --- query for this routine (from the adapter's `routine_definition`), so opening
@@ -95,18 +83,13 @@
 ---@field kind 'procedure' | 'function'
 ---@field content string  the DDL/source query that renders this routine's definition
 
---- The routines under one schema (schema-supporting adapters). Mirrors
---- `DadbodUI.SchemaItem`'s nesting so the drawer renders it the same way.
----@class DadbodUI.RoutineSchemaItem
----@field list DadbodUI.RoutineItem[]
-
 --- The stored procedures / functions collection for a connection (M-routines).
 --- Schema-supporting adapters populate `list`/`items` (schema names -> routines,
 --- mirroring `DadbodUI.SchemasNode`); flat adapters (mysql-with-db) populate
 --- `flat`. Empty for adapters with no routine support (e.g. sqlite).
 ---@class DadbodUI.RoutinesNode
 ---@field list string[]  schema names that own routines (schema adapters)
----@field items table<string, DadbodUI.RoutineSchemaItem>  per-schema routines (schema adapters)
+---@field items table<string, DadbodUI.RoutineItem[]>  per-schema routines (schema adapters)
 ---@field flat DadbodUI.RoutineItem[]  routines, ungrouped (non-schema adapters)
 
 --- Per-adapter introspection metadata (dadbod-ui.schemas). M6 uses the
@@ -166,12 +149,12 @@
 ---@field filetype string  query-buffer filetype for this adapter
 ---@field extension string  adapter's query-input file extension (names generated buffers so external tooling attaches)
 ---@field table_helpers table<string, string>  helper name -> SQL template
----@field tables DadbodUI.TablesNode
+---@field tables string[]  introspected table names (flat, across schemas)
 ---@field schemas DadbodUI.SchemasNode
 ---@field routines DadbodUI.RoutinesNode  stored procedures / functions for this connection
 ---@field routine_support boolean  does the adapter expose stored procedures/functions
 ---@field buffers DadbodUI.BuffersNode  open query buffers for this connection
----@field saved_queries DadbodUI.SavedQueriesNode  persisted saved queries
+---@field saved_queries string[]  persisted saved-query file paths under save_path
 
 -- Behavioural controllers are declared module-locally (like `Instance` in
 -- state.lua and `Drawer` in drawer.lua), each with a single `---@class` above
@@ -202,16 +185,18 @@
 ---@field label string
 ---@field icon string
 ---@field type string  'group'|'db'|'query'|'schemas'|'tables'|'schema'|'table'|'table_helper'|'routines'|'routine_schema'|'routine'|'buffer'|'saved_query'|'buffers'|'saved_queries'|'dbout'|'dbout_list'|'help'|'add_connection'|...
----@field action string  'toggle'|'open'|'call_method'|'noaction'
+---@field action string  'toggle'|'open'|'activate'|'noaction'
 ---@field id? string  stable expand-map id (drawer/ids.lua); present on every toggle node
 ---@field children? DadbodUI.Node[]  built only when the node is expanded
----@field level integer  tree depth; assigned by the flatten step
+---@field level? integer  tree depth; assigned by the flatten step
 ---@field parent? DadbodUI.Node  assigned by the flatten step (nil for roots)
 ---@field index? integer  line number in the flat content[] projection; assigned by the flatten step
 ---@field key_name? string
 ---@field group? string
 ---@field expanded? boolean  the expand state the node was built with
----@field on_expand? fun()  side effect fired once a toggle opens the node (db lazy introspection)
+---@field on_expand? fun()  fired when a toggle opens the node (db lazy introspection)
+---@field on_collapse? fun()  fired when a toggle closes the node (db spinner cleanup)
+---@field on_activate? fun()  the whole action for an `activate` node (e.g. Add connection)
 ---@field table? string  table name (table / table_helper nodes)
 ---@field schema? string  schema name (table / table_helper nodes)
 ---@field content? string  helper SQL template (table_helper nodes)

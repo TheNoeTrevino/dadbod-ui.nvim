@@ -7,7 +7,6 @@
 
 local bridge = require('dadbod-ui.bridge')
 local ids = require('dadbod-ui.drawer.ids')
-local spinner = require('dadbod-ui.spinner')
 local utils = require('dadbod-ui.utils')
 
 ---@private
@@ -91,7 +90,7 @@ function Drawer:toggle_details()
   return self:render()
 end
 
---- Refresh `entry.saved_queries.list` from disk. Thin wrapper over the
+--- Refresh `entry.saved_queries` from disk. Thin wrapper over the
 --- introspection controller (which owns it so the query controller can refresh
 --- saved queries without a drawer back-ref), exposed here for the drawer's own
 --- callers and the saved-query specs.
@@ -143,11 +142,14 @@ end
 -- and the `expand` map (every expand/collapse flag, keyed by the stable node
 -- ids in `drawer/ids.lua`). Connection entries are pure domain data; nothing
 -- in `state.lua` knows what the tree looks like. A toggle is one generic map
--- flip, plus an optional `on_expand` for the db's lazy introspection.
+-- flip; per-node side effects ride on the node as `on_expand`/`on_collapse`/
+-- `on_activate` callbacks set at build time, so this dispatcher never grows
+-- type branches.
 
---- Act on the node under the cursor. Toggles groups/dbs/sections; opens query,
+--- Act on the node under the cursor. Runs `activate` callbacks; opens query,
 --- buffer, saved-query and table-helper nodes through the query controller (in
---- `edit_action`, defaulting to `edit`); previews dbout result files.
+--- `edit_action`, defaulting to `edit`); previews dbout result files; flips
+--- toggle nodes.
 ---@param edit_action? string  'edit' | 'vertical … split' (default 'edit')
 ---@return DadbodUI.Drawer|nil
 function Drawer:toggle_line(edit_action)
@@ -155,11 +157,8 @@ function Drawer:toggle_line(edit_action)
   if item == nil or item.action == 'noaction' then
     return
   end
-  if item.action == 'call_method' then
-    if item.type == 'add_connection' then
-      self:connections():add_connection()
-    end
-    return
+  if item.on_activate ~= nil then
+    return item.on_activate()
   end
   if item.action == 'open' then
     if item.type == 'dbout' then
@@ -171,9 +170,8 @@ function Drawer:toggle_line(edit_action)
     return
   end
   -- Generic flip (see the ownership note above): `item.expanded` is the state
-  -- the node was BUILT with, so its negation is the new state; `on_expand` (db
-  -- lazy introspection) fires only when the flip opens the node, never on
-  -- collapse.
+  -- the node was BUILT with, so its negation is the new state. `on_expand`
+  -- fires only on the opening flip, `on_collapse` only on the closing one.
   if item.id ~= nil then
     local opening = not item.expanded
     self:set_expanded(item.id, opening)
@@ -181,14 +179,8 @@ function Drawer:toggle_line(edit_action)
       if item.on_expand ~= nil then
         item.on_expand()
       end
-    elseif item.type == 'db' and item.key_name ~= nil then
-      -- Collapsing a db that may still be mid-load: stop its loading animation
-      -- and drop the marker so no timer leaks and no stale spinner reappears.
-      spinner.stop(item.key_name)
-      local entry = self.instance.dbs[item.key_name]
-      if entry ~= nil then
-        entry.loading = false
-      end
+    elseif item.on_collapse ~= nil then
+      item.on_collapse()
     end
     return self:render()
   end
@@ -338,7 +330,7 @@ function Drawer:delete_buffer(item)
       return
     end
     pcall(vim.fs.rm, file)
-    entry.saved_queries.list = drop(entry.saved_queries.list)
+    entry.saved_queries = drop(entry.saved_queries)
     entry.buffers.list = drop(entry.buffers.list)
     notify.info('Deleted.')
   elseif self.instance:is_tmp_location_buffer(entry, file) then
@@ -571,7 +563,7 @@ function Drawer:reveal_buffer(entry)
     pcall(vim.fn['vim_dadbod_completion#fetch'], vim.api.nvim_get_current_buf())
   end
   self:set_expanded(ids.db(entry.key_name), true)
-  self:set_expanded(ids.section(entry.key_name, 'buffers'), true)
+  self:expand_section(entry.key_name, 'buffers')
   self:open()
   local row = 0
   for idx, node in ipairs(self.content) do
@@ -840,10 +832,18 @@ function Drawer:goto_node(direction)
     return
   end
   if not item.expanded then
+    -- Expanding re-renders (rebuilding every node), so re-resolve the node at
+    -- the same line before reading its children.
     self:toggle_line()
+    item = self.content[item.index]
+    if item == nil then
+      return
+    end
   end
-  -- The first child always renders on the next line (depth-first flatten).
-  self:set_cursor(item.index + 1)
+  local child = item.children ~= nil and item.children[1] or nil
+  if child ~= nil then
+    self:set_cursor(child.index)
+  end
 end
 
 return Drawer

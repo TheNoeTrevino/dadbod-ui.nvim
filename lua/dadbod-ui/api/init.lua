@@ -335,7 +335,7 @@ function M.info(name)
     url = entry.url,
     conn = entry.conn or '',
     scheme = entry.scheme,
-    tables = entry.tables.list,
+    tables = entry.tables,
     schemas = entry.schemas.list,
     connected = state.is_connected(entry),
   }
@@ -587,14 +587,14 @@ function M.introspect(name, cb)
       local routines = {}
       if entry.schema_support then
         for _, schema in ipairs(entry.routines.list) do
-          vim.list_extend(routines, entry.routines.items[schema].list)
+          vim.list_extend(routines, entry.routines.items[schema])
         end
       else
         routines = entry.routines.flat
       end
       cb({
         schemas = entry.schemas.list,
-        tables = entry.tables.list,
+        tables = entry.tables,
         routines = routines,
       })
     end

@@ -53,7 +53,7 @@ describe('drawer build_content (no window)', function()
     assert.equals('help', nodes[1].type)
     assert.equals('" No connections', nodes[1].label)
     assert.equals('add_connection', nodes[2].type)
-    assert.equals('call_method', nodes[2].action)
+    assert.equals('activate', nodes[2].action)
   end)
 
   it('expands nested section nodes purely from instance + expand-map state', function()
@@ -63,7 +63,7 @@ describe('drawer build_content (no window)', function()
     local entry = d.instance.dbs[record.key_name]
     d:set_expanded(ids.db(entry.key_name), true)
     d:set_expanded(ids.section(entry.key_name, 'tables'), true)
-    entry.tables = { list = { 'contacts' } }
+    entry.tables = { 'contacts' }
     local nodes = d:build_content()
     local types = vim.tbl_map(function(n)
       return n.type
