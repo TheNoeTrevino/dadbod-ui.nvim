@@ -152,7 +152,7 @@ end
 ---@return { expanded: boolean }
 function Drawer:group_state(name)
   if self.groups[name] == nil then
-    self.groups[name] = { expanded = self.config.expand_groups }
+    self.groups[name] = { expanded = self.config.drawer.expand_groups }
   end
   return self.groups[name]
 end
@@ -170,7 +170,7 @@ function Drawer:open(mods)
     vim.api.nvim_set_current_win(self.winid)
     return self
   end
-  local side = self.config.win_position == 'right' and 'botright' or 'topleft'
+  local side = self.config.drawer.position == 'right' and 'botright' or 'topleft'
   -- Open the split WITHOUT `silent!` and under pcall: a swallowed failure (e.g.
   -- E36 "not enough room" on a narrow terminal) would leave us in the user's
   -- ORIGINAL window/buffer, which we would then convert to a scratch drawer and
@@ -179,7 +179,7 @@ function Drawer:open(mods)
   -- mutating anything; on failure notify and bail without touching the user's UI.
   local prev_win = vim.api.nvim_get_current_win()
   local prev_buf = vim.api.nvim_get_current_buf()
-  local ok = pcall(vim.cmd, string.format('%s vertical %s %dnew', mods or '', side, self.config.winwidth))
+  local ok = pcall(vim.cmd, string.format('%s vertical %s %dnew', mods or '', side, self.config.drawer.width))
   local win = vim.api.nvim_get_current_win()
   if not ok or win == prev_win or vim.api.nvim_get_current_buf() == prev_buf then
     require('dadbod-ui.notifications').error('Could not open the DBUI drawer window (no room to split).')
@@ -219,8 +219,7 @@ function Drawer:open(mods)
   bo.filetype = 'dbui'
   -- Signal that the drawer opened so users can hook it (`autocmd User DBUIOpened`).
   -- We fire only on a real open, not when `open()` focuses an already-open drawer
-  -- (the early return above) -- a divergence from the original, which re-fired the
-  -- event on every focus; a one-shot open event is the useful hook.
+  -- (the early return above), so this stays a one-shot open event.
   vim.api.nvim_exec_autocmds('User', { pattern = 'DBUIOpened' })
   return self
 end
@@ -308,7 +307,7 @@ end
 --- from the `b:dbui_*` contract, keeping only the requested, non-empty fields; a
 --- `.dbout` result buffer renders `Last query time: <t> sec.` when a runtime is
 --- known. Returns `''` for any other buffer, so it stays inert in unrelated
---- windows. Port of `db_ui#statusline`.
+--- windows.
 ---@param opts? DadbodUI.StatuslineOpts
 ---@return string
 function Drawer:statusline(opts)
@@ -344,12 +343,11 @@ function Drawer:statusline(opts)
   return (opts.prefix or 'DBUI: ') .. table.concat(parts, opts.separator or ' -> ')
 end
 
---- The sidebar action handlers, keyed by the ids in `config.mappings.sidebar`.
---- Drives both keymap setup and (by id) the help window, so the two stay in
---- lockstep. `help` is bound here too but applied separately (always available,
---- before the disable check), so it is excluded from the bulk `apply`.
+--- The drawer's built-in action handlers, keyed by the ids in
+--- `config.builtin_actions.drawer`. `setup_mappings` binds each to whichever
+--- `lhs` names it in `config.drawer.keys`; the same ids drive the help window.
 ---@return table<string, fun()>
-function Drawer:sidebar_handlers()
+function Drawer:drawer_handlers()
   return {
     help = function()
       self:toggle_help()
@@ -358,7 +356,7 @@ function Drawer:sidebar_handlers()
       self:toggle_line()
     end,
     toggle_split = function()
-      local pos = utils.opposite_position(self.config.win_position)
+      local pos = utils.opposite_position(self.config.drawer.position)
       self:toggle_line('vertical ' .. pos .. ' split')
     end,
     quit = function()
@@ -414,23 +412,16 @@ end
 
 ---@return nil
 function Drawer:setup_mappings()
-  local config_mod = require('dadbod-ui.config')
   local mappings = require('dadbod-ui.mappings')
-  local handlers = self:sidebar_handlers()
-  local group = self.config.mappings.sidebar
   local opts = { buffer = self.bufnr, nowait = true, silent = true }
-
-  -- The help toggle is always available (even when mappings are disabled),
-  -- matching the original -- though a `key = 'none'` still opts it out.
-  for _, b in ipairs(mappings.binds(group.help)) do
-    vim.keymap.set(b.mode, b.lhs, handlers.help, opts)
+  -- User actions get the node under the cursor + its connection (resolved lazily
+  -- at trigger time, not bind time).
+  local function make_ctx(mode)
+    local item = self:get_current_item()
+    local conn = item and item.key_name and self.instance.dbs[item.key_name] or nil
+    return { mode = mode, bufnr = self.bufnr, drawer = self, item = item, connection = conn }
   end
-  if self.config.disable_mappings or self.config.disable_mappings_dbui then
-    return
-  end
-  -- Bind the rest (help excluded -- already bound above).
-  handlers.help = nil
-  mappings.apply(group, config_mod.mapping_order.sidebar, handlers, opts)
+  mappings.apply(self.config.drawer.keys, self:drawer_handlers(), self.config.actions, make_ctx, opts)
 end
 
 -- Exposed for the line-render spec (asserts line_for matches a full paint).

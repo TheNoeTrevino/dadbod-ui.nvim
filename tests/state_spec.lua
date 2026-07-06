@@ -150,8 +150,8 @@ describe('state: singleton', function()
   end)
 
   it('applies setup opts to the resolved config', function()
-    state.setup({ winwidth = 99 })
-    assert.equals(99, state.config().winwidth)
+    state.setup({ drawer = { width = 99 } })
+    assert.equals(99, state.config().drawer.width)
   end)
 end)
 

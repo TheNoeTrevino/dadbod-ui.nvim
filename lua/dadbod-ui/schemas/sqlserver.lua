@@ -26,11 +26,11 @@ return function(config)
     args = { '-h-1', '-W', '-s', '|', '-Q' },
     schemes_query = 'SELECT schema_name FROM INFORMATION_SCHEMA.SCHEMATA',
     schemes_tables_query = 'SELECT table_schema, table_name FROM INFORMATION_SCHEMA.TABLES',
-    -- DBeaver reads sqlserver routines from `sys.all_objects` (type IN P/FN/TF/…)
-    -- and their source via `OBJECT_DEFINITION(object_id)` / `sys.sql_modules`
-    -- (SQLServerSchema.java / SQLServerUtils.extractSource). We use the portable
-    -- INFORMATION_SCHEMA.ROUTINES for the listing (consistent with the other
-    -- sqlserver queries here) and `OBJECT_DEFINITION(OBJECT_ID(...))` for the DDL.
+    -- sqlserver routines live in `sys.all_objects` (type IN P/FN/TF/…) with their
+    -- source in `OBJECT_DEFINITION(object_id)` / `sys.sql_modules`. We use the
+    -- portable INFORMATION_SCHEMA.ROUTINES for the listing (consistent with the
+    -- other sqlserver queries here) and `OBJECT_DEFINITION(OBJECT_ID(...))` for the
+    -- DDL.
     procedures_query = 'SELECT routine_schema, routine_name, LOWER(routine_type) FROM INFORMATION_SCHEMA.ROUTINES '
       .. "WHERE routine_type IN ('PROCEDURE', 'FUNCTION') ORDER BY routine_schema, routine_name",
     ---@param schema string
@@ -38,11 +38,13 @@ return function(config)
     ---@param _kind string
     ---@return string
     routine_definition = function(schema, name, _kind)
-      return string.format(
-        "SELECT OBJECT_DEFINITION(OBJECT_ID('%s.%s'))",
-        parse.sql_squote(schema),
-        parse.sql_squote(name)
-      )
+      -- Bracket-quote each part (`[schema].[name]`) so a schema/routine name
+      -- containing a space or a dot still resolves -- unquoted, `OBJECT_ID`
+      -- would parse the dot as the schema separator and return NULL, silently
+      -- yielding an empty definition. `sql_squote` then escapes the whole
+      -- bracket-quoted literal for the outer single-quoted string.
+      local qualified = string.format('[%s].[%s]', parse.sql_bracket(schema), parse.sql_bracket(name))
+      return string.format("SELECT OBJECT_DEFINITION(OBJECT_ID('%s'))", parse.sql_squote(qualified))
     end,
     foreign_key_query = sqlserver_foreign_key_query,
     select_foreign_key_query = 'select * from %s.%s where %s = %s',

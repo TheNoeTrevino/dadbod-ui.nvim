@@ -57,7 +57,7 @@ end
 
 ---@return nil
 function Drawer:render_help()
-  if self.config.show_help then
+  if self.config.drawer.show_help then
     self:add({ label = '" Press ? for help', icon = '', level = 0, type = 'help', action = 'noaction' })
     self:add({ label = '', icon = '', level = 0, type = 'help', action = 'noaction' })
   end
@@ -107,7 +107,7 @@ end
 --- Render the top-level `Query results` section listing the executed `.dbout`
 --- files (the instance's dbout_list). A toggle header whose `show_dbout_list`
 --- state expands to the result files, sorted per `dbout_list_sort`, each opening
---- as a preview. Port of the dbout_list block of `s:drawer.render`.
+--- as a preview.
 ---@return nil
 function Drawer:render_dbout_list()
   if next(self.instance.dbout_list) == nil then
@@ -195,7 +195,7 @@ end
 ---@param entry DadbodUI.ConnectionEntry
 ---@param level integer
 function Drawer:render_db_sections(entry, level)
-  for _, section in ipairs(self.config.drawer_sections) do
+  for _, section in ipairs(self.config.drawer.sections) do
     if section == 'new_query' then
       self:add({
         label = 'New query',
@@ -219,7 +219,6 @@ end
 
 --- The drawer label for a buffer file: its basename, with the connection's
 --- `<slug>-` prefix (and the legacy `db_ui.` wrapper) stripped for tmp buffers.
---- Port of `s:drawer.get_buffer_name`.
 ---@param entry DadbodUI.ConnectionEntry
 ---@param buffer string
 ---@return string
@@ -231,12 +230,11 @@ function Drawer:get_buffer_name(entry, buffer)
   if vim.fn.fnamemodify(name, ':r') == 'db_ui' then
     name = vim.fn.fnamemodify(name, ':e')
   end
-  return (name:gsub('^' .. vim.pesc(utils.slug(entry.name)) .. '%-', ''))
+  return (name:gsub('^' .. vim.pesc(utils.slug(entry.save_name)) .. '%-', ''))
 end
 
 --- Render the Buffers section: a toggle header with the open-buffer count, and
---- on expand each buffer as an `open` node (tmp buffers flagged with ` *`). Port
---- of `s:drawer._render_buffers_section`.
+--- on expand each buffer as an `open` node (tmp buffers flagged with ` *`).
 ---@param entry DadbodUI.ConnectionEntry
 ---@param level integer
 ---@return nil
@@ -272,8 +270,7 @@ function Drawer:render_buffers_section(entry, level)
 end
 
 --- Render the Saved queries section: a toggle header with the on-disk count, and
---- on expand each saved query as an `open` node carrying its file path. Port of
---- `s:drawer._render_saved_queries_section`.
+--- on expand each saved query as an `open` node carrying its file path.
 ---@param entry DadbodUI.ConnectionEntry
 ---@param level integer
 ---@return nil
@@ -306,9 +303,8 @@ function Drawer:render_saved_queries_section(entry, level)
 end
 
 --- Render the Schemas (schema-supporting adapters) or Tables (everything else)
---- section. Mirrors the original `_render_schemas_section`: schema-supporting
---- connections nest tables under a per-schema node; the rest list tables
---- directly under the connection.
+--- section: schema-supporting connections nest tables under a per-schema node;
+--- the rest list tables directly under the connection.
 ---@param entry DadbodUI.ConnectionEntry
 ---@param level integer
 function Drawer:render_schemas_section(entry, level)
@@ -401,8 +397,7 @@ end
 --- when the adapter supports routines AND at least one exists (no empty node --
 --- mirrors how Buffers only shows when non-empty). Schema-supporting adapters nest
 --- routines under a per-schema node (like Schemas -> tables); flat adapters list
---- them directly. Deliberate divergence from upstream vim-dadbod-ui, which lists
---- no procedures/functions at all -- the first DBeaver-style object introspection.
+--- them directly.
 ---@param entry DadbodUI.ConnectionEntry
 ---@param level integer
 ---@return nil

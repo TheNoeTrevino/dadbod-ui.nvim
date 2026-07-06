@@ -8,6 +8,7 @@
 ---@class DadbodUI.StateModule
 ---@field new fun(config: DadbodUI.Config): DadbodUI.Instance
 ---@field is_connected fun(entry: DadbodUI.ConnectionEntry): boolean
+---@field disconnect fun(entry: DadbodUI.ConnectionEntry)
 ---@field Instance DadbodUI.Instance
 ---@field setup fun(opts?: table): DadbodUI.Config
 ---@field config fun(): DadbodUI.Config
@@ -51,7 +52,7 @@ local function expand_dir(path)
   if path == nil or path == '' then
     return ''
   end
-  return (vim.fn.fnamemodify(path, ':p'):gsub('/$', ''))
+  return vim.fs.abspath(vim.fs.normalize(path))
 end
 
 ---@private
@@ -70,8 +71,8 @@ end
 ---@private
 --- The query-buffer filetype for an adapter: the schema metadata's own filetype
 --- if it declares one, else dadbod's input extension (mongodb's `js` is mapped
---- to `javascript`), defaulting to `sql`. Mirrors the original's
---- `populate_schema_info`. Note this may differ from `resolve_extension` (e.g.
+--- to `javascript`), defaulting to `sql`. Note this may differ from
+--- `resolve_extension` (e.g.
 --- mysql/plsql filetypes over a `sql` extension) -- the extension names the file,
 --- the filetype drives Neovim's syntax/behaviour.
 ---@param url string
@@ -94,7 +95,7 @@ end
 --- names) starts with `<slug(name)>-`. The prefix must be the SLUG of the name
 --- (as `query.generate_buffer_name` and `drawer:get_buffer_name` both use), so a
 --- connection named e.g. "My DB" -- whose files are `mydb-...` -- still restores
---- its tmp buffers. Port of the `old_buffers` filter in `generate_new_db_entry`.
+--- its tmp buffers.
 ---@param old_buffers string[]
 ---@param name string
 ---@return string[]
@@ -123,13 +124,17 @@ local function make_entry(record, save_path, config, old_buffers)
   local scheme = parsed.scheme or ''
   local scheme_info = schemas.get(scheme, config)
   local db_name = (parsed.path or ''):gsub('^/', '')
-  local save_name = record.group ~= '' and (record.group .. '_' .. record.name) or record.name
+  -- The group-qualified identifier ties the save folder AND the tmp query-buffer
+  -- files to this specific connection, so a name reused across groups never
+  -- collides on disk or resolves back to the wrong db (see utils.qualified_name).
+  local save_name = utils.qualified_name(record.name, record.group)
   return {
     url = record.url,
     source = record.source,
     name = record.name,
     group = record.group,
     key_name = record.key_name,
+    save_name = save_name,
     scheme = scheme,
     db_name = db_name ~= '' and db_name or record.name,
     save_path = save_path ~= '' and (save_path .. '/' .. save_name) or '',
@@ -149,7 +154,7 @@ local function make_entry(record, save_path, config, old_buffers)
     tables = { expanded = false, list = {}, items = {} },
     schemas = { expanded = false, list = {}, items = {} },
     routines = { expanded = false, list = {}, items = {}, flat = {} },
-    buffers = { expanded = false, list = buffers_for(old_buffers, record.name), tmp = {} },
+    buffers = { expanded = false, list = buffers_for(old_buffers, save_name), tmp = {} },
     saved_queries = { expanded = false, list = {} },
   }
 end
@@ -157,7 +162,7 @@ end
 --- Create a new instance from resolved config (does not populate yet). When a
 --- tmp-query location is configured we ensure it exists and snapshot the query
 --- files already in it, so connections can restore their open buffers on the
---- next populate (port of the `s:dbui.new` tmp_location block).
+--- next populate.
 ---@param config DadbodUI.Config
 ---@return DadbodUI.Instance
 function M.new(config)
@@ -197,7 +202,7 @@ function Instance:populate(inputs)
     -- interactive state (expanded, live handle, introspected schemas/tables)
     -- must survive an unrelated edit. Only new or url-changed connections are
     -- rebuilt -- which also avoids re-running make_entry's bridge calls for
-    -- every connection on each repopulate. Mirrors the original populate_dbs.
+    -- every connection on each repopulate.
     local prev = previous[record.key_name]
     if prev ~= nil and prev.url == record.url then
       self.dbs[record.key_name] = prev
@@ -223,7 +228,7 @@ end
 
 --- Whether `buf` (a buffer file path) belongs to the tmp-query location for
 --- `entry`: either it was generated into the entry's `buffers.tmp` list, or it
---- lives under the configured `tmp_location`. Port of `is_tmp_location_buffer`.
+--- lives under the configured `tmp_location`.
 ---@param entry DadbodUI.ConnectionEntry
 ---@param buf string
 ---@return boolean
@@ -244,6 +249,19 @@ function M.is_connected(entry)
   return entry.conn ~= nil and entry.conn ~= ''
 end
 
+--- Drop the live connection handle for `entry`, so `is_connected` reports false
+--- and the next connect/query re-probes. The inverse of the introspect controller's
+--- connect (`_apply_connect` sets `entry.conn`); this resets it to the pristine,
+--- never-attempted state (`conn = nil`, no error). Introspected tables/schemas are
+--- left intact -- this forgets the live handle, not the cached metadata. dadbod may
+--- still hold a pooled connection of its own; this only clears dadbod-ui's view.
+---@param entry DadbodUI.ConnectionEntry
+---@return nil
+function M.disconnect(entry)
+  entry.conn = nil
+  entry.conn_error = ''
+end
+
 --- List connections with their connection state.
 ---@return DadbodUI.ConnectionInfo[]
 function Instance:connections_list()
@@ -251,6 +269,8 @@ function Instance:connections_list()
     local entry = self.dbs[r.key_name]
     return {
       name = r.name,
+      group = r.group,
+      key_name = r.key_name,
       url = r.url,
       is_connected = entry ~= nil and M.is_connected(entry),
       source = r.source,
@@ -270,7 +290,7 @@ local current_instance = nil
 
 --- Resolve and store config for the session, dropping any built instance so the
 --- new config takes effect on next `get()`. Returns the resolved config.
----@param opts? table
+---@param opts? DadbodUI.Config
 ---@return DadbodUI.Config
 function M.setup(opts)
   current_config = config_mod.resolve(opts)

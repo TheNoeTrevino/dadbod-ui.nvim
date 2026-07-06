@@ -303,6 +303,14 @@ describe('export._transform_async (off-thread transform)', function()
     assert.are.equal(6000, got_rows)
     assert.are.equal(want, got) -- worker output is byte-identical to inline
   end)
+
+  it("normalizes an empty-string source to nil, so 'exported_table' still wins", function()
+    -- regression: '' is truthy in Lua, so passing source='' through used to
+    -- defeat the `opts.table or data.source or 'exported_table'` fallback chain
+    -- and produce `INSERT INTO  (...)` (an empty, broken identifier).
+    local content = export._transform_sync('postgres', 'id\n1\n', 'sql', {}, '')
+    assert.are.equal("INSERT INTO exported_table (id) VALUES ('1');", content)
+  end)
 end)
 
 describe('export.export: large result via the worker (end to end)', function()
@@ -426,6 +434,14 @@ describe('export.resolve_buffer: source derivation', function()
     assert.are.equal('orders', export.resolve_buffer(buf_with('select a,b from public.orders o')).source)
   end)
 
+  it('does not mistake a "from"-suffixed identifier for the FROM keyword', function()
+    -- regression: %f[%w] treats '_' as a non-word char, so the old pattern
+    -- matched the trailing "from" inside "a_from" and derived source "FROM".
+    assert.are.equal('t', export.resolve_buffer(buf_with('SELECT a_from FROM t')).source)
+    assert.are.equal('bar', export.resolve_buffer(buf_with('select * from foo.bar')).source)
+    assert.are.equal('t2', export.resolve_buffer(buf_with('SELECT x FROM t2')).source)
+  end)
+
   it("falls back to 'results' for a query with no plain FROM (never a temp basename)", function()
     assert.are.equal('results', export.resolve_buffer(buf_with('SELECT 1')).source)
   end)
@@ -455,7 +471,7 @@ describe('export.export_interactive', function()
     local picked_items, prompted_default
     base.select = function(items, opts, on_choice)
       picked_items = items
-      assert.are.equal('CSV', opts.format_item('csv')) -- DBeaver-style label
+      assert.are.equal('CSV', opts.format_item('csv')) -- display label
       on_choice('csv')
     end
     base.input = function(opts, on_confirm)
@@ -543,6 +559,84 @@ describe('export.export_interactive', function()
     end
     export.export_interactive(buf, base)
     assert.are.equal(existing, cap.written.path) -- overwrote
+  end)
+end)
+
+-- The query-buffer entry point (`Query:export_query`): it must read the CURRENT
+-- query buffer's connection + text (+ substitute bind params) and hand that to the
+-- shared `export_prompt` core -- the dual of running-then-exporting from `.dbout`.
+-- Stubbing `export_prompt` captures exactly what the buffer resolves, with no UI.
+describe('export.export_query (query buffer)', function()
+  local drawer_mod = require('dadbod-ui.drawer')
+  local state = require('dadbod-ui.state')
+  local config = require('dadbod-ui.config')
+  local notifications = require('dadbod-ui.notifications')
+
+  local function make_drawer(g_dbs)
+    local cfg = config.resolve({ save_location = '/tmp/dbui_export_q', drawer = { show_help = false } })
+    local instance = state.new(cfg):populate({ env = {}, g_dbs = g_dbs, file_entries = {} })
+    local d = drawer_mod.new(instance)
+    d.connector = function(url)
+      return url
+    end
+    return d
+  end
+
+  local function entry_named(d, name)
+    for _, record in ipairs(d.instance.dbs_list) do
+      if record.name == name then
+        return d.instance.dbs[record.key_name]
+      end
+    end
+  end
+
+  local d, query_bufs, saved_prompt, captured
+  before_each(function()
+    require('helper').clean_ui()
+    query_bufs = {}
+    captured = nil
+    saved_prompt = export.export_prompt
+    export.export_prompt = function(info)
+      captured = info
+    end
+  end)
+  after_each(function()
+    export.export_prompt = saved_prompt
+    for _, b in ipairs(query_bufs) do
+      pcall(vim.api.nvim_buf_delete, b, { force = true })
+    end
+    if d then
+      d:close()
+      d = nil
+    end
+  end)
+
+  local function open_query_buffer(name, sql)
+    d:open()
+    local entry = entry_named(d, name)
+    d:query():open({ type = 'query', key_name = entry.key_name }, 'edit')
+    query_bufs[#query_bufs + 1] = vim.api.nvim_get_current_buf()
+    vim.api.nvim_buf_set_lines(0, 0, -1, false, vim.split(sql, '\n'))
+    return entry
+  end
+
+  it('hands the buffer SQL, scheme and connection to export_prompt', function()
+    d = make_drawer({ qa = 'sqlite:/tmp/qa.db' })
+    local entry = open_query_buffer('qa', 'select * from contacts')
+    d:query():export_query(false)
+    assert.equals('select * from contacts', captured.query)
+    assert.equals('sqlite', captured.scheme)
+    assert.equals(entry.conn, captured.url)
+  end)
+
+  it('errors on a buffer not attached to any database, exporting nothing', function()
+    d = make_drawer({ qa = 'sqlite:/tmp/qa.db' })
+    d:open()
+    vim.cmd('enew') -- a plain buffer, no b:dbui_db_key_name
+    query_bufs[#query_bufs + 1] = vim.api.nvim_get_current_buf()
+    d:query():export_query(false)
+    assert.is_nil(captured)
+    assert.is_truthy(notifications.get_last_msg():match('Buffer not attached to any database'))
   end)
 end)
 

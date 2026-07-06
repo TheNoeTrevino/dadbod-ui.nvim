@@ -1,5 +1,5 @@
 -- Specs for dadbod-ui.table_helpers: the per-adapter helper templates (data
--- only in M6) and the merge/override rules ported from vim-dadbod-ui.
+-- only in M6) and the merge/override rules for table-helper templates.
 
 local table_helpers = require('dadbod-ui.table_helpers')
 local config = require('dadbod-ui.config')
@@ -14,7 +14,7 @@ describe('table_helpers: get', function()
   end)
 
   it("uses the configured default query for sqlite's List", function()
-    local cfg = config.resolve({ default_query = 'SELECT 42;' })
+    local cfg = config.resolve({ query = { default_query = 'SELECT 42;' } })
     local sqlite = table_helpers.get('sqlite', cfg)
     assert.equals('SELECT 42;', sqlite.List)
     assert.is_truthy(sqlite.Columns:match('pragma_table_info'))

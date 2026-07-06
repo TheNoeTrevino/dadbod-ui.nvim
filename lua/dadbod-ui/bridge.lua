@@ -1,9 +1,9 @@
 -- Thin pass-through over vim-dadbod (the query engine)
 --
--- This module is the ONLY place in the port that talks to vim-dadbod. Every
+-- This module is the ONLY place in the plugin that talks to vim-dadbod. Every
 -- function is a thin wrapper over dadbod's vimscript API (`db#*`) and the `:DB`
--- command. The Lua port keeps dadbod as the engine and owns only the UI, so
--- this file is the engine boundary -- keep it small and faithful.
+-- command. The plugin keeps dadbod as the engine and owns only the UI, so
+-- this file is the engine boundary -- keep it small and focused.
 --
 -- vim-dadbod exposes TWO execution paths and we mirror both:
 --
@@ -51,6 +51,7 @@
 ---@field cancel fun(bufnr: integer|nil)
 ---@field systemlist fun(cmd: string[], input: string|nil): string[]
 ---@field command fun(url: string, mode: string|nil): string[]
+---@field query_command fun(conn: string, sql: string): DadbodUI.CommandSpec
 ---@field run_many fun(specs: DadbodUI.CommandSpec[], on_done: DadbodUI.RunManyCallback)
 ---@field run_many_sync fun(specs: DadbodUI.CommandSpec[], timeout_ms: integer|nil): DadbodUI.SystemCompleted[]
 ---@field execute fun(url: string, sql: string, quiet?: boolean, vertical?: boolean)
@@ -191,7 +192,7 @@ function M.dbout_input(file)
   if bufnr < 0 then
     return nil
   end
-  local db = fn.getbufvar(bufnr, 'db')
+  local db = vim.b[bufnr].db
   if type(db) ~= 'table' then
     return nil
   end
@@ -228,7 +229,8 @@ end
 --- `inputsecret` prompt + password caching behave identically -- blocking there
 --- is moot since the user is being prompted anyway. Any error building the probe
 --- (unknown adapter shape, etc.) also falls back to the blocking connect, so this
---- is never worse than the original, only faster in the common no-prompt case.
+--- is never worse than a plain blocking connect, only faster in the common
+--- no-prompt case.
 ---@param url string
 ---@param on_result fun(ok: boolean, conn: string)
 ---@return nil
@@ -365,6 +367,25 @@ end
 ---@return string[]
 function M.command(url, mode)
   return M.dispatch(url, mode or 'interactive')
+end
+
+--- Build a `CommandSpec` that runs `sql` against a RESOLVED connection url via
+--- the adapter's own client, capturing its output ourselves -- no `:DB`, no
+--- result window. This is the headless dual of `execute`: adapters that read
+--- their query from stdin (`filter`) get `sql` as `stdin`, the rest take it as
+--- a trailing argument on the `interactive` command (mirroring how
+--- `schemas.command_spec` builds an introspection query). Pair it with
+--- `run_many` / `run_many_sync` to get the raw, adapter-formatted output back.
+---@param conn string  resolved connection url (e.g. from `connect`)
+---@param sql string
+---@return DadbodUI.CommandSpec
+function M.query_command(conn, sql)
+  if M.supports(conn, 'filter') then
+    return { cmd = M.command(conn, 'filter'), stdin = sql }
+  end
+  local cmd = M.command(conn, 'interactive')
+  cmd[#cmd + 1] = sql
+  return { cmd = cmd }
 end
 
 --- Run many commands concurrently and join when ALL finish (non-blocking).
@@ -537,8 +558,8 @@ function M.execute_lines(lines, url, quiet, vertical)
   M.execute_file(file, url, quiet, vertical)
 end
 
--- dadbod fires `doautocmd User {output}/DBExecute{Pre,Post}`; the original UI
--- matches these with the trailing-suffix pattern `*DBExecutePre|Post`.
+-- dadbod fires `doautocmd User {output}/DBExecute{Pre,Post}`; these are matched
+-- with the trailing-suffix pattern `*DBExecutePre|Post`.
 ---@private
 ---@param suffix string
 ---@param cb DadbodUI.ExecuteEventCallback

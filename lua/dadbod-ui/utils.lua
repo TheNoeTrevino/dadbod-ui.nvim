@@ -1,4 +1,4 @@
--- Small shared helpers (port of `autoload/db_ui/utils.vim`)
+-- Small shared helpers.
 --
 -- Leaf module with no sibling dependencies, so both the drawer and query
 -- controllers can `require` it directly without re-introducing their lazy
@@ -6,6 +6,8 @@
 
 ---@class DadbodUI.UtilsModule
 ---@field slug fun(str: string): string
+---@field qualified_name fun(name: string, group?: string): string
+---@field display_name fun(name: string, group?: string): string
 ---@field loaded_bufnr fun(full_path: string): integer
 ---@field is_file fun(path: string): boolean
 ---@field is_dir fun(path: string): boolean
@@ -15,11 +17,41 @@
 ---@diagnostic disable-next-line: missing-fields
 local M = {}
 
---- Strip everything but `[A-Za-z0-9_-]` from `str`. Port of `db_ui#utils#slug`.
+--- Strip everything but `[A-Za-z0-9_-]` from `str`.
 ---@param str string
 ---@return string
 function M.slug(str)
   return (str:gsub('[^%w_%-]', ''))
+end
+
+--- The group-qualified connection identifier: `{group}_{name}` when grouped,
+--- else just `{name}`. This is the SINGLE source of truth for how a connection
+--- maps to its on-disk names -- the save folder AND its tmp query-buffer files --
+--- so a name reused across groups is namespaced per group and never collides or
+--- resolves to the wrong connection. Anything that derives a buffer/save path or
+--- resolves one back to a connection must go through here.
+---@param name string
+---@param group? string
+---@return string
+function M.qualified_name(name, group)
+  if group == nil or group == '' then
+    return name
+  end
+  return group .. '_' .. name
+end
+
+--- The human-facing connection label: `{group}/{name}` when grouped, else just
+--- `{name}`. Used in the winbar and connection pickers so a name reused across
+--- groups reads unambiguously. Display only -- use qualified_name for the on-disk
+--- identifier (buffers/save folder).
+---@param name string
+---@param group? string
+---@return string
+function M.display_name(name, group)
+  if group == nil or group == '' then
+    return name
+  end
+  return group .. '/' .. name
 end
 
 --- The number of a loaded buffer whose name is exactly `full_path`, else -1.

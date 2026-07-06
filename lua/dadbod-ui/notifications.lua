@@ -1,9 +1,8 @@
 -- User-facing messages
 --
--- Neovim-native port of vim-dadbod-ui's notification layer. Messages route
+-- The plugin's notification layer over `vim.notify`. Messages route
 -- through `vim.notify` (so a UI plugin like nvim-notify can render them), with
--- an `:echo` fallback for users who prefer the command line. The legacy Vim-8
--- popup/float backends are dropped.
+-- an `:echo` fallback for users who prefer the command line.
 --
 -- Honors the resolved config (read lazily from `dadbod-ui.state`):
 -- `disable_info_notifications` suppresses info, `force_echo_notifications`
@@ -45,7 +44,7 @@ local ECHO_HL = {
 local last_msg = ''
 
 ---@private
--- True when msg carries no content (mirrors the original's `empty(a:msg)` guard).
+-- True when msg carries no content.
 ---@param msg string|string[]
 ---@return boolean
 local function is_empty(msg)
@@ -78,8 +77,8 @@ local function build_opts(kind, config, opts)
   if opts.delay then
     out.timeout = opts.delay
   end
-  if config.use_nvim_notify and kind == 'info' then
-    out.id = 'vim-dadbod-ui-info'
+  if config.notifications.use_nvim_notify and kind == 'info' then
+    out.id = 'dadbod-ui-info'
   end
   return out
 end
@@ -95,14 +94,14 @@ local function emit(msg, kind, opts)
   end
   opts = opts or {}
   local config = require('dadbod-ui.state').config()
-  if kind == 'info' and config.disable_info_notifications then
+  if kind == 'info' and config.notifications.disable_info then
     return
   end
 
   local text = to_text(msg)
   last_msg = text
 
-  if opts.echo or config.force_echo_notifications then
+  if opts.echo or config.notifications.force_echo then
     vim.api.nvim_echo({ { (opts.title or TITLE) .. ' ' .. text, ECHO_HL[kind] } }, true, {})
     return
   end

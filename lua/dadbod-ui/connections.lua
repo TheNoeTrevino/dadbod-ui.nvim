@@ -23,10 +23,10 @@
 ---@field write_file fun(path: string, list: DadbodUI.FileConnection[])
 ---@field add_connection fun(list: DadbodUI.FileConnection[], name: string, url: string, group?: string): (DadbodUI.FileConnection[]|nil, string|nil)
 ---@field duplicate_connection fun(list: DadbodUI.FileConnection[], new_name: string, new_url: string, group?: string): (DadbodUI.FileConnection[]|nil, string|nil)
----@field delete_connection fun(list: DadbodUI.FileConnection[], name: string, url: string): DadbodUI.FileConnection[]
----@field rename_connection fun(list: DadbodUI.FileConnection[], old_name: string, old_url: string, new_name: string, new_url: string): (DadbodUI.FileConnection[]|nil, string|nil)
----@field set_group fun(list: DadbodUI.FileConnection[], name: string, url: string, group: string): (DadbodUI.FileConnection[]|nil, string|nil)
----@field move_connection fun(list: DadbodUI.FileConnection[], name: string, url: string, direction: 'up'|'down'): (DadbodUI.FileConnection[]|nil, string|nil)
+---@field delete_connection fun(list: DadbodUI.FileConnection[], name: string, url: string, group?: string): DadbodUI.FileConnection[]
+---@field rename_connection fun(list: DadbodUI.FileConnection[], old_name: string, old_url: string, new_name: string, new_url: string, group?: string): (DadbodUI.FileConnection[]|nil, string|nil)
+---@field set_group fun(list: DadbodUI.FileConnection[], name: string, url: string, group: string, cur_group?: string): (DadbodUI.FileConnection[]|nil, string|nil)
+---@field move_connection fun(list: DadbodUI.FileConnection[], name: string, url: string, direction: 'up'|'down', group?: string): (DadbodUI.FileConnection[]|nil, string|nil)
 ---@field discover fun(config: DadbodUI.Config, inputs?: DadbodUI.DiscoverInputs): DadbodUI.ConnectionRecord[]
 
 ---@private
@@ -51,7 +51,7 @@ function M.key_name(name, source, group)
 end
 
 --- Normalize a discovered connection into a record (url resolved at storage
---- time, matching the original).
+--- time).
 ---@param name string
 ---@param url string
 ---@param source string
@@ -105,13 +105,25 @@ function M.from_global(g_db, g_dbs)
     return out
   end
   if vim.islist(g_dbs) then
-    for _, db in ipairs(g_dbs) do
-      out[#out + 1] = record(db.name, resolve_var(db.url), 'g:dbs', db.group)
-    end
+    vim.list_extend(
+      out,
+      vim
+        .iter(g_dbs)
+        :map(function(db)
+          return record(db.name, resolve_var(db.url), 'g:dbs', db.group)
+        end)
+        :totable()
+    )
   else
-    for name, url in pairs(g_dbs) do
-      out[#out + 1] = record(name, resolve_var(url), 'g:dbs')
-    end
+    vim.list_extend(
+      out,
+      vim
+        .iter(g_dbs)
+        :map(function(name, url)
+          return record(name, resolve_var(url), 'g:dbs')
+        end)
+        :totable()
+    )
   end
   return out
 end
@@ -136,21 +148,25 @@ function M.from_env(env, config)
   return { record(name, url, 'env') }
 end
 
---- Records from env vars containing the configured prefix (default `DB_UI_`).
---- The connection name is the var with the prefix stripped, lowercased.
+--- Records from env vars whose name STARTS WITH the configured prefix (default
+--- `DB_UI_`). The connection name is the var with the single leading prefix
+--- stripped, lowercased. The match is anchored to the start (so `XDG_DB_UI_X`
+--- is not picked up) and only the leading prefix is removed (so
+--- `DB_UI_STAGING_DB_UI_X` becomes `staging_db_ui_x`, not `staging_x`).
 ---@param env table<string, string>
 ---@param config DadbodUI.Config
 ---@return DadbodUI.ConnectionRecord[]
 function M.from_dotenv(env, config)
   local prefix = config.dotenv_variable_prefix
-  local out = {}
-  for name, url in pairs(env) do
-    if name:find(prefix, 1, true) then
-      local db_name = name:gsub(vim.pesc(prefix), ''):lower()
-      out[#out + 1] = record(db_name, url, 'dotenv')
-    end
-  end
-  return out
+  return vim
+    .iter(env)
+    :filter(function(name)
+      return name:sub(1, #prefix) == prefix
+    end)
+    :map(function(name, url)
+      return record(name:sub(#prefix + 1):lower(), url, 'dotenv')
+    end)
+    :totable()
 end
 
 --- Records from a decoded connections.json array (`{ name, url, group? }`).
@@ -193,14 +209,16 @@ function M.connections_path(save_location)
   if save_location == nil or save_location == '' then
     return nil
   end
-  local folder = (vim.fn.fnamemodify(save_location, ':p'):gsub('/$', ''))
+  local folder = vim.fs.abspath(vim.fs.normalize(save_location))
   return folder .. '/connections.json'
 end
 
 --- Read a connections.json array. Returns `{}` when missing or when the content
 --- is not a valid json array. A missing file is normal (no callback); a present
---- but corrupt file invokes `on_error` so the caller can warn and avoid
---- overwriting it (the original warns here too).
+--- but unreadable (e.g. chmod 000) or corrupt file invokes `on_error` so the
+--- caller can warn and avoid overwriting it. The
+--- pcall covers `readfile` as well as `decode`, so an E484 read error hits the
+--- same graceful path as invalid JSON.
 ---@param path string|nil
 ---@param on_error? fun(msg: string)
 ---@return DadbodUI.FileConnection[]
@@ -208,7 +226,9 @@ function M.read_file(path, on_error)
   if path == nil or not utils.is_file(path) then
     return {}
   end
-  local ok, decoded = pcall(vim.json.decode, table.concat(vim.fn.readfile(path), '\n'))
+  local ok, decoded = pcall(function()
+    return vim.json.decode(table.concat(vim.fn.readfile(path), '\n'))
+  end)
   local is_array = ok and type(decoded) == 'table' and (vim.islist(decoded) or vim.tbl_isempty(decoded))
   if not is_array then
     if on_error then
@@ -233,7 +253,7 @@ end
 
 ---@private
 -- Two stored connections are "the same" when names match (case-insensitive) and
--- their urls resolve equal -- mirrors the original delete/rename matching.
+-- their urls resolve equal -- the delete/rename matching rule.
 ---@param conn DadbodUI.FileConnection
 ---@param name string
 ---@param resolved_url string
@@ -253,6 +273,22 @@ end
 ---@return boolean
 local function same_slot(conn, name, group)
   return conn.name:lower() == name:lower() and (conn.group or ''):lower() == group:lower()
+end
+
+---@private
+-- Identify the ONE connection a mutation targets. Names + resolved urls must
+-- match (`same_conn`) AND, when `group` is known, so must the group -- because
+-- the store deliberately allows the same (name, url) in two groups
+-- (e.g. geekom/postgres + pi/postgres) and a group-blind first match would
+-- locate (and clobber) the wrong clone. `group` is nil only when the caller
+-- truly cannot know it, in which case we fall back to the group-blind match.
+---@param conn DadbodUI.FileConnection
+---@param name string
+---@param resolved_url string
+---@param group string|nil
+---@return boolean
+local function target_conn(conn, name, resolved_url, group)
+  return same_conn(conn, name, resolved_url) and (group == nil or (conn.group or ''):lower() == group:lower())
 end
 
 --- Append a connection in `group` ('' / nil = ungrouped). Returns
@@ -294,17 +330,21 @@ function M.duplicate_connection(list, new_name, new_url, group)
   return M.add_connection(list, new_name, new_url, group)
 end
 
---- Remove the connection matching (name, url). Returns a new list.
+--- Remove the connection matching (name, url, group). Returns a new list. When
+--- `group` is given only the clone in that group is removed, so deleting
+--- geekom/postgres leaves pi/postgres intact (a nil `group` deletes every
+--- (name, url) match, group-blind).
 ---@param list DadbodUI.FileConnection[]
 ---@param name string
 ---@param url string
+---@param group? string
 ---@return DadbodUI.FileConnection[]
-function M.delete_connection(list, name, url)
+function M.delete_connection(list, name, url, group)
   local resolved = bridge.resolve(url):lower()
   return vim
     .iter(list)
     :filter(function(conn)
-      return not same_conn(conn, name, resolved)
+      return not target_conn(conn, name, resolved, group)
     end)
     :totable()
 end
@@ -314,28 +354,27 @@ end
 --- `new_name` collides with a *different* connection in the same group
 --- (case-insensitive) -- which would otherwise merge two entries under one
 --- `key_name` on the next discover. The list is returned unchanged (with no
---- error) when nothing matches.
+--- error) when nothing matches. `group` disambiguates which clone to rename when
+--- the same (name, url) lives in two groups; it is nil only when unknown.
 ---@param list DadbodUI.FileConnection[]
 ---@param old_name string
 ---@param old_url string
 ---@param new_name string
 ---@param new_url string
+---@param group? string
 ---@return DadbodUI.FileConnection[]|nil, string|nil
-function M.rename_connection(list, old_name, old_url, new_name, new_url)
+function M.rename_connection(list, old_name, old_url, new_name, new_url, group)
   local resolved = bridge.resolve(old_url):lower()
-  local match_idx = nil
-  for i, conn in ipairs(list) do
-    if same_conn(conn, old_name, resolved) then
-      match_idx = i
-      break
-    end
-  end
+  local match_idx = vim.iter(ipairs(list)):find(function(_, conn)
+    return target_conn(conn, old_name, resolved, group)
+  end)
   -- A rename keeps the entry's group, so the new name only collides within it.
   local group = match_idx ~= nil and (list[match_idx].group or '') or ''
-  for i, conn in ipairs(list) do
-    if i ~= match_idx and same_slot(conn, new_name, group) then
-      return nil, 'Connection with that name already exists in that group. Please enter a different name.'
-    end
+  local collides = vim.iter(ipairs(list)):any(function(i, conn)
+    return i ~= match_idx and same_slot(conn, new_name, group)
+  end)
+  if collides then
+    return nil, 'Connection with that name already exists in that group. Please enter a different name.'
   end
   local out = vim.deepcopy(list)
   if match_idx ~= nil then
@@ -353,26 +392,26 @@ end
 --- `group` removes it from its group. Returns `(new_list, nil)`, or `(nil, err)`
 --- when another connection of the same name already lives in the target group
 --- (which would merge them under one `key_name` on the next discover). The list
---- is returned unchanged (no error) when nothing matches.
+--- is returned unchanged (no error) when nothing matches. `cur_group` is the
+--- connection's PRESENT group, used to pick the right clone when the same
+--- (name, url) lives in two groups (nil only when unknown); `group` is the
+--- target group being assigned.
 ---@param list DadbodUI.FileConnection[]
 ---@param name string
 ---@param url string
 ---@param group string
+---@param cur_group? string
 ---@return DadbodUI.FileConnection[]|nil, string|nil
-function M.set_group(list, name, url, group)
+function M.set_group(list, name, url, group, cur_group)
   local resolved = bridge.resolve(url):lower()
-  local match_idx = nil
-  for i, conn in ipairs(list) do
-    if same_conn(conn, name, resolved) then
-      match_idx = i
-      break
-    end
-  end
-  for i, conn in ipairs(list) do
-    local conn_group = conn.group or ''
-    if i ~= match_idx and conn.name:lower() == name:lower() and conn_group:lower() == group:lower() then
-      return nil, 'A connection with that name already exists in that group. Please choose a different group.'
-    end
+  local match_idx = vim.iter(ipairs(list)):find(function(_, conn)
+    return target_conn(conn, name, resolved, cur_group)
+  end)
+  local collides = vim.iter(ipairs(list)):any(function(i, conn)
+    return i ~= match_idx and conn.name:lower() == name:lower() and (conn.group or ''):lower() == group:lower()
+  end)
+  if collides then
+    return nil, 'A connection with that name already exists in that group. Please choose a different group.'
   end
   local out = vim.deepcopy(list)
   if match_idx ~= nil then
@@ -429,24 +468,23 @@ end
 --- connection of the same name is refused with `(nil, err)` (the `same_slot`
 --- rule, which would otherwise collide two entries under one `key_name`).
 --- Returns the list in normalized (block-contiguous) visual order, so groups stay
---- gathered. `(new_list, nil)` on success.
+--- gathered. `(new_list, nil)` on success. `group` disambiguates which clone to
+--- move when the same (name, url) lives in two groups; it is nil only when
+--- unknown.
 ---@param list DadbodUI.FileConnection[]
 ---@param name string
 ---@param url string
 ---@param direction 'up'|'down'
+---@param group? string
 ---@return DadbodUI.FileConnection[]|nil, string|nil
-function M.move_connection(list, name, url, direction)
+function M.move_connection(list, name, url, direction, group)
   local resolved = bridge.resolve(url):lower()
   -- Deepcopy up front and drive everything off the copy's visual order, so the
   -- returned list is a fresh, block-contiguous ordering and the input is untouched.
   local out = visual_order(vim.deepcopy(list))
-  local i = nil
-  for idx, conn in ipairs(out) do
-    if same_conn(conn, name, resolved) then
-      i = idx
-      break
-    end
-  end
+  local i = vim.iter(ipairs(out)):find(function(_, conn)
+    return target_conn(conn, name, resolved, group)
+  end)
   if i == nil then
     return out, nil
   end
@@ -469,10 +507,11 @@ function M.move_connection(list, name, url, direction)
   -- down), so only the group changes -- no reorder. Refuse a name collision in
   -- the target group first (mirrors add/set_group).
   local target_group = neighbor.group or ''
-  for k, conn in ipairs(out) do
-    if k ~= i and same_slot(conn, name, target_group) then
-      return nil, 'A connection with that name already exists in that group. Please choose a different group.'
-    end
+  local collides = vim.iter(ipairs(out)):any(function(k, conn)
+    return k ~= i and same_slot(conn, name, target_group)
+  end)
+  if collides then
+    return nil, 'A connection with that name already exists in that group. Please choose a different group.'
   end
   -- (An explicit if/else, not `cond and nil or x`: that idiom can't yield nil.)
   if target_group == '' then

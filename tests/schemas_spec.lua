@@ -1,5 +1,5 @@
 -- Specs for dadbod-ui.schemas: the per-adapter introspection metadata, the
--- result parsers (ported verbatim from vim-dadbod-ui), schema-support detection,
+-- result parsers, schema-support detection,
 -- and the command-spec construction used by the concurrent introspection path.
 
 local schemas = require('dadbod-ui.schemas')
@@ -50,7 +50,7 @@ describe('schemas: supports_schemes', function()
   end)
 end)
 
-describe('schemas: result parsers (verbatim port)', function()
+describe('schemas: result parsers', function()
   it('parses postgres schema and table output, stripping header and row count', function()
     local pg = schemas.get('postgres')
     local schema_lines = { 'schema_name', 'public', 'information_schema', '(2 rows)' }
@@ -108,6 +108,13 @@ describe('schemas: normalize_table_list', function()
   it('filters mysql header and warning lines', function()
     local raw = { 'mysql: [Warning] Using a password', 'Tables_in_app', 'users', 'posts' }
     assert.same({ 'users', 'posts' }, schemas.normalize_table_list('mysql', raw))
+  end)
+
+  it('does not drop a real table whose name merely contains Tables_in_', function()
+    -- regression: an unanchored 'Tables_in_' match dropped any table NAMED that
+    -- way too, not just the header line dadbod prepends.
+    local raw = { 'Tables_in_app', 'my_Tables_in_archive', 'users' }
+    assert.same({ 'my_Tables_in_archive', 'users' }, schemas.normalize_table_list('mysql', raw))
   end)
 
   it('returns the list unchanged for other adapters', function()

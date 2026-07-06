@@ -4,9 +4,9 @@
 ---@text
 --- # Introduction ~
 ---
---- dadbod-ui.nvim is a Neovim-native (Lua) port of vim-dadbod-ui: a database UI
---- drawer over tpope/vim-dadbod. It lists connections, browses schemas and
---- tables, opens query buffers, and renders results -- all inside Neovim.
+--- dadbod-ui.nvim is a database UI drawer for Neovim over tpope/vim-dadbod. It
+--- lists connections, browses schemas and tables, opens query buffers, and
+--- renders results -- all inside Neovim.
 ---
 --- Session state lives in `dadbod-ui.state` (the single source of truth) and the
 --- vim-dadbod engine boundary lives in `dadbod-ui.bridge`. Sibling modules are
@@ -19,8 +19,8 @@
 --- Setup is optional -- dadbod-ui works with sensible defaults: >lua
 ---   require('dadbod-ui').setup()
 --- <
---- Open the drawer with the `:DBUI` command, or from Lua: >lua
----   require('dadbod-ui').open()
+--- Open the drawer from Lua (dadbod-ui ships no user commands): >lua
+---   require('dadbod-ui.api').open()
 --- <
 
 ---@class DadbodUI.InitModule
@@ -32,11 +32,19 @@
 ---@field close fun()
 ---@field add_connection fun()
 ---@field connections_list fun(): DadbodUI.ConnectionInfo[]
----@field execute_query fun()
----@field execute_selection fun()
+---@field execute_query fun(transform?: DadbodUI.SqlTransform)
+---@field execute_selection fun(transform?: DadbodUI.SqlTransform)
+---@field explain_query fun(opts?: DadbodUI.ExplainOpts)
+---@field explain_selection fun(opts?: DadbodUI.ExplainOpts)
+---@field export_query fun()
+---@field export_selection fun()
 ---@field cancel_query fun()
 ---@field get_conn_info fun(key_name: string): table
 ---@field find_buffer fun()
+---@field switch_buffer fun(name?: string): boolean|nil, string|nil
+---@field open_query fun(key_name: string, edit_action?: string)
+---@field reveal fun(key_name: string)
+---@field refresh fun(key_name: string)
 ---@field rename_buffer fun()
 ---@field print_last_query_info fun()
 ---@field statusline fun(opts?: DadbodUI.StatuslineOpts): string
@@ -69,7 +77,7 @@ end
 
 --- Configure the plugin: resolve options and drop the cached instance/drawer so
 --- the new config takes effect.
----@param opts? table
+---@param opts? DadbodUI.Config
 ---@return table
 function M.setup(opts)
   M.config = state.setup(opts)
@@ -94,7 +102,7 @@ function M.close()
 end
 
 --- Add a connection interactively (prompts for url + name), independent of
---- whether the drawer is open. Backs `:DBUIAddConnection`.
+--- whether the drawer is open. Exposed as `api.add_connection`.
 function M.add_connection()
   drawer():connections():add_connection()
 end
@@ -105,28 +113,63 @@ function M.connections_list()
   return state.get():connections_list()
 end
 
---- Execute the current query buffer through dadbod (the whole buffer).
+--- Execute the current query buffer through dadbod (the whole buffer). An optional
+--- `transform` rewrites the runnable SQL before it is dispatched (see
+--- `DadbodUI.SqlTransform`); omitting it runs the buffer unchanged. Backs
+--- `api.buf.execute`.
+---@param transform? DadbodUI.SqlTransform
 ---@return nil
-function M.execute_query()
-  drawer():query():execute_query(false)
+function M.execute_query(transform)
+  drawer():query():execute_query(false, transform)
 end
 
---- Execute the current visual selection through dadbod.
+--- Execute the current visual selection through dadbod. Takes the same optional
+--- `transform` as `execute_query`. Backs `api.buf.execute_selection`.
+---@param transform? DadbodUI.SqlTransform
 ---@return nil
-function M.execute_selection()
-  drawer():query():execute_query(true)
+function M.execute_selection(transform)
+  drawer():query():execute_query(true, transform)
 end
 
---- Cancel the running async query for the current query buffer. Backs
---- `:DBUICancelQuery` and the `cancel` query mapping; fires the `on_cancel_query`
+--- Explain the current query buffer: wrap its SQL in the adapter's EXPLAIN syntax
+--- and run the plan into the `.dbout` window. `opts.analyze` selects EXPLAIN
+--- ANALYZE (which runs the query). Backs `api.buf.explain`.
+---@param opts? DadbodUI.ExplainOpts
+---@return nil
+function M.explain_query(opts)
+  drawer():query():explain_query(false, opts)
+end
+
+--- Explain the current visual selection. Backs `api.buf.explain_selection`.
+---@param opts? DadbodUI.ExplainOpts
+---@return nil
+function M.explain_selection(opts)
+  drawer():query():explain_query(true, opts)
+end
+
+--- Export the current query buffer: run its SQL and write the results to a file,
+--- prompting for format + path. Backs `api.buf.export`.
+---@return nil
+function M.export_query()
+  drawer():query():export_query(false)
+end
+
+--- Export the current visual selection to a file. Backs `api.buf.export_selection`.
+---@return nil
+function M.export_selection()
+  drawer():query():export_query(true)
+end
+
+--- Cancel the running async query for the current query buffer. Exposed as
+--- `api.buf.cancel` and the `cancel` query mapping; fires the `on_cancel_query`
 --- / `on_cancel_query_post` hooks around the cancel.
 ---@return nil
 function M.cancel_query()
   drawer():query():cancel_query()
 end
 
---- Connection info for `key_name`, mirroring the original `db_ui#get_conn_info`.
---- Backs the `db_ui#get_conn_info` autoload shim that third-party integrations
+--- Connection info for `key_name`.
+--- Backs the `db_ui#get_conn_info` autoload entry point that third-party integrations
 --- (e.g. vim-dadbod-completion) call. Returns the resolved url, the live
 --- connection handle (empty when not yet connected), the known tables/schemas,
 --- the scheme, and a 0/1 connected flag. `{}` for an unknown key.
@@ -147,24 +190,66 @@ function M.get_conn_info(key_name)
   }
 end
 
---- Jump to (or adopt) the query buffer for the current db context. Backs
---- `:DBUIFindBuffer`: a buffer already carrying the `b:dbui_*` contract is
+--- Jump to (or adopt) the query buffer for the current db context. Exposed as
+--- `api.buf.find`: a buffer already carrying the `b:dbui_*` contract is
 --- revealed in the drawer; a bare buffer resolves/connects a db and adopts it.
 ---@return nil
 function M.find_buffer()
   drawer():find_buffer()
 end
 
+--- Switch the current query buffer's connection to another one. Exposed as
+--- `api.buf.switch`: prompts for a different db, reassigns the buffer
+--- (rewriting `b:db`/`b:dbui_db_key_name`, the winbar and the execute-on-save
+--- autocmds) without touching the buffer text. A bare buffer falls back to the
+--- `find_buffer` assign path. Pass `name` to switch straight to that connection
+--- with no prompt (returns `ok, err`); see `dadbod-ui.api.buf.switch`.
+---@param name? string
+---@return boolean|nil ok
+---@return string|nil err
+function M.switch_buffer(name)
+  return drawer():switch_buffer(name)
+end
+
+--- Open a fresh scratch query buffer bound to the connection `key_name` -- the
+--- programmatic equivalent of the drawer's "New query" node. `edit_action` is the
+--- open command (`'edit'` default, or a split like `'vertical botright split'`).
+--- Delegates to the query controller's open path with a synthetic `query` item.
+---@param key_name string
+---@param edit_action? string
+---@return nil
+function M.open_query(key_name, edit_action)
+  -- A minimal `query` node is all the open path reads (type + key_name); the other
+  -- Node fields are drawer-render concerns the query controller ignores here.
+  ---@diagnostic disable-next-line: missing-fields
+  drawer():query():open({ type = 'query', key_name = key_name }, edit_action or 'edit')
+end
+
+--- Open the drawer, expand the connection `key_name` (introspecting it), and put
+--- the cursor on it. Backs `dadbod-ui.api.reveal`.
+---@param key_name string
+---@return nil
+function M.reveal(key_name)
+  drawer():reveal_db(key_name)
+end
+
+--- Re-introspect the connection `key_name` (reload saved queries + re-scan
+--- schemas/tables), re-rendering the drawer when open. Backs `dadbod-ui.api.refresh`.
+---@param key_name string
+---@return nil
+function M.refresh(key_name)
+  drawer():refresh_db(key_name)
+end
+
 --- Rename the current query buffer's on-disk file (and move its buffer tracking).
---- Backs `:DBUIRenameBuffer`; delegates to the drawer's rename path for the buffer
---- under the cursor / in focus.
+--- Exposed as `api.buf.rename`; delegates to the drawer's rename path for the
+--- buffer under the cursor / in focus.
 ---@return nil
 function M.rename_buffer()
   drawer():rename_buffer(vim.api.nvim_buf_get_name(0), vim.b.dbui_db_key_name, false)
 end
 
---- Echo the last executed query and its runtime. Backs `:DBUILastQueryInfo`.
---- Mirrors the original `db_ui#print_last_query_info`.
+--- Echo the last executed query and its runtime. Exposed as `api.buf.last_query_info`.
 ---@return nil
 function M.print_last_query_info()
   local notify = require('dadbod-ui.notifications')
@@ -181,8 +266,8 @@ function M.print_last_query_info()
 end
 
 --- Connection/table info for the current query buffer, or the last query's
---- runtime for a `.dbout` result buffer -- a drop-in for the original
---- `db_ui#statusline()`, safe to embed in a `statusline`/`winbar` expression.
+--- runtime for a `.dbout` result buffer -- provides `db_ui#statusline()`
+--- semantics, safe to embed in a `statusline`/`winbar` expression.
 --- Reads the `b:dbui_*` contract; never opens the drawer window. Delegates to
 --- `Drawer:statusline` (which holds the query controller for the dbout runtime).
 ---@param opts? DadbodUI.StatuslineOpts
@@ -191,9 +276,11 @@ function M.statusline(opts)
   return drawer():statusline(opts)
 end
 
---- Reset session state (drops the cached instance and drawer). For tests/cleanup.
+--- Reset session state (drops the cached instance and drawer, clears runtime event
+--- listeners). For tests/cleanup.
 function M.reset()
   state.reset()
+  require('dadbod-ui.events').clear()
   _drawer = nil
 end
 

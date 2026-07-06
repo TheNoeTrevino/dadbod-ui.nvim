@@ -255,7 +255,11 @@ describe('dbout foreign-key jump (sqlite, end-to-end)', function()
     if vim.fn.executable('sqlite3') ~= 1 then
       return pending('sqlite3 not installed')
     end
-    local cfg = config.resolve({ save_location = '/tmp/dbui_fk_qa', show_help = false, execute_on_save = true })
+    local cfg = config.resolve({
+      save_location = '/tmp/dbui_fk_qa',
+      drawer = { show_help = false },
+      query = { execute_on_save = true },
+    })
     local instance = state.new(cfg):populate({ env = {}, g_dbs = { qa = 'sqlite:' .. fixture }, file_entries = {} })
     d = drawer_mod.new(instance)
     d.connector = require('dadbod-ui.bridge').connect

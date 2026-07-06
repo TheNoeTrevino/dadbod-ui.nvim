@@ -1,10 +1,9 @@
 -- Per-adapter result-set pagination (data + rewrite)
 --
 -- Appends a LIMIT/OFFSET paging clause to a plain SELECT so result buffers can
--- show one page at a time and step through with `[` / `]`. Modelled on DBeaver's
--- approach: NOT a subquery wrap -- the clause is appended to the query string and
--- a guard bails out the moment the query already carries a paging clause or is
--- not a plain SELECT.
+-- show one page at a time and step through with `[` / `]`. This is NOT a subquery
+-- wrap -- the clause is appended to the query string and a guard bails out the
+-- moment the query already carries a paging clause or is not a plain SELECT.
 --
 -- Two append styles, declared per scheme below (mirroring the scheme->config
 -- shape of `dadbod-ui.table_helpers`):
@@ -12,8 +11,8 @@
 --     clickhouse, bigquery)
 --   * `limit_comma`  -- `LIMIT <offset>, <length>` (mysql, mariadb)
 -- sqlserver (TOP injection) and oracle (ROWNUM) are left UNSUPPORTED for now --
--- DBeaver does these at the AST level / has oracle commented out -- so they are
--- absent from the table and `paginate` no-ops for them.
+-- they would require clause-level (AST) rewriting rather than a simple appended
+-- clause -- so they are absent from the table and `paginate` no-ops for them.
 
 ---@class DadbodUI.PaginatorModule
 ---@field supports fun(scheme: string): boolean
@@ -42,7 +41,7 @@ local styles = {
 -- Words whose presence (case-insensitive, on a word boundary) means we must not
 -- inject a paging clause: an existing LIMIT/OFFSET/FETCH/TOP would double-page,
 -- and INTO/UPDATE/PROCEDURE mark statements that aren't plain row-returning
--- SELECTs. Ported from DBeaver's paging guard.
+-- SELECTs.
 local guard = { 'limit', 'offset', 'fetch', 'top', 'into', 'update', 'procedure' }
 
 --- Whether `scheme` has a paginator (i.e. pagination is supported for it).
@@ -66,10 +65,10 @@ local function paginatable(sql)
   if lower:find(';', 1, true) then
     return false -- multiple statements; pagination targets a single SELECT
   end
-  for _, kw in ipairs(guard) do
-    if lower:match('%f[%a]' .. kw .. '%f[%A]') then
-      return false
-    end
+  if vim.iter(guard):any(function(kw)
+    return lower:match('%f[%a]' .. kw .. '%f[%A]') ~= nil
+  end) then
+    return false -- an existing paging/aggregate guard word
   end
   return true
 end

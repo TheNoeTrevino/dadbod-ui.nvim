@@ -53,6 +53,7 @@
 ---@field _dbout_progress fun(bufnr: integer): DadbodUI.ExportProgress|nil  test seam: default winbar progress backend
 ---@field default_path fun(source: string, fmt: string, dir?: string): string
 ---@field format_opts fun(cfg: table, fmt: string, scheme: string): table
+---@field export_prompt fun(info: { url: string, scheme: string, query: string, source?: string }, deps?: DadbodUI.ExportDeps)
 ---@field export_interactive fun(bufnr: integer, deps?: DadbodUI.ExportDeps, page_choice?: 'full'|'current')
 
 ---@type DadbodUI.ExportModule
@@ -85,7 +86,7 @@ end
 function M._write(path, content)
   content = (content:gsub('\n$', ''))
   local data = content == '' and '' or (content .. '\n')
-  local fh, oerr = io.open(vim.fn.expand(path), 'wb')
+  local fh, oerr = io.open(vim.fs.normalize(path), 'wb')
   if fh == nil then
     return false, oerr or 'could not open file'
   end
@@ -152,7 +153,10 @@ end
 ---@return string content, integer rows
 function M._transform_sync(scheme, stdout, fmt, opts, source)
   local data = require('dadbod-ui.export_extract').parse(scheme, stdout or '')
-  data.source = source
+  -- Normalize '' to nil: an empty string is truthy in Lua, so `data.source` would
+  -- otherwise defeat the `opts.table or data.source or 'exported_table'` fallback
+  -- chain in the SQL formatter (and wrap the JSON export under an empty key).
+  data.source = require('dadbod-ui.export_formats').nonempty(source)
   return M.format(data, fmt, opts), #data.rows
 end
 
@@ -184,8 +188,8 @@ function M._transform_async(scheme, stdout, fmt, opts, source, cb)
       cb(false, nil, nil, tostring(content))
     end
   end
-  local uv = vim.uv or vim.loop
-  if #stdout < M._TRANSFORM_THRESHOLD or uv == nil or type(uv.new_work) ~= 'function' then
+  local uv = vim.uv
+  if #stdout < M._TRANSFORM_THRESHOLD or type(uv.new_work) ~= 'function' then
     return deliver(pcall(M._transform_sync, scheme, stdout, fmt, opts, source or ''))
   end
   local work = uv.new_work(
@@ -198,7 +202,9 @@ function M._transform_async(scheme, stdout, fmt, opts, source, cb)
         local formats = require('dadbod-ui.export_formats')
         local o = (loadstring or load)(opts_src)()
         local data = extract.parse(scheme_, text)
-        data.source = source_
+        -- Same '' -> nil normalization as `_transform_sync` (the empty string
+        -- crossed the thread boundary as the nil carrier -- see `work:queue` below).
+        data.source = formats.nonempty(source_)
         return formats[fmt_](data, o), #data.rows
       end)
       if ok then
@@ -230,8 +236,12 @@ end
 ---@param query string
 ---@return string
 local function derive_source(query)
-  -- word-boundary, case-insensitive FROM, optional opening quote/bracket, then the identifier
-  local ident = query:match('%f[%w][Ff][Rr][Oo][Mm]%s+["`%[]?([%w_%.]+)')
+  -- word-boundary, case-insensitive FROM, optional opening quote/bracket, then the identifier.
+  -- The leading frontier includes `_` in its word-char set (`%f[%w_]`, not the
+  -- plain `%f[%w]` Lua's `%w` lacks underscore for) so `a_from FROM t` doesn't
+  -- match the trailing "from" inside the identifier `a_from` -- `_` -> `f` is not
+  -- a boundary once `_` counts as a word char.
+  local ident = query:match('%f[%w_][Ff][Rr][Oo][Mm]%s+["`%[]?([%w_%.]+)')
   if ident then
     local name = ident:match('([%w_]+)$') -- last dotted segment (drops schema.)
     if name and name ~= '' then
@@ -252,12 +262,13 @@ end
 ---@return DadbodUI.ExportBufferInfo|nil, string?
 function M.resolve_buffer(bufnr)
   local bridge = require('dadbod-ui.bridge')
-  local db = vim.fn.getbufvar(bufnr, 'db')
+  local utils = require('dadbod-ui.utils')
+  local db = vim.b[bufnr].db
   if type(db) ~= 'table' or type(db.db_url) ~= 'string' or db.db_url == '' then
     return nil, 'Not a query result buffer.'
   end
   local input = type(db.input) == 'string' and db.input or ''
-  if input == '' or vim.fn.filereadable(input) ~= 1 then
+  if input == '' or not utils.is_file(input) then
     return nil, 'No stored query for this result.'
   end
   local query = table.concat(vim.fn.readfile(input), '\n')
@@ -265,9 +276,9 @@ function M.resolve_buffer(bufnr)
   -- query buffer) and its input file is a tempname, so the basename would be junk
   -- like `0`. Read the table name if it is somehow present, else derive one from
   -- the query (the first identifier after FROM, else `results`).
-  local table_name = vim.fn.getbufvar(bufnr, 'dbui_table_name')
+  local table_name = vim.b[bufnr].dbui_table_name
   local source = (type(table_name) == 'string' and table_name ~= '') and table_name or derive_source(query)
-  local page = vim.fn.getbufvar(bufnr, 'dbui_page')
+  local page = vim.b[bufnr].dbui_page
   return {
     url = db.db_url,
     scheme = bridge.scheme_of(db.db_url),
@@ -428,8 +439,8 @@ end
 -- Interactive entry point ----------------------------------------------------
 
 ---@private
--- Display labels (mirroring DBeaver's target-format list) and file extensions
--- per format id. `format_item` shows the label; the file gets the extension.
+-- Display labels and file extensions per format id. `format_item` shows the
+-- label; the file gets the extension.
 local LABELS =
   { csv = 'CSV', tsv = 'TSV', json = 'JSON', markdown = 'Markdown', html = 'HTML', xml = 'XML', sql = 'SQL' }
 ---@private
@@ -443,8 +454,8 @@ local EXTENSIONS = { csv = 'csv', tsv = 'tsv', json = 'json', markdown = 'md', h
 ---@param dir? string  configured default directory ('' / nil => cwd)
 ---@return string
 function M.default_path(source, fmt, dir)
-  local base = (source ~= nil and source ~= '') and source or 'export'
-  local base_dir = (dir ~= nil and dir ~= '') and vim.fn.expand(dir) or vim.fn.getcwd()
+  local base = require('dadbod-ui.export_formats').nonempty(source) or 'export'
+  local base_dir = (dir ~= nil and dir ~= '') and vim.fs.normalize(dir) or vim.fn.getcwd()
   return string.format('%s/%s.%s', base_dir, base, EXTENSIONS[fmt] or fmt)
 end
 
@@ -475,20 +486,24 @@ local function export_config(deps)
     return deps.config
   end
   local cfg = require('dadbod-ui.state').config()
-  return type(cfg.export) == 'table' and cfg.export or {}
+  return type(cfg.results.export) == 'table' and cfg.results.export or {}
 end
 
---- Drive an export from a `.dbout` result buffer interactively: recover the query
---- + connection, pick the target format (the DBeaver-style list, filtered to what
---- the adapter supports), prompt for the output path, then `export`. The picker /
---- prompt / notifier are injectable (`deps.select`, `deps.input`, `deps.notify`)
---- so the flow is testable without a UI. `prefer_native` and per-format options
---- come from the `export` config block.
----@param bufnr integer
----@param deps? DadbodUI.ExportDeps  { select?, input?, config?, bridge?, run?, write?, notify? }
----@param page_choice? 'full'|'current'  which rows to export (DECISION-003); default 'full'
+--- Prompt for a target format + output path for `info` and export -- the shared
+--- interactive core. Both entry points resolve their own `info` and hand it here:
+--- the `.dbout` result buffer (`export_interactive`) and the query buffer
+--- (`db_ui`'s `explain`-style `export_query`). Picks the target format (the
+--- list of formats the adapter supports), prompts for the
+--- output path (guarding an existing file), then `export`s the query RESULTS.
+--- The picker / prompt / notifier / confirm are injectable (`deps.select`,
+--- `deps.input`, `deps.notify`, `deps.confirm`) so the flow is testable without a
+--- UI. `prefer_native` and per-format options come from the `export` config
+--- block. `info.source` (the output-filename base) defaults to a name derived from
+--- the query when absent. `deps.progress`, when set, animates a spinner.
+---@param info { url: string, scheme: string, query: string, source?: string }
+---@param deps? DadbodUI.ExportDeps  { select?, input?, confirm?, config?, bridge?, run?, write?, notify?, progress? }
 ---@return nil
-function M.export_interactive(bufnr, deps, page_choice)
+function M.export_prompt(info, deps)
   deps = deps or {}
   local select = deps.select or vim.ui.select
   local input = deps.input or vim.ui.input
@@ -499,24 +514,13 @@ function M.export_interactive(bufnr, deps, page_choice)
     return vim.fn.confirm(msg, '&Yes\n&No', 2) == 1
   end
   local adapters = require('dadbod-ui.export_adapters')
-
-  local info, err = M.resolve_buffer(bufnr)
-  if info == nil then
-    return notify.error(err)
-  end
   if not adapters.supports(info.scheme) then
     return notify.error(string.format('Export is not supported for the %s adapter.', info.scheme))
-  end
-  -- One export at a time: refuse a second while one is running (the spinner stays
-  -- visible on the result winbar meanwhile). Querying is not blocked.
-  local dbout_ok, dbout = pcall(require, 'dadbod-ui.dbout')
-  if deps.progress == nil and dbout_ok and dbout.export_in_progress() then
-    return notify.error('An export is already in progress. Please wait for it to finish.')
   end
 
   local cfg = export_config(deps)
   local prefer_native = cfg.prefer_native ~= false -- default true (DECISION-001)
-  local query = M.query_for(info, page_choice)
+  local source = (type(info.source) == 'string' and info.source ~= '') and info.source or derive_source(info.query)
 
   select(adapters.formats_for(info.scheme), {
     prompt = 'Export format:',
@@ -527,33 +531,63 @@ function M.export_interactive(bufnr, deps, page_choice)
     if fmt == nil then
       return
     end
-    local default = M.default_path(info.source, fmt, cfg.default_path)
+    local default = M.default_path(source, fmt, cfg.default_path)
     input({ prompt = 'Export to: ', default = default, completion = 'file' }, function(path)
       if path == nil or vim.trim(path) == '' then
         return
       end
       path = vim.trim(path)
       if
-        vim.fn.filereadable(vim.fn.expand(path)) == 1 and not confirm(string.format('%s exists. Overwrite?', path))
+        require('dadbod-ui.utils').is_file(vim.fs.normalize(path))
+        and not confirm(string.format('%s exists. Overwrite?', path))
       then
         return notify.info('Export cancelled.')
       end
-      -- Show the winbar export spinner on the source result buffer unless the
-      -- caller injected its own progress backend (specs pass none). Extend a copy
-      -- rather than mutating the caller-owned `deps`.
-      local call_deps = vim.tbl_extend('force', deps, { progress = deps.progress or M._dbout_progress(bufnr) })
       M.export({
         url = info.url,
         scheme = info.scheme,
         format = fmt,
-        query = query,
+        query = info.query,
         path = path,
-        source = info.source,
+        source = source,
         prefer_native = prefer_native,
         format_opts = M.format_opts(cfg, fmt, info.scheme),
-      }, call_deps)
+      }, deps)
     end)
   end)
+end
+
+--- Drive an export from a `.dbout` result buffer interactively: recover the query
+--- + connection from the result buffer, then hand off to `export_prompt`. Refuses
+--- a second export while one is already running (the spinner stays on the result
+--- winbar meanwhile). `page_choice` selects whole-query vs on-screen-page rows.
+---@param bufnr integer
+---@param deps? DadbodUI.ExportDeps  { select?, input?, config?, bridge?, run?, write?, notify? }
+---@param page_choice? 'full'|'current'  which rows to export (DECISION-003); default 'full'
+---@return nil
+function M.export_interactive(bufnr, deps, page_choice)
+  deps = deps or {}
+  local notify = deps.notify or require('dadbod-ui.notifications')
+  local info, err = M.resolve_buffer(bufnr)
+  if info == nil then
+    return notify.error(err)
+  end
+  -- One export at a time: refuse a second while one is running (the spinner stays
+  -- visible on the result winbar meanwhile). Querying is not blocked.
+  local dbout_ok, dbout = pcall(require, 'dadbod-ui.dbout')
+  if deps.progress == nil and dbout_ok and dbout.export_in_progress() then
+    return notify.error('An export is already in progress. Please wait for it to finish.')
+  end
+  -- Show the winbar export spinner on THIS result buffer unless the caller injected
+  -- its own progress backend (specs pass none). Extend a copy rather than mutating
+  -- the caller-owned `deps`.
+  local call_deps = vim.tbl_extend('force', deps, { progress = deps.progress or M._dbout_progress(bufnr) })
+  M.export_prompt({
+    url = info.url,
+    scheme = info.scheme,
+    query = M.query_for(info, page_choice),
+    source = info.source,
+  }, call_deps)
 end
 
 return M

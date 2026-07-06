@@ -4,26 +4,23 @@
 --- # Configuration ~
 ---
 --- Options are passed to |dadbod-ui.setup()| as a table with snake_case keys
---- (the field surface is |DadbodUI.Config|). For a smooth migration from
---- vim-dadbod-ui the legacy `g:db_ui_*` globals are also read; precedence is
---- defaults < legacy `g:db_ui_*` globals < `setup()` opts. Every option has a
---- sensible default, so `setup()` is optional. See `M.defaults` in
+--- (the field surface is |DadbodUI.Config|). Every option has a sensible
+--- default, so `setup()` is optional. See `M.defaults` in
 --- `lua/dadbod-ui/config.lua` for the full default table.
 
 ---@class DadbodUI.ConfigModule
 ---@field defaults DadbodUI.Config
----@field mapping_sections { group: string, title: string }[]
----@field mapping_order table<string, string[]>
----@field resolve fun(opts?: table): DadbodUI.Config
+---@field contexts { group: string, title: string }[]
+---@field builtin_actions table<string, table<string, string>>
+---@field action_order table<string, string[]>
+---@field resolve fun(opts?: DadbodUI.Config): DadbodUI.Config
 
 ---@private
 ---@type DadbodUI.ConfigModule
 ---@diagnostic disable-next-line: missing-fields
 local M = {}
 
---- Built-in defaults. Keys mirror the original `g:db_ui_*` options with the
---- `db_ui_` prefix dropped. Booleans are real Lua booleans (the legacy globals
---- use 0/1 and are coerced on read).
+--- Built-in defaults.
 ---@type DadbodUI.Config
 M.defaults = {
   save_location = '~/.local/share/db_ui',
@@ -34,81 +31,23 @@ M.defaults = {
   -- table in the drawer. Named helpers render first, in this sequence, when
   -- present for the adapter (a name the adapter doesn't have is skipped, not
   -- shown blank); any present helper not named here falls back after those,
-  -- sorted alphabetically. Defaults to the original vim-dadbod-ui sequence.
+  -- sorted alphabetically. Defaults to the standard drawer help-key sequence.
   table_helpers_order = { 'List', 'Columns', 'Indexes', 'Primary Keys', 'Foreign Keys', 'References' },
-  default_query = 'SELECT * from "{table}" LIMIT 200;',
-  execute_on_save = false,
-  auto_execute_table_helpers = false,
-  page_size = 200,
   env_variable_url = 'DBUI_URL',
   env_variable_name = 'DBUI_NAME',
   dotenv_variable_prefix = 'DB_UI_',
-  disable_progress_bar = false,
-  notification_width = 40,
-  winwidth = 40,
-  win_position = 'left',
-  -- Split direction dadbod opens the `.dbout` result window in. dadbod itself
-  -- decides horizontal vs. vertical off the command modifiers on `:DB`/`%DB`
-  -- (see bridge.lua's execute functions), so this only steers which modifier we
-  -- prefix. 'horizontal' matches the original/legacy behavior.
-  result_layout = 'horizontal',
-  show_help = true,
-  show_database_icon = false,
-  use_nerd_fonts = false,
   ---@type table  icon overrides (see dadbod-ui.icons)
   icons = {},
+  use_nerd_fonts = false,
   use_postgres_views = true,
   hide_schemas = {},
-  bind_param_pattern = ':\\w\\+',
-  -- Drawer sections under an expanded connection, in render order. `procedures`
-  -- lists the connection's stored procedures/functions (schema-supporting
-  -- adapters nest them per schema); it renders only when the adapter supports
-  -- routines and at least one exists, so it is invisible for e.g. sqlite.
-  drawer_sections = { 'new_query', 'buffers', 'saved_queries', 'schemas', 'procedures' },
-  expand_groups = true,
-  dbout_list_sort = 'asc',
-  force_echo_notifications = false,
-  disable_info_notifications = false,
-  use_nvim_notify = false,
-  -- Post-execute feedback: instead of dadbod's `DB: Running query...` /
-  -- `finished in ...` command-line echoes (and our own "Executing query..."
-  -- notification), show the completion + elapsed time inline. `result_buffer`
-  -- pins a `winbar` summary to the top of the `.dbout` window; `query_buffer` puts
-  -- ghost text trailing the line you executed from. When `enabled`, dadbod's two
-  -- echoes are suppressed so the inline summary is the single source of feedback.
-  query_time = {
-    enabled = true,
-    result_buffer = true,
-    query_buffer = true,
-    show_row_count = true,
-  },
-  -- Show the connection a query buffer targets in a right-aligned `winbar` at the
-  -- top of the buffer's window, formatted `group/name` (or just `name` when the
-  -- connection is ungrouped). Follows the buffer into new splits; the `.dbout`
-  -- result buffers (which own their winbar) and the drawer are untouched.
-  show_buffer_connection = true,
-  -- Native CLI result export (see specs/native-export.md). `prefer_native` writes
-  -- the CLI's own output when it can emit the target format directly (DECISION-001);
-  -- turn it off to force the consistent Lua formatters for every adapter.
-  -- `default_path` ('' => cwd) is the directory the export-path prompt defaults to;
-  -- `coerce_numbers` opts the JSON/SQL formatters into emitting numeric/boolean
-  -- literals (off by default since the CSV extract is untyped). The per-format
-  -- sub-tables tune each formatter (see the format docs in dadbod-ui.export_formats).
-  export = {
-    prefer_native = true,
-    default_path = '',
-    coerce_numbers = false,
-    csv = { delimiter = ',', header = true, quote = '"', null_string = '', line_feed_escape = '' },
-    tsv = { line_feed_escape = '\\n' },
-    json = { wrap_table_name = true, indent = '\t' },
-  },
   is_oracle_legacy = false,
   debug = false,
-  disable_mappings = false,
-  disable_mappings_dbui = false,
-  disable_mappings_dbout = false,
-  disable_mappings_sql = false,
-  disable_mappings_javascript = false,
+  -- Backend for the connection picker (`require('dadbod-ui.api').pick()`).
+  -- 'auto' tries Snacks.nvim, Telescope.nvim, then fzf-lua, falling back to
+  -- vim.ui.select when none is installed; naming a backend uses it exclusively
+  -- (warning when its plugin is missing), 'fallback' forces vim.ui.select.
+  picker = 'auto',
   ---@type DadbodUI.BufferNameGenerator|nil  custom buffer name generator
   buffer_name_generator = nil,
   ---@type DadbodUI.TableNameSorter|nil  custom table-list sorter
@@ -120,68 +59,190 @@ M.defaults = {
   -- cancel siblings are observers. A throwing hook is caught + notified, never
   -- aborting the underlying operation. Empty by default; set via `setup{}` opts.
   hooks = {},
-  -- Keybindings, grouped by context. Each entry is `{ key, desc, mode? }`; set a
-  -- key to 'none' to disable that action (it is then neither bound nor shown in
-  -- the `?` help window). Overrides deep-merge, so `mappings.sidebar.delete.key`
-  -- can be changed on its own. Display order + section titles are fixed (see
-  -- `M.mapping_order` / `M.mapping_sections`). The single source of truth for
-  -- both the live keymaps and the help window -- see `dadbod-ui.mappings`.
-  mappings = {
-    sidebar = {
-      help = { key = '?', desc = 'Toggle this help window' },
-      toggle = { key = { 'o', '<CR>' }, desc = 'Open/Toggle selected item' },
-      toggle_split = { key = 'S', desc = 'Open selected item in a split' },
-      quit = { key = 'q', desc = 'Close the drawer' },
-      add_connection = { key = 'A', desc = 'Add a connection' },
-      delete = { key = 'd', desc = 'Delete selected item' },
-      rename = { key = 'r', desc = 'Rename/edit buffer, connection, or saved query' },
-      redraw = { key = 'R', desc = 'Redraw / refresh' },
-      duplicate = { key = 'D', desc = 'Duplicate connection' },
-      set_group = { key = 'G', desc = 'Add/remove connection to a group' },
-      move_up = { key = '<C-Up>', desc = 'Move connection up (crosses group boundaries)' },
-      move_down = { key = '<C-Down>', desc = 'Move connection down (crosses group boundaries)' },
-      toggle_details = { key = 'H', desc = 'Toggle database details' },
-      first_sibling = { key = '<C-k>', desc = 'Go to first sibling' },
-      last_sibling = { key = '<C-j>', desc = 'Go to last sibling' },
-      prev_sibling = { key = 'K', desc = 'Go to previous sibling' },
-      next_sibling = { key = 'J', desc = 'Go to next sibling' },
-      goto_parent = { key = '<C-p>', desc = 'Go to parent node' },
-      goto_child = { key = '<C-n>', desc = 'Go to child node' },
-    },
-    query = {
-      execute = { key = '<Leader>S', desc = 'Execute query (whole buffer / visual selection)', mode = { 'n', 'v' } },
-      edit_bind_params = { key = '<Leader>E', desc = 'Edit bind parameters' },
-      save_query = { key = '<Leader>W', desc = 'Save the current query (tmp buffers)' },
-      cancel = { key = '<Leader>C', desc = 'Cancel the running query' },
-    },
-    results = {
-      jump_foreign = { key = '<C-]>', desc = 'Jump to the foreign key table' },
-      cell_value = {
-        key = 'vic',
-        desc = 'Select the cell value under the cursor',
-        binds = { { mode = 'n', lhs = 'vic' }, { mode = 'o', lhs = 'ic' } },
-      },
-      yank_header = { key = 'yh', desc = 'Yank the result header as CSV' },
-      toggle_layout = { key = '<Leader>R', desc = 'Toggle result layout (row / expanded)' },
-      next_page = { key = ']', desc = 'Next page of results' },
-      prev_page = { key = '[', desc = 'Previous page of results' },
-      export = { key = '<Leader>X', desc = 'Export result to a file' },
+
+  -- Notification presentation + routing. `disable_progress_bar` silences the
+  -- schema-loading progress bar; `use_nvim_notify` routes through nvim-notify;
+  -- `force_echo` always uses command-line echo; `disable_info` mutes info-level.
+  notifications = {
+    force_echo = false,
+    disable_info = false,
+    use_nvim_notify = false,
+    disable_progress_bar = false,
+  },
+
+  -- The drawer/sidebar window.
+  drawer = {
+    width = 40,
+    position = 'left',
+    show_help = true,
+    show_database_icon = false,
+    expand_groups = true,
+    -- Sections under an expanded connection, in render order. `procedures` lists
+    -- the connection's stored procedures/functions (schema-supporting adapters
+    -- nest them per schema); it renders only when the adapter supports routines
+    -- and at least one exists, so it is invisible for e.g. sqlite.
+    sections = { 'new_query', 'buffers', 'saved_queries', 'schemas', 'procedures' },
+    -- Keymaps for the drawer buffer, `lhs -> action`. See the `keys` note above.
+    keys = {
+      ['?'] = 'help',
+      ['o'] = 'toggle',
+      ['<CR>'] = 'toggle',
+      ['S'] = 'toggle_split',
+      ['q'] = 'quit',
+      ['A'] = 'add_connection',
+      ['d'] = 'delete',
+      ['r'] = 'rename',
+      ['R'] = 'redraw',
+      ['D'] = 'duplicate',
+      ['G'] = 'set_group',
+      ['<C-Up>'] = 'move_up',
+      ['<C-Down>'] = 'move_down',
+      ['H'] = 'toggle_details',
+      ['<C-k>'] = 'first_sibling',
+      ['<C-j>'] = 'last_sibling',
+      ['K'] = 'prev_sibling',
+      ['J'] = 'next_sibling',
+      ['<C-p>'] = 'goto_parent',
+      ['<C-n>'] = 'goto_child',
     },
   },
+
+  -- SQL/query buffers.
+  query = {
+    default_query = 'SELECT * from "{table}" LIMIT 200;',
+    execute_on_save = false,
+    auto_execute_table_helpers = false,
+    bind_param_pattern = ':\\w\\+',
+    -- Show the connection a query buffer targets in a right-aligned `winbar` at
+    -- the top of the buffer's window, formatted `group/name` (or just `name` when
+    -- the connection is ungrouped). Follows the buffer into new splits; the
+    -- `.dbout` result buffers (which own their winbar) and the drawer are untouched.
+    show_buffer_connection = true,
+    -- Keymaps for SQL/query buffers, `lhs -> action`. See the `keys` note above.
+    keys = {
+      ['<Leader>S'] = { 'execute', mode = { 'n', 'v' } },
+      ['<Leader>E'] = 'edit_bind_params',
+      ['<Leader>W'] = 'save_query',
+      ['<Leader>C'] = 'cancel',
+    },
+  },
+
+  -- `.dbout` result buffers.
+  results = {
+    page_size = 200,
+    -- Split direction dadbod opens the `.dbout` result window in. dadbod itself
+    -- decides horizontal vs. vertical off the command modifiers on `:DB`/`%DB`
+    -- (see bridge.lua's execute functions), so this only steers which modifier we
+    -- prefix. 'horizontal' is the default layout.
+    layout = 'horizontal',
+    list_sort = 'asc',
+    -- Post-execute feedback: instead of dadbod's `DB: Running query...` /
+    -- `finished in ...` command-line echoes (and our own "Executing query..."
+    -- notification), show the completion + elapsed time inline. `result_buffer`
+    -- pins a `winbar` summary to the top of the `.dbout` window; `query_buffer` puts
+    -- ghost text trailing the line you executed from. When `enabled`, dadbod's two
+    -- echoes are suppressed so the inline summary is the single source of feedback.
+    query_time = {
+      enabled = true,
+      result_buffer = true,
+      query_buffer = true,
+      show_row_count = true,
+    },
+    -- Native CLI result export (see specs/native-export.md). `prefer_native` writes
+    -- the CLI's own output when it can emit the target format directly (DECISION-001);
+    -- turn it off to force the consistent Lua formatters for every adapter.
+    -- `default_path` ('' => cwd) is the directory the export-path prompt defaults to;
+    -- `coerce_numbers` opts the JSON/SQL formatters into emitting numeric/boolean
+    -- literals (off by default since the CSV extract is untyped). The per-format
+    -- sub-tables tune each formatter (see the format docs in dadbod-ui.export_formats).
+    export = {
+      prefer_native = true,
+      default_path = '',
+      coerce_numbers = false,
+      csv = { delimiter = ',', header = true, quote = '"', null_string = '', line_feed_escape = '' },
+      tsv = { line_feed_escape = '\\n' },
+      json = { wrap_table_name = true, indent = '\t' },
+    },
+    -- Keymaps for `.dbout` result buffers, `lhs -> action`. See the `keys` note
+    -- above. `cell_value` binds twice on purpose: `vic` selects in normal mode,
+    -- `ic` is the operator-pending text object.
+    keys = {
+      ['<C-]>'] = 'jump_foreign',
+      ['vic'] = { 'cell_value', mode = 'n' },
+      ['ic'] = { 'cell_value', mode = 'o' },
+      ['yh'] = 'yank_header',
+      ['<Leader>R'] = 'toggle_layout',
+      [']'] = 'next_page',
+      ['['] = 'prev_page',
+      ['<Leader>X'] = 'export',
+    },
+  },
+
+  -- User-defined named actions, referenced by name from a context's `keys` map
+  -- (e.g. `drawer = { keys = { Y = 'yank_url' } }`). Each is a function receiving
+  -- a per-context action context (see `DadbodUI.*ActionContext`), or a
+  -- `{ desc, fn }` table so the action also shows in the `?` help window.
+  ---@type table<string, DadbodUI.Action>
+  actions = {},
 }
 
--- Fixed (non-overridable) presentation metadata for `mappings`: the section
--- titles + their order in the help window, and the id order within each context
--- (used for both deterministic help rendering and keymap setup). Kept off
--- `defaults` so user overrides only touch keys/descriptions, never structure.
-M.mapping_sections = {
-  { group = 'sidebar', title = 'Sidebar' },
+-- Fixed (non-overridable) presentation metadata for keymaps: the context titles
+-- + their order in the help window, the built-in action descriptions, and the
+-- action order within each context. Kept off `defaults` so user overrides only
+-- touch `keys`/`actions`, never this structure. `dadbod-ui.mappings` renders the
+-- help window and binds keys from `<context>.keys` against these tables.
+M.contexts = {
+  { group = 'drawer', title = 'Drawer' },
   { group = 'query', title = 'Query Buffer' },
   { group = 'results', title = 'DB Results' },
 }
 
-M.mapping_order = {
-  sidebar = {
+-- Built-in action id -> help description, per context. A key in a context's
+-- `keys` map that names one of these binds the built-in handler supplied by the
+-- owning module; any other name is looked up in `config.actions`.
+M.builtin_actions = {
+  drawer = {
+    help = 'Toggle this help window',
+    toggle = 'Open/Toggle selected item',
+    toggle_split = 'Open selected item in a split',
+    quit = 'Close the drawer',
+    add_connection = 'Add a connection',
+    delete = 'Delete selected item',
+    rename = 'Rename/edit buffer, connection, or saved query',
+    redraw = 'Redraw / refresh',
+    duplicate = 'Duplicate connection',
+    set_group = 'Add/remove connection to a group',
+    move_up = 'Move connection up (crosses group boundaries)',
+    move_down = 'Move connection down (crosses group boundaries)',
+    toggle_details = 'Toggle database details',
+    first_sibling = 'Go to first sibling',
+    last_sibling = 'Go to last sibling',
+    prev_sibling = 'Go to previous sibling',
+    next_sibling = 'Go to next sibling',
+    goto_parent = 'Go to parent node',
+    goto_child = 'Go to child node',
+  },
+  query = {
+    execute = 'Execute query (whole buffer / visual selection)',
+    edit_bind_params = 'Edit bind parameters',
+    save_query = 'Save the current query (tmp buffers)',
+    cancel = 'Cancel the running query',
+  },
+  results = {
+    jump_foreign = 'Jump to the foreign key table',
+    cell_value = 'Select the cell value under the cursor',
+    yank_header = 'Yank the result header as CSV',
+    toggle_layout = 'Toggle result layout (row / expanded)',
+    next_page = 'Next page of results',
+    prev_page = 'Previous page of results',
+    export = 'Export result to a file',
+  },
+}
+
+-- Built-in action order within each context, for the help window. User actions
+-- (bound in `keys` but absent here) render after these, sorted by name.
+M.action_order = {
+  drawer = {
     'help',
     'toggle',
     'toggle_split',
@@ -205,43 +266,6 @@ M.mapping_order = {
   query = { 'execute', 'edit_bind_params', 'save_query', 'cancel' },
   results = { 'jump_foreign', 'cell_value', 'yank_header', 'toggle_layout', 'next_page', 'prev_page', 'export' },
 }
-
----@private
--- The two function-valued options used the capitalized `g:Db_ui_*` globals.
-local funcref_globals = {
-  buffer_name_generator = 'Db_ui_buffer_name_generator',
-  table_name_sorter = 'Db_ui_table_name_sorter',
-}
-
----@private
--- vimscript stores booleans as 0/1; in Lua 0 is truthy, so coerce per type.
----@param default any
----@param value any
----@return any
-local function coerce(default, value)
-  if type(default) == 'boolean' and type(value) == 'number' then
-    return value ~= 0
-  end
-  return value
-end
-
----@private
--- Read a legacy global for `key`, or nil when unset. `0` funcref globals (the
--- "disabled" sentinel) are treated as nil.
----@param key string
----@param default any
----@return any
-local function legacy_global(key, default)
-  local g = funcref_globals[key]
-  if g then
-    local v = vim.g[g]
-    if v == nil or v == 0 then
-      return nil
-    end
-    return v
-  end
-  return coerce(default, vim.g['db_ui_' .. key])
-end
 
 ---@private
 -- Deep copy `t` as plain (unfrozen) tables, dropping any read-only metatable.
@@ -286,20 +310,13 @@ local function freeze(t)
   })
 end
 
---- Resolve effective config: defaults < legacy `g:db_ui_*` globals < `opts`. The
---- returned table is frozen (see `freeze`): it is the session's shared config, so
---- accidental writes to it raise rather than silently corrupting every reader.
----@param opts? table  partial config overrides
+--- Resolve effective config: defaults < `opts`. The returned table is frozen
+--- (see `freeze`): it is the session's shared config, so accidental writes to
+--- it raise rather than silently corrupting every reader.
+---@param opts? DadbodUI.Config  partial config overrides
 ---@return DadbodUI.Config
 function M.resolve(opts)
-  local out = vim.deepcopy(M.defaults)
-  for key, default in pairs(M.defaults) do
-    local legacy = legacy_global(key, default)
-    if legacy ~= nil then
-      out[key] = legacy
-    end
-  end
-  return freeze(vim.tbl_deep_extend('force', out, opts or {}))
+  return freeze(vim.tbl_deep_extend('force', vim.deepcopy(M.defaults), opts or {}))
 end
 
 return M

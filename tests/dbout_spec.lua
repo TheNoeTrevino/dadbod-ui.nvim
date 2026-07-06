@@ -8,8 +8,9 @@ local config = require('dadbod-ui.config')
 local dbout = require('dadbod-ui.dbout')
 
 local function make_drawer(g_dbs, overrides)
-  local cfg =
-    config.resolve(vim.tbl_extend('force', { save_location = '/tmp/dbui_dbout', show_help = false }, overrides or {}))
+  local cfg = config.resolve(
+    vim.tbl_extend('force', { save_location = '/tmp/dbui_dbout', drawer = { show_help = false } }, overrides or {})
+  )
   local instance = state.new(cfg):populate({ env = {}, g_dbs = g_dbs or {}, file_entries = {} })
   local d = drawer_mod.new(instance)
   d.connector = function(url)
@@ -71,7 +72,7 @@ describe('dbout: Query results section', function()
   end)
 
   it('sorts descending when dbout_list_sort is desc', function()
-    d = make_drawer(nil, { dbout_list_sort = 'desc' })
+    d = make_drawer(nil, { results = { list_sort = 'desc' } })
     d:open()
     assert.is_true(dbout.sort_dbout('/x/30.dbout', '/x/2.dbout'))
     assert.is_false(dbout.sort_dbout('/x/2.dbout', '/x/30.dbout'))
@@ -115,7 +116,7 @@ describe('dbout: execute on save (sqlite)', function()
     if vim.fn.executable('sqlite3') ~= 1 then
       return pending('sqlite3 not installed')
     end
-    d = make_drawer({ qa = 'sqlite:' .. fixture }, { execute_on_save = true })
+    d = make_drawer({ qa = 'sqlite:' .. fixture }, { query = { execute_on_save = true } })
     d.connector = require('dadbod-ui.bridge').connect -- real connection
     d:open()
     local entry

@@ -3,7 +3,7 @@
 Status: **DONE - T1-T16 complete (v1)**
 Owner: Noe Trevino
 Branch: `feat/export-data-using-cli`
-Reference UI: DBeaver "Data Transfer → Target format" picker.
+UI: a format picker for exporting a result set.
 
 ---
 
@@ -39,8 +39,8 @@ Rules:
 ## 1. Problem & goal
 
 Today a query result is the database CLI's aligned text in a `.dbout` buffer.
-Users want to export a result to common interchange formats, like DBeaver's
-Data Transfer wizard. We keep `vim-dadbod` as the engine and implement export by
+Users want to export a result to common interchange formats. We keep
+`vim-dadbod` as the engine and implement export by
 **re-running the query through the adapter's CLI in a machine-readable mode**,
 then either passing that output straight through (when the CLI emits the target
 format natively) or running a small pure-Lua formatter over a parsed canonical
@@ -48,15 +48,14 @@ intermediate.
 
 **Goal:** export the current result buffer's query to CSV, JSON, Markdown, HTML,
 XML, SQL (`INSERT`), and TSV - faithfully (NULLs preserved where the CLI allows),
-via a picker that mirrors the DBeaver target-format list, plus a command and a
-result-buffer mapping.
+via a format picker, plus a command and a result-buffer mapping.
 
 ---
 
 ## 2. Non-goals (explicitly out of scope)
 
-- **"Database" target** (table-to-table transfer between two connections) - that
-  is DBeaver's DTPipe; a separate, much larger feature.
+- **"Database" target** (table-to-table transfer between two connections) - a
+  streaming/transform pipeline; a separate, much larger feature.
 - **DbUnit / "Source code" targets** - niche; not planned.
 - **XLSX** - requires writing an OOXML zip; deferred. Tracked as a stretch task
   (T17) but **not** part of the definition of done for this spec.
@@ -149,7 +148,7 @@ Shared fixture `ExportData`:
 
 (`NULL` is the `ExportData.NULL` sentinel, §10.)
 
-### 5.1 CSV  (port of `DataExporterCSV`)
+### 5.1 CSV
 Opts: `delimiter=','`, `header=true`, `quote='"'`, `null_string=''`,
 `line_feed_escape=nil`. Quote a field iff it contains the delimiter, the quote
 char, CR, or LF. Escape quotes by doubling. NULL renders as `null_string`.
@@ -168,7 +167,7 @@ tab/newline get the `line_feed_escape`/tab-escape treatment instead. Acceptance:
 same rows, tab-separated, embedded newline replaced by `\n` literal when
 `line_feed_escape='\\n'`.
 
-### 5.3 JSON  (port of `DataExporterJSON`)
+### 5.3 JSON
 Opts: `wrap_table_name=true` (key = source/table name), `indent='\t'`,
 `coerce_numbers=false`. Each row is an object keyed by column name. NULL → `null`
 literal. With `coerce_numbers=false` every non-null value is a quoted string
@@ -196,7 +195,7 @@ Expected (`wrap_table_name=false`, `coerce_numbers=false`):
 ```
 String escaping: `"` `\` and control chars (`\n` `\t` `\r`) per JSON.
 
-### 5.4 Markdown  (port of `DataExporterMarkdownTable`)
+### 5.4 Markdown
 GitHub table. Header row, `---` separator row, one row per record. Cell content:
 pipes escaped as `\|`, newlines replaced by `<br>`, NULL → empty. Expected:
 ```
@@ -207,16 +206,16 @@ pipes escaped as `\|`, newlines replaced by `<br>`, NULL → empty. Expected:
 | 3 | Zoë | line<br>break |
 ```
 
-### 5.5 HTML  (port of `DataExporterHTML`)
+### 5.5 HTML
 A `<table>` with `<thead>`/`<tbody>`. HTML-escape `& < > "`. NULL → empty cell.
 **OQ-2 resolved (T6):** cell newlines render as `<br>`. Minimal, no inline CSS.
 
-### 5.6 XML  (port of `DataExporterXML`)
+### 5.6 XML
 `<data>` root; each row `<row>`; **OQ-2 resolved (T6):** element-per-column
 `<col name="...">value</col>`. XML-escape `& < > " '`. NULL → self-closing
 `<col name="..." isNull="true"/>`.
 
-### 5.7 SQL `INSERT`  (port of `DataExporterSQL`)
+### 5.7 SQL `INSERT`
 `INSERT INTO <table> (cols) VALUES (...);` per row (or multi-row `VALUES`).
 Target table name from `b:dbui_table_name`, else prompt, else `exported_table`.
 String values single-quoted with `'` doubled; NULL → bare `NULL`; numeric
@@ -245,7 +244,7 @@ adapter's `quote` flag (§ existing `entry.quote`).
   null` is ignored in CSV mode. Documented limitation; no silent fix.
 - **Types (LIMITATION-002)**: the CSV/TSV extract is all strings. JSON/SQL
   numeric/boolean output is therefore opt-in via `coerce_numbers` (regex
-  heuristic), off by default. DBeaver gets types from JDBC; we cannot from CSV.
+  heuristic), off by default. Types are not recoverable from CSV output.
 
 Every limitation above is surfaced in `:help`/README, never hidden.
 
@@ -276,7 +275,7 @@ touches dadbod's `:DB`/job.
   `config.mappings.results`, `config.mapping_order.results`, and the help window.
 - **Picker flow** (`vim.ui.select`, injectable like `Query.select`):
   1. Select target format - list filtered to what the buffer's adapter supports
-     (matrix §4). Labels mirror the DBeaver list: `CSV`, `JSON`, `Markdown`,
+     (matrix §4). Labels: `CSV`, `JSON`, `Markdown`,
      `HTML`, `XML`, `SQL`, `TSV`.
   2. `vim.ui.input` for the output path (default:
      `<cwd>/<table-or-query>-<timestamp>.<ext>`).
@@ -394,7 +393,7 @@ from CSV → opt-in `coerce_numbers`) are documented, not worked around.
   query delivered as an arg or stdin? Resolve empirically, record the argv in an
   appendix here, THEN build T9/T10.
 - **OQ-2 (T6):** HTML newline handling (`<br>` vs raw) and XML cell shape
-  (attribute `name=` vs element-per-column). Pick to match DBeaver output; record.
+  (attribute `name=` vs element-per-column). Pick one shape and record the decision.
 - **OQ-3 (T8):** does sqlite use `-csv` or `-json` as its canonical extractor
   (NULL fidelity vs simpler parsing)? Default `-csv`; revisit if SQL/JSON NULLs
   matter in testing.
@@ -496,13 +495,7 @@ Order = dependency order. `[ ]` = todo, `[x]` = done. Each task lists files and
 
 ## 15. References
 
-DBeaver exporters (read for logic, port to Lua - do not copy license-bearing code
-verbatim; reimplement):
-- `dbeaver/.../tools/transfer/stream/exporter/DataExporterCSV.java`
-- `.../DataExporterJSON.java`
-- `.../DataExporterMarkdownTable.java`
-- `.../DataExporterHTML.java`
-- `.../DataExporterXML.java`
+Format specifications and acceptance fixtures for each exporter live in §5.
 
 In-repo patterns to follow:
 - `lua/dadbod-ui/paginator.lua` - self-contained module + per-scheme table + its

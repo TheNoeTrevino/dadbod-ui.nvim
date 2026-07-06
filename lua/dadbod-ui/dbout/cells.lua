@@ -1,12 +1,11 @@
 -- Folding + cell / foreign-key navigation
 --
--- We diverge from the original's `ftplugin/dbout.vim` + `db_ui#dbout#*`: instead
--- of a VimL ftplugin we own the whole `.dbout` lifecycle here, wiring folding +
--- maps from a single `FileType dbout` autocmd in `attach`. The per-scheme dbout
--- metadata (`cell_line_number`/`cell_line_pattern`/`foreign_key_query`/…) lives
--- on the schema adapters in `dadbod-ui.schemas`. The foreign-key jump's
--- introspection lookup and the jump itself both go through `bridge` (the engine
--- boundary); this module never touches `:DB`/`db#` directly.
+-- This module owns the whole `.dbout` lifecycle, wiring folding + maps from a
+-- single `FileType dbout` autocmd in `attach`. The per-scheme dbout metadata
+-- (`cell_line_number`/`cell_line_pattern`/`foreign_key_query`/…) lives on the
+-- schema adapters in `dadbod-ui.schemas`. The foreign-key jump's introspection
+-- lookup and the jump itself both go through `bridge` (the engine boundary);
+-- this module never touches `:DB`/`db#` directly.
 
 local bridge = require('dadbod-ui.bridge')
 local bind_params = require('dadbod-ui.bind_params')
@@ -27,10 +26,10 @@ local ctx = require('dadbod-ui.dbout.ctx')
 local M = {}
 
 --- Pure fold level for `lnum`, given a (sparse is fine) map of line number ->
---- text covering at least `lnum`..`lnum + 2`. Port of `db_ui#dbout#foldexpr`:
---- mysql `+---` rows open a fold when the matching border is two lines down;
---- postgres & sqlserver open one when the `----` underline is on the next line;
---- blank lines close or continue a fold depending on the following border.
+--- text covering at least `lnum`..`lnum + 2`: mysql `+---` rows open a fold when
+--- the matching border is two lines down; postgres & sqlserver open one when the
+--- `----` underline is on the next line; blank lines close or continue a fold
+--- depending on the following border.
 ---@param lines table<integer, string>
 ---@param lnum integer
 ---@return string|integer  a Vim foldexpr value ('>1' | 1 | 0)
@@ -74,9 +73,9 @@ end
 
 --- The span `[from, to]` (0-based, inclusive) of the cell under `col0`, read off
 --- the separator (column-underline) line `line`: the contiguous run of `-`
---- table-rule characters bracketing the column. Pure column arithmetic, port of
---- `s:get_cell_range`. The separator line is pure ASCII, so its byte columns and
---- display columns coincide -- callers pass the cursor's DISPLAY column and treat
+--- table-rule characters bracketing the column. Pure column arithmetic. The
+--- separator line is pure ASCII, so its byte columns and display columns coincide
+--- -- callers pass the cursor's DISPLAY column and treat
 --- the result as a DISPLAY-column span, mapping it back to byte offsets on the
 --- (possibly multibyte) header/value lines via `display_span_to_byte_span`.
 ---@param line string  the separator (column-underline) line
@@ -142,9 +141,8 @@ end
 
 --- Parse the header row into column names, splitting the `column_line` wherever
 --- the `underline` separator breaks the rule of `-`s (column gaps / `+` joints).
---- Port of `s:yank_header`'s scan, improved: we drop empty columns produced by
---- leading/trailing separators (mysql's `+...+` borders) instead of the original's
---- `[0:-1]` whole-string artifact.
+--- Empty columns produced by leading/trailing separators (mysql's `+...+`
+--- borders) are dropped.
 ---@param column_line string  the header-names line
 ---@param underline string  the `-`/`+` rule line
 ---@return string[]
@@ -177,9 +175,7 @@ end
 
 --- Build the foreign-key `SELECT` from the adapter template and the resolved
 --- foreign (schema, table, column) plus the cell value (quoted through the shared
---- `bind_params.quote`). Pure; `string.format` keeps the substitution free of the
---- original's hand-built command string. Port of the `printf` in
---- `jump_to_foreign_table`.
+--- `bind_params.quote`). Pure; `string.format` performs the substitution.
 ---@param template string  the adapter's select_foreign_key_query
 ---@param fschema string
 ---@param ftable string
@@ -193,8 +189,7 @@ end
 ---@private
 --- The separator (column-underline) line number for the result block under the
 --- cursor: scan up from the cursor for a line matching the adapter's
---- `cell_line_pattern`, falling back to its fixed `cell_line_number`. Port of
---- `s:get_cell_line_number`.
+--- `cell_line_pattern`, falling back to its fixed `cell_line_number`.
 ---@param scheme_info DadbodUI.SchemaAdapter
 ---@return integer
 local function cell_line_number(scheme_info)
@@ -249,8 +244,7 @@ end
 
 --- Jump from the foreign-key cell under the cursor to the row(s) it references.
 --- Resolves the foreign table with a synchronous introspection query and runs the
---- resulting `SELECT`, both through `bridge`. Port of
---- `db_ui#dbout#jump_to_foreign_table`.
+--- resulting `SELECT`, both through `bridge`.
 ---@return nil
 function M.jump_to_foreign_table()
   local notify = require('dadbod-ui.notifications')
@@ -288,14 +282,14 @@ function M.jump_to_foreign_table()
   -- Run quietly when the inline summary is on, so dadbod's `Running query...`
   -- echo doesn't reappear for the jump (the summary still renders via on_post).
   local config = ctx.current_config()
-  bridge.execute(url, query, config.query_time.enabled, config.result_layout == 'vertical')
+  bridge.execute(url, query, config.results.query_time.enabled, config.results.layout == 'vertical')
 end
 
 --- Visually select the cell value under the cursor (the `vic` text object / the
 --- operator-pending `ic`). Computes the cell span off the separator line, trims
 --- surrounding padding, and leaves a charwise visual selection over the trimmed
 --- value -- so `vic` selects and `{op}ic` operates without a register-clobbering
---- `gvy`. Port of `db_ui#dbout#get_cell_value`.
+--- `gvy`.
 ---@return nil
 function M.get_cell_value()
   local url, scheme_info = resolve_scheme('Yanking cell value')
@@ -333,8 +327,8 @@ function M.get_cell_value()
 end
 
 --- Yank the header row of the result block under the cursor as a CSV string into
---- the active register. Port of `db_ui#dbout#yank_header`, using `setreg` so it
---- honors `"x` register prefixes without touching the visual selection.
+--- the active register, using `setreg` so it honors `"x` register prefixes
+--- without touching the visual selection.
 ---@return nil
 function M.yank_header()
   local url, scheme_info = resolve_scheme('Yanking headers')
@@ -349,8 +343,7 @@ end
 --- Toggle the result layout between row and expanded/vertical form (`<Leader>R`),
 --- maintaining the `b:db_ui_expanded_layout` interop contract var. Re-runs the
 --- query through dadbod's own reload (`R`) -- collapsing restores the original
---- input, expanding appends the adapter's `layout_flag` to a temp copy. Port of
---- `db_ui#dbout#toggle_layout`.
+--- input, expanding appends the adapter's `layout_flag` to a temp copy.
 ---@return nil
 function M.toggle_layout()
   local notify = require('dadbod-ui.notifications')

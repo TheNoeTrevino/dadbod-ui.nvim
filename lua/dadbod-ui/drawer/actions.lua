@@ -29,15 +29,12 @@ function Drawer:toggle_help()
     return self
   end
 
-  -- Built from `config.mappings` so the help window and the live keymaps can
-  -- never drift; disabled (`key = 'none'`) actions are already filtered out.
+  -- Built from each context's `keys` map so the help window and the live keymaps
+  -- can never drift; disabled (`false`) keys are already filtered out.
   local lines = require('dadbod-ui.mappings').help_lines(self.config)
-  local max_len = 0
-  for _, line in ipairs(lines) do
-    if #line > max_len then
-      max_len = #line
-    end
-  end
+  local max_len = vim.iter(lines):fold(0, function(acc, line)
+    return math.max(acc, #line)
+  end)
 
   local width = math.min(max_len + 4, vim.o.columns - 4)
   local height = #lines
@@ -333,8 +330,7 @@ end
 
 --- Delete a saved query or tmp query buffer (the file and all its tracking),
 --- after confirmation. Saved queries leave file connections' disk store; tmp
---- buffers only exist in the tmp location. Port of the buffer branch of
---- `s:drawer.delete_line`.
+--- buffers only exist in the tmp location.
 ---@param item DadbodUI.Node
 ---@return nil
 function Drawer:delete_buffer(item)
@@ -353,7 +349,7 @@ function Drawer:delete_buffer(item)
     if not self.confirm('Are you sure you want to delete this saved query?') then
       return
     end
-    vim.fn.delete(file)
+    pcall(vim.fs.rm, file)
     entry.saved_queries.list = drop(entry.saved_queries.list)
     entry.buffers.list = drop(entry.buffers.list)
     notify.info('Deleted.')
@@ -361,7 +357,7 @@ function Drawer:delete_buffer(item)
     if not self.confirm('Are you sure you want to delete query?') then
       return
     end
-    vim.fn.delete(file)
+    pcall(vim.fs.rm, file)
     entry.buffers.list = drop(entry.buffers.list)
     notify.info('Deleted.')
   else
@@ -369,12 +365,12 @@ function Drawer:delete_buffer(item)
   end
   local bufnr = utils.loaded_bufnr(file)
   if bufnr > -1 then
-    local win = vim.fn.bufwinnr(bufnr)
+    local win = vim.fn.bufwinid(bufnr)
     if win > -1 then
-      vim.cmd(win .. 'wincmd w')
+      vim.api.nvim_set_current_win(win)
       vim.cmd('silent! b#')
     end
-    vim.cmd('silent! bwipeout! ' .. bufnr)
+    pcall(vim.api.nvim_buf_delete, bufnr, { force = true })
   end
   if self:is_open() then
     vim.api.nvim_set_current_win(self.winid)
@@ -400,8 +396,8 @@ end
 
 --- Rename a written query file on disk and move its buffer tracking to the new
 --- name, transferring the buffer-local contract. Saved queries keep their bare
---- name; tmp buffers are re-prefixed with the connection slug. Port of
---- `s:drawer.rename_buffer` (callback-shaped for our async prompt backend).
+--- name; tmp buffers are re-prefixed with the connection slug. Callback-shaped
+--- for our async prompt backend.
 ---@param buffer string  the file being renamed
 ---@param key_name string  the owning connection's key
 ---@param is_saved_query boolean
@@ -453,20 +449,20 @@ function Drawer:rename_buffer(buffer, key_name, is_saved_query)
     -- loaded_bufnr, not vim.fn.bufnr: the path is looked up exactly, never as a
     -- name PATTERN (a `.` in the path would otherwise match any char).
     local bufnr = utils.loaded_bufnr(buffer)
-    local bufwin = bufnr > -1 and vim.fn.bufwinnr(bufnr) or -1
+    local bufwin = bufnr > -1 and vim.fn.bufwinid(bufnr) or -1
     local new_bufnr = -1
     if bufwin > -1 then
       -- Navigate to the window actually showing the old buffer first: open_buffer
       -- -> Query:focus_window picks the first dbui window, which could be a
       -- DIFFERENT window's query buffer, and the rename would replace it.
-      vim.cmd(bufwin .. 'wincmd w')
+      vim.api.nvim_set_current_win(bufwin)
       self:query():open_buffer(entry, new, 'edit')
       new_bufnr = vim.api.nvim_get_current_buf()
     elseif bufnr > -1 then
       -- bufadd() returns the buffer number for `new` directly (creating it if
       -- needed), so we never round-trip through vim.fn.bufnr's pattern matching.
       new_bufnr = vim.fn.bufadd(new)
-      vim.fn.setbufvar(new_bufnr, '&buflisted', 1)
+      vim.bo[new_bufnr].buflisted = true
       table.insert(entry.buffers.list, new)
     else
       local idx = vim.fn.index(entry.buffers.list, buffer)
@@ -480,14 +476,13 @@ function Drawer:rename_buffer(buffer, key_name, is_saved_query)
 
     if new_bufnr > -1 then
       -- Carry the contract onto the renamed buffer through the single writer,
-      -- preserving the old buffer's table name and bind params (the latter is a
-      -- bare '' when the source was never parametrized -- round-tripped as-is).
-      -- Read from the old buffer's number (already resolved above), not its
-      -- name, so getbufvar resolves the buffer once rather than per field.
+      -- preserving the old buffer's table name and bind params (the latter is
+      -- nil when the source was never parametrized -- write_contract skips it).
+      local old = vim.b[bufnr]
       self:query().write_contract(new_bufnr, entry, {
-        table = vim.fn.getbufvar(bufnr, 'dbui_table_name'),
-        schema = vim.fn.getbufvar(bufnr, 'dbui_schema_name'),
-        bind_params = vim.fn.getbufvar(bufnr, 'dbui_bind_params'),
+        table = old.dbui_table_name,
+        schema = old.dbui_schema_name,
+        bind_params = old.dbui_bind_params,
       })
     end
 
@@ -505,7 +500,7 @@ end
 --- the buffer's path (`Query:get_saved_query_db_name`): non-empty picks that db by
 --- name; otherwise a lone connection is taken automatically and several prompt the
 --- (injectable) selector. `cb` receives the entry, or nil when nothing resolves or
---- the user cancels. Port of `s:get_db` (callback-shaped for the async selector).
+--- the user cancels. Callback-shaped for the async selector.
 ---@param saved_name string
 ---@param cb fun(entry: DadbodUI.ConnectionEntry|nil)
 ---@return nil
@@ -520,8 +515,11 @@ function Drawer:pick_db(saved_name, cb)
     return cb(nil)
   end
   if saved_name ~= '' then
+    -- `saved_name` is the group-qualified id from get_saved_query_db_name, so match
+    -- on the same qualified id -- a bare-name match would resolve a name reused
+    -- across groups to whichever came first (wrong db).
     return cb(entry_of(vim.iter(list):find(function(r)
-      return r.name:lower() == saved_name:lower()
+      return utils.qualified_name(r.name, r.group):lower() == saved_name:lower()
     end)))
   end
   if #list == 1 then
@@ -540,11 +538,11 @@ function Drawer:pick_db(saved_name, cb)
 end
 
 --- Jump to (or adopt) the query buffer for the current db context, backing
---- `:DBUIFindBuffer`. A buffer that already carries the `b:dbui_*` contract is
+--- `api.buf.find`. A buffer that already carries the `b:dbui_*` contract is
 --- registered and revealed in the drawer directly; a bare buffer first resolves a
 --- connection (`pick_db`), connects it, and writes the contract before revealing.
 --- Opens the drawer, moves the cursor onto the buffer's node, expands its
---- connection, then returns focus to the query window. Port of `db_ui#find_buffer`.
+--- connection, then returns focus to the query window.
 ---@return nil
 function Drawer:find_buffer()
   local notify = require('dadbod-ui.notifications')
@@ -580,7 +578,7 @@ function Drawer:reveal_buffer(entry)
     return require('dadbod-ui.notifications').error('Cannot assign an unnamed buffer; save it to a file first.')
   end
   self:query():setup_buffer(entry, { existing_buffer = true }, bufname)
-  -- Feed vim-dadbod-completion when it is installed, mirroring the original.
+  -- Feed vim-dadbod-completion when it is installed.
   if vim.fn.exists('*vim_dadbod_completion#fetch') == 1 then
     pcall(vim.fn['vim_dadbod_completion#fetch'], vim.api.nvim_get_current_buf())
   end
@@ -597,8 +595,176 @@ function Drawer:reveal_buffer(entry)
   if row > 0 then
     pcall(vim.api.nvim_win_set_cursor, self.winid, { row, 0 })
   end
-  -- Back to the window we came from (the query buffer), as the original does.
+  -- Back to the window we came from (the query buffer).
   vim.cmd('wincmd p')
+end
+
+--- Open the drawer, expand the connection `key_name` (introspecting it lazily,
+--- exactly as clicking its node would), and place the cursor on it. The scriptable
+--- "show me this database" verb behind `dadbod-ui.api.reveal`. Best-effort: a no-op
+--- for an unknown key. Returns focus to the drawer window (unlike `reveal_buffer`,
+--- which is called from a query buffer and hands focus back).
+---@param key_name string
+---@return nil
+function Drawer:reveal_db(key_name)
+  local entry = self.instance.dbs[key_name]
+  if entry == nil then
+    return
+  end
+  self:open()
+  if entry.expanded then
+    self:render()
+  else
+    -- Mark expanded and run the SAME lazy introspection the toggle path fires.
+    entry.expanded = true
+    self:introspect():expand_db(entry)
+  end
+  self:focus_db(key_name)
+end
+
+--- Re-introspect the connection `key_name`: reload its saved queries and re-scan
+--- schemas/tables from the live database (connecting first if needed), re-rendering
+--- the drawer when open. Backs `dadbod-ui.api.refresh`. Reuses the expand path, so
+--- an already-connected db just repopulates. A no-op for an unknown key.
+---@param key_name string
+---@return nil
+function Drawer:refresh_db(key_name)
+  local entry = self.instance.dbs[key_name]
+  if entry == nil then
+    return
+  end
+  self:introspect():expand_db(entry)
+end
+
+--- Switch the current query buffer from its connection to another one
+--- (`api.buf.switch`) -- the "oops, wrong connection" verb. Unlike
+--- `find_buffer`, which only ASSIGNS a bare buffer and no-ops on an
+--- already-attached one, this reassigns a buffer that already carries the
+--- contract: it prompts for a different db, re-registers the buffer under it, and
+--- rewrites the whole contract (`b:db`, `b:dbui_db_key_name`, the winbar, the
+--- execute-on-save autocmds) through the same `setup_buffer` the open path uses.
+--- The buffer's text is untouched; the table/schema/bind-param context rides
+--- across so a templated query still resolves. A bare buffer is handed to
+--- `find_buffer` instead (assign, not switch). Picks always prompt -- switching is
+--- an explicit choice -- so a lone connection has nothing to switch to.
+---
+--- `target_name` (name or key_name) switches DIRECTLY to that connection with no
+--- prompt -- the scriptable path behind `dadbod-ui.api.buf.switch`. It returns
+--- `ok, err`; the interactive path (no `target_name`) shows the picker and
+--- returns nil.
+---@param target_name? string
+---@return boolean|nil ok
+---@return string|nil err
+function Drawer:switch_buffer(target_name)
+  local notify = require('dadbod-ui.notifications')
+  local bufnr = vim.api.nvim_get_current_buf()
+  local key = vim.b[bufnr].dbui_db_key_name
+  local current = (type(key) == 'string' and key ~= '') and self.instance.dbs[key] or nil
+  if current == nil then
+    -- Nothing to switch FROM. The interactive verb falls back to the assign
+    -- path; a scripted switch to a named db needs a real query buffer, so error.
+    if target_name ~= nil then
+      return false, 'the current buffer is not a dadbod-ui query buffer'
+    end
+    return self:find_buffer()
+  end
+
+  -- Candidates are every OTHER connection; with none there is nothing to switch to.
+  local others = vim.tbl_filter(function(r)
+    return r.key_name ~= current.key_name
+  end, self.instance.dbs_list)
+  -- Sorted by their `group/name` label so the picker reads predictably.
+  table.sort(others, function(a, b)
+    return utils.display_name(a.name, a.group):lower() < utils.display_name(b.name, b.group):lower()
+  end)
+  if #others == 0 then
+    if target_name ~= nil then
+      return false, 'no other connection to switch this buffer to'
+    end
+    return notify.info('No other connection to switch this buffer to.')
+  end
+
+  -- The switch core: reassign the captured `bufnr` to the chosen record. Shared
+  -- by the picker callback and the direct (scripted) path. Returns `ok, err`.
+  ---@param choice DadbodUI.ConnectionRecord
+  ---@return boolean ok
+  ---@return string|nil err
+  local function do_switch(choice)
+    local target = self.instance.dbs[choice.key_name]
+    if target == nil or target.key_name == current.key_name then
+      return false, 'invalid switch target'
+    end
+    -- The async picker may resolve after focus moved (e.g. into the drawer);
+    -- re-enter the buffer's window so setup_buffer acts on the right buffer.
+    local win = vim.fn.bufwinid(bufnr)
+    if win == -1 then
+      notify.error('The query buffer is no longer visible; switch aborted.')
+      return false, 'the query buffer is no longer visible'
+    end
+    vim.api.nvim_set_current_win(win)
+
+    -- Carry the buffer's context across (mirrors the rename passthrough): the
+    -- text is unchanged, so any {table}/{schema} it was templated with -- and any
+    -- answered bind params -- stay valid to re-send against the new connection.
+    local carry = {
+      existing_buffer = true,
+      table = vim.b[bufnr].dbui_table_name,
+      schema = vim.b[bufnr].dbui_schema_name,
+      bind_params = vim.b[bufnr].dbui_bind_params,
+    }
+    local bufname = vim.api.nvim_buf_get_name(0)
+
+    -- Drop the buffer from the OLD connection's tracking (setup_buffer re-adds it
+    -- to the new one). Filter by resolved path, as remove_buffer does.
+    local target_path = vim.fn.fnamemodify(bufname, ':p')
+    local function keep(path)
+      return vim.fn.fnamemodify(path, ':p') ~= target_path
+    end
+    current.buffers.list = vim.tbl_filter(keep, current.buffers.list)
+    current.buffers.tmp = vim.tbl_filter(keep, current.buffers.tmp)
+
+    -- Connect so b:db is a live handle, then rewrite the contract, re-register,
+    -- rewire autocmds and re-apply the winbar -- all through the open path's
+    -- setup_buffer (the augroup is per-bufnr and cleared, so nothing leaks).
+    self:introspect():connect(target)
+    self:query():setup_buffer(target, carry, bufname)
+
+    -- Feed vim-dadbod-completion the new connection, as reveal_buffer does.
+    if vim.fn.exists('*vim_dadbod_completion#fetch') == 1 then
+      pcall(vim.fn['vim_dadbod_completion#fetch'], bufnr)
+    end
+
+    self:render()
+    notify.info('Switched buffer to db ' .. target.name)
+    return true
+  end
+
+  -- Direct path: resolve `target_name` among the candidates and switch, no prompt.
+  if target_name ~= nil then
+    local choice = vim.iter(others):find(function(r)
+      return r.name == target_name or r.key_name == target_name
+    end)
+    if choice == nil then
+      return false, 'no connection named ' .. target_name .. ' to switch to'
+    end
+    return do_switch(choice)
+  end
+
+  self:query().select(others, {
+    -- Label candidates (and the current db) as `group/name` so a name reused
+    -- across groups is unambiguous in the picker -- see issue #58.
+    prompt = string.format('Switch buffer from %s to db:', utils.display_name(current.name, current.group)),
+    ---@param r DadbodUI.ConnectionRecord
+    ---@return string
+    format_item = function(r)
+      return utils.display_name(r.name, r.group)
+    end,
+  }, function(choice)
+    if choice == nil then
+      return -- cancelled: leave the buffer on its current connection
+    end
+    do_switch(choice)
+  end)
 end
 
 --- Refresh the tree (`R`): re-discover connections from disk and re-render.
