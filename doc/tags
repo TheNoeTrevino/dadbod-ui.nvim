@@ -25,11 +25,8 @@ M.setup()	dadbod-ui.txt	/*M.setup()*
 M.statusline()	dadbod-ui.txt	/*M.statusline()*
 M.switch_buffer()	dadbod-ui.txt	/*M.switch_buffer()*
 M.toggle()	dadbod-ui.txt	/*M.toggle()*
-coerce()	dadbod-ui.txt	/*coerce()*
 dadbod-ui	dadbod-ui.txt	/*dadbod-ui*
-dadbod-ui-commands	dadbod-ui.txt	/*dadbod-ui-commands*
 dadbod-ui-configuration	dadbod-ui.txt	/*dadbod-ui-configuration*
 dadbod-ui-quickstart	dadbod-ui.txt	/*dadbod-ui-quickstart*
 dadbod-ui.nvim	dadbod-ui.txt	/*dadbod-ui.nvim*
 freeze()	dadbod-ui.txt	/*freeze()*
-legacy_global()	dadbod-ui.txt	/*legacy_global()*

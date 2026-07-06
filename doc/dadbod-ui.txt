@@ -19,8 +19,8 @@ stays acyclic.
 Setup is optional -- dadbod-ui works with sensible defaults: >lua
   require('dadbod-ui').setup()
 <
-Open the drawer with the `:DBUI` command, or from Lua: >lua
-  require('dadbod-ui').open()
+Open the drawer from Lua (dadbod-ui ships no user commands): >lua
+  require('dadbod-ui.api').open()
 <
 ------------------------------------------------------------------------------
 Class ~
@@ -69,7 +69,7 @@ Type ~
 Configure the plugin: resolve options and drop the cached instance/drawer so
 the new config takes effect.
 Parameters ~
-{opts} `(optional)` `(table)`
+{opts} `(optional)` `(DadbodUI.Config)`
 Return ~
 `(table)`
 
@@ -94,7 +94,7 @@ Close the drawer.
                                                             *M.add_connection()*
                               `M.add_connection`()
 Add a connection interactively (prompts for url + name), independent of
-whether the drawer is open. Backs `:DBUIAddConnection`.
+whether the drawer is open. Exposed as `api.add_connection`.
 
 ------------------------------------------------------------------------------
                                                           *M.connections_list()*
@@ -163,8 +163,8 @@ Return ~
 ------------------------------------------------------------------------------
                                                               *M.cancel_query()*
                                `M.cancel_query`()
-Cancel the running async query for the current query buffer. Backs
-`:DBUICancelQuery` and the `cancel` query mapping; fires the `on_cancel_query`
+Cancel the running async query for the current query buffer. Exposed as
+`api.buf.cancel` and the `cancel` query mapping; fires the `on_cancel_query`
 / `on_cancel_query_post` hooks around the cancel.
 Return ~
 `(nil)`
@@ -185,8 +185,8 @@ Return ~
 ------------------------------------------------------------------------------
                                                                *M.find_buffer()*
                                `M.find_buffer`()
-Jump to (or adopt) the query buffer for the current db context. Backs
-`:DBUIFindBuffer`: a buffer already carrying the `b:dbui_*` contract is
+Jump to (or adopt) the query buffer for the current db context. Exposed as
+`api.buf.find`: a buffer already carrying the `b:dbui_*` contract is
 revealed in the drawer; a bare buffer resolves/connects a db and adopts it.
 Return ~
 `(nil)`
@@ -194,8 +194,8 @@ Return ~
 ------------------------------------------------------------------------------
                                                              *M.switch_buffer()*
                            `M.switch_buffer`({name})
-Switch the current query buffer's connection to another one. Backs
-`:DBUISwitchBuffer`: prompts for a different db, reassigns the buffer
+Switch the current query buffer's connection to another one. Exposed as
+`api.buf.switch`: prompts for a different db, reassigns the buffer
 (rewriting `b:db`/`b:dbui_db_key_name`, the winbar and the execute-on-save
 autocmds) without touching the buffer text. A bare buffer falls back to the
 `find_buffer` assign path. Pass `name` to switch straight to that connection
@@ -244,15 +244,15 @@ Return ~
                                                              *M.rename_buffer()*
                               `M.rename_buffer`()
 Rename the current query buffer's on-disk file (and move its buffer tracking).
-Backs `:DBUIRenameBuffer`; delegates to the drawer's rename path for the buffer
-under the cursor / in focus.
+Exposed as `api.buf.rename`; delegates to the drawer's rename path for the
+buffer under the cursor / in focus.
 Return ~
 `(nil)`
 
 ------------------------------------------------------------------------------
                                                      *M.print_last_query_info()*
                           `M.print_last_query_info`()
-Echo the last executed query and its runtime. Backs `:DBUILastQueryInfo`.
+Echo the last executed query and its runtime. Exposed as `api.buf.last_query_info`.
 Return ~
 `(nil)`
 
@@ -284,9 +284,8 @@ Configuration
 # Configuration ~
 
 Options are passed to |dadbod-ui.setup()| as a table with snake_case keys
-(the field surface is |DadbodUI.Config|). The `g:db_ui_*` globals are also
-read; precedence is defaults < `g:db_ui_*` globals < `setup()` opts. Every option has a
-sensible default, so `setup()` is optional. See `M.defaults` in
+(the field surface is |DadbodUI.Config|). Every option has a sensible
+default, so `setup()` is optional. See `M.defaults` in
 `lua/dadbod-ui/config.lua` for the full default table.
 
 ------------------------------------------------------------------------------
@@ -294,36 +293,17 @@ Class ~
 {DadbodUI.ConfigModule}
 Fields ~
 {defaults} `(DadbodUI.Config)`
-{mapping_sections} `({ group: string, title: string }[])`
-{mapping_order} `(table<string, string[]>)`
-{resolve} `(fun(opts?: table): DadbodUI.Config)`
+{contexts} `({ group: string, title: string }[])`
+{builtin_actions} `(table<string, table<string, string>>)`
+{action_order} `(table<string, string[]>)`
+{resolve} `(fun(opts?: DadbodUI.Config): DadbodUI.Config)`
 
 ------------------------------------------------------------------------------
                                                                     *M.defaults*
                                   `M.defaults`
-Built-in defaults. Keys mirror the `g:db_ui_*` options with the
-`db_ui_` prefix dropped. Booleans are real Lua booleans (the `g:db_ui_*`
-globals use 0/1 and are coerced on read).
+Built-in defaults.
 Type ~
 `(DadbodUI.Config)`
-
-------------------------------------------------------------------------------
-                                                                      *coerce()*
-                          `coerce`({default}, {value})
-Parameters ~
-{default} `(any)`
-{value} `(any)`
-Return ~
-`(any)`
-
-------------------------------------------------------------------------------
-                                                               *legacy_global()*
-                       `legacy_global`({key}, {default})
-Parameters ~
-{key} `(string)`
-{default} `(any)`
-Return ~
-`(any)`
 
 ------------------------------------------------------------------------------
                                                                       *freeze()*
@@ -337,34 +317,13 @@ Return ~
 ------------------------------------------------------------------------------
                                                                    *M.resolve()*
                               `M.resolve`({opts})
-Resolve effective config: defaults < `g:db_ui_*` globals < `opts`. The
-returned table is frozen (see `freeze`): it is the session's shared config, so
-accidental writes to it raise rather than silently corrupting every reader.
+Resolve effective config: defaults < `opts`. The returned table is frozen
+(see `freeze`): it is the session's shared config, so accidental writes to
+it raise rather than silently corrupting every reader.
 Parameters ~
-{opts} `(optional)` `(table)`  partial config overrides
+{opts} `(optional)` `(DadbodUI.Config)`  partial config overrides
 Return ~
 `(DadbodUI.Config)`
-
-
-==============================================================================
-------------------------------------------------------------------------------
-                                                            *dadbod-ui-commands*
-Commands
-
-# Commands ~
-
-dadbod-ui.nvim provides the following user commands:
-
-`:DBUI`                          Open the drawer
-`:DBUIToggle`                    Toggle the drawer open/closed
-`:DBUIClose`                     Close the drawer
-`:DBUIAddConnection`             Add a connection interactively
-`:DBUIFindBuffer`                Find/assign the query buffer for this db
-`:DBUISwitchBuffer`              Switch this query buffer to another connection
-`:DBUIRenameBuffer`              Rename the current query buffer
-`:DBUILastQueryInfo`             Echo the last query and its runtime
-`:DBUICancelQuery`               Cancel the running query for this buffer
-`:DBUIExportResult [full|current]`  Export the current result to a file
 
 
  vim:tw=78:ts=8:noet:ft=help:norl:
