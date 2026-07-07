@@ -5,11 +5,12 @@
 -- command. The plugin keeps dadbod as the engine and owns only the UI, so
 -- this file is the engine boundary -- keep it small and focused.
 --
--- vim-dadbod exposes TWO execution paths and we mirror both:
+-- Execution paths:
 --
---   * Synchronous  -> `systemlist()`. Blocks Neovim. Used for fast schema /
---                     table introspection that populates the drawer.
---   * Asynchronous -> `execute()` via `:DB`. Non-blocking: dadbod spawns a job,
+--   * Feature queries -> `run_many()` / `query_command()`. Non-blocking: we own
+--                        the process via `vim.system`; dadbod only builds the
+--                        per-adapter argv. Introspection, FK lookups, export.
+--   * User queries    -> `execute()` via `:DB`. Non-blocking: dadbod spawns a job,
 --                     writes a `.dbout` file and fires the User autocmds
 --                     `*DBExecutePre` / `*DBExecutePost`. Subscribe with
 --                     `on_pre` / `on_post` to drive the in-buffer loading
@@ -49,7 +50,6 @@
 ---@field connect_async fun(url: string, on_result: DadbodUI.ConnectAsyncCallback)
 ---@field can_cancel fun(): boolean
 ---@field cancel fun(bufnr: integer|nil)
----@field systemlist fun(cmd: string[], input: string|nil): string[]
 ---@field command fun(url: string, mode: string|nil): string[]
 ---@field query_command fun(conn: string, sql: string): DadbodUI.CommandSpec
 ---@field run_many fun(specs: DadbodUI.CommandSpec[], on_done: DadbodUI.RunManyCallback)
@@ -337,22 +337,6 @@ function M.cancel(bufnr)
   else
     fn['db#cancel']()
   end
-end
-
--- Synchronous introspection --------------------------------------------------
-
---- Run `cmd` (an argv list) synchronously, optionally feeding `input` (a file
---- path). Blocks Neovim. Used for fast schema / table metadata, never for user
---- queries.
----@param cmd string[]
----@param input string|nil
----@return string[]
-function M.systemlist(cmd, input)
-  require_dadbod()
-  if input ~= nil then
-    return fn['db#systemlist'](cmd, input)
-  end
-  return fn['db#systemlist'](cmd)
 end
 
 -- Concurrent introspection (fan-out / WaitGroup) -----------------------------

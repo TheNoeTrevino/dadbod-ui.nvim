@@ -7,18 +7,17 @@
 -- slicing/splitting rules encode each CLI's exact output framing (header rows,
 -- footer counts, column delimiters) and must not be paraphrased.
 --
--- Execution is async: instead of dadbod's blocking `db#systemlist`, the drawer
--- builds a `DadbodUI.CommandSpec` via `command_spec` and runs schema + table
--- listing concurrently through `bridge.run_many`, so a large database never
--- freezes the UI on expand. The command construction still goes through dadbod
--- (via `bridge.command`) so the per-adapter argv stays correct.
+-- Execution is async everywhere: every feature query (schema/table listing,
+-- routines, the dbout foreign-key lookup) builds a `DadbodUI.CommandSpec` via
+-- `command_spec` and runs through `bridge.run_many`, so no introspection ever
+-- freezes the UI. The command construction still goes through dadbod (via
+-- `bridge.command`) so the per-adapter argv stays correct.
 
 ---@class DadbodUI.SchemasModule
 ---@field results_parser fun(results: string[], delimiter: string, min_len: integer): any[]
 ---@field get fun(scheme: string, config?: DadbodUI.Config): DadbodUI.SchemaAdapter
 ---@field supports_schemes fun(scheme_info: DadbodUI.SchemaAdapter, parsed_url: DadbodUI.ParsedUrl): boolean
 ---@field command_spec fun(conn: string, scheme_info: DadbodUI.SchemaAdapter, query: string): DadbodUI.CommandSpec
----@field query fun(conn: string, scheme_info: DadbodUI.SchemaAdapter, query: string): string[]
 ---@field result_lines fun(result: { code: integer, stdout: string, stderr: string }): string[]
 ---@field normalize_table_list fun(scheme: string, raw: string[]): string[]
 
@@ -88,23 +87,6 @@ function M.command_spec(conn, scheme_info, query)
   end
   cmd[#cmd + 1] = query
   return { cmd = cmd }
-end
-
---- Run `query` against `conn` synchronously and return its output lines (trailing
---- CR stripped). Blocks Neovim, so it is reserved for the single small
---- introspection lookup the dbout foreign-key jump needs -- not for the drawer's
---- bulk introspection, which fans out async via `run_many`. Goes through the
---- bridge (the engine boundary) for the actual call.
----@param conn string  resolved connection url
----@param scheme_info DadbodUI.SchemaAdapter
----@param query string
----@return string[]
-function M.query(conn, scheme_info, query)
-  local spec = M.command_spec(conn, scheme_info, query)
-  local result = bridge.systemlist(spec.cmd, spec.stdin)
-  return vim.tbl_map(function(line)
-    return (line:gsub('\r$', ''))
-  end, result)
 end
 
 --- Turn one `vim.system` result into the line list dadbod's `db#systemlist`

@@ -51,26 +51,25 @@ describe('schemas: supports_schemes', function()
 end)
 
 describe('schemas: result parsers', function()
-  it('parses postgres schema and table output, stripping header and row count', function()
+  it('parses postgres tuples-only output (-A -t: no header, no row count), skipping blanks', function()
     local pg = schemas.get('postgres')
-    local schema_lines = { 'schema_name', 'public', 'information_schema', '(2 rows)' }
+    local schema_lines = { 'public', 'information_schema', '' }
     assert.same({ 'public', 'information_schema' }, pg.parse_results(schema_lines, 1))
 
     local table_lines = {
-      'table_schema|table_name',
       'public|users',
       'public|posts',
-      '(2 rows)',
+      '',
     }
     assert.same({ { 'public', 'users' }, { 'public', 'posts' } }, pg.parse_results(table_lines, 2))
   end)
 
-  it('parses mysql tab-separated output, dropping the header row', function()
+  it('parses mysql headerless tab-separated output (-N)', function()
     local my = schemas.get('mysql')
-    local schema_lines = { 'schema_name', 'information_schema', 'app' }
+    local schema_lines = { 'information_schema', 'app' }
     assert.same({ 'information_schema', 'app' }, my.parse_results(schema_lines, 1))
 
-    local table_lines = { 'table_schema\ttable_name', 'app\tusers', 'app\tposts' }
+    local table_lines = { 'app\tusers', 'app\tposts' }
     assert.same({ { 'app', 'users' }, { 'app', 'posts' } }, my.parse_results(table_lines, 2))
   end)
 
