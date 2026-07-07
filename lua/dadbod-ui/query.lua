@@ -315,7 +315,9 @@ function Query:setup_buffer(entry, opts, name)
 
   if not vim.tbl_contains(db_buffers.list, name) then
     if #db_buffers.list == 0 then
-      db_buffers.expanded = true
+      -- The connection's first open buffer: expand its Buffers section so the
+      -- buffer is visible in the drawer right away.
+      self.drawer:set_expanded(require('dadbod-ui.drawer.ids').section(entry.key_name, 'buffers'), true)
     end
     table.insert(db_buffers.list, name)
     self.drawer:render()
