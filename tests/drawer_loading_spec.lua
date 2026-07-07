@@ -71,7 +71,7 @@ describe('drawer loading: line_for', function()
     d:set_expanded(ids.section(entry.key_name, 'schemas'), true)
     d:set_expanded(ids.schema(entry.key_name, 'public'), true)
     entry.schemas.list = { 'public' }
-    entry.schemas.items = { public = { tables = { list = { 'users' } } } }
+    entry.schemas.items = { public = { 'users' } }
     d:render()
     local rendered = lines(d)
     assert.is_true(#rendered > 4)
@@ -231,7 +231,7 @@ describe('drawer loading: sqlite end-to-end (guarded)', function()
     d:set_expanded(ids.db(entry.key_name), true)
     d:introspect():expand_db(entry)
     local ok = vim.wait(3000, function()
-      return not entry.loading and #entry.tables.list > 0
+      return not entry.loading and #entry.tables > 0
     end, 25)
     assert.is_true(ok, 'expected tables to load and the loading marker to clear')
     assert.is_true(state.is_connected(entry))

@@ -111,7 +111,7 @@ describe('saved queries', function()
     d:delete_line()
 
     assert.equals(0, vim.fn.filereadable(saved))
-    assert.equals(0, #entry.saved_queries.list)
+    assert.equals(0, #entry.saved_queries)
   end)
 
   it('renames a saved query (file and node) on r', function()
@@ -174,7 +174,7 @@ describe('saved queries', function()
     assert.is_not_nil(msg) -- notified the failure
     assert.equals(1, vim.fn.filereadable(saved)) -- original file still on disk
     -- Tracking untouched: the file did NOT vanish from the drawer's list.
-    assert.is_true(vim.tbl_contains(entry.saved_queries.list, saved))
+    assert.is_true(vim.tbl_contains(entry.saved_queries, saved))
     assert.equals(0, vim.fn.filereadable(entry.save_path .. '/renamed.sql'))
   end)
 
@@ -210,6 +210,6 @@ describe('saved queries', function()
     assert.is_not_nil(msg)
     assert.equals(1, vim.fn.filereadable(saved)) -- original untouched
     assert.same({ 'select 2' }, vim.fn.readfile(taken)) -- target NOT overwritten
-    assert.is_true(vim.tbl_contains(entry.saved_queries.list, saved))
+    assert.is_true(vim.tbl_contains(entry.saved_queries, saved))
   end)
 end)

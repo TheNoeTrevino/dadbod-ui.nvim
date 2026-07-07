@@ -21,43 +21,23 @@
 ---@field supported_schemes fun(): string[]
 ---@field wrap fun(scheme: string, sql: string, opts?: DadbodUI.ExplainOpts): string|nil, string|nil
 
+---@private
+local adapters = require('dadbod-ui.adapters')
+
 ---@type DadbodUI.ExplainModule
 ---@diagnostic disable-next-line: missing-fields
 local M = {}
 
 ---@private
--- `{sql}` is substituted with the user's query (see `subst`). `plain` is the
--- planner estimate (never executes); `analyze` runs the query for real timings
--- and is intentionally absent for adapters that have no executing EXPLAIN form.
----@type table<string, { plain: string, analyze?: string }>
-local templates = {
-  postgresql = { plain = 'EXPLAIN {sql}', analyze = 'EXPLAIN ANALYZE {sql}' },
-  mysql = { plain = 'EXPLAIN {sql}', analyze = 'EXPLAIN ANALYZE {sql}' },
-  -- MariaDB spells its executing form `ANALYZE <stmt>` (no `EXPLAIN` prefix).
-  mariadb = { plain = 'EXPLAIN {sql}', analyze = 'ANALYZE {sql}' },
-  -- SQLite's `EXPLAIN QUERY PLAN` is the high-level plan; bare `EXPLAIN` dumps
-  -- VDBE bytecode and there is no executing/timed form, so no `analyze`.
-  sqlite = { plain = 'EXPLAIN QUERY PLAN {sql}' },
-  clickhouse = { plain = 'EXPLAIN {sql}' },
-  -- Oracle populates PLAN_TABLE then renders it -- two statements, run together
-  -- (the engine's multi-statement paths handle the `;`-separated pair).
-  oracle = { plain = 'EXPLAIN PLAN FOR {sql};\nSELECT * FROM TABLE(DBMS_XPLAN.DISPLAY);' },
-}
-
----@private
--- Raw-scheme aliases -> the canonical template key. `entry.scheme` is already
--- canonical (postgres -> postgresql), but normalize defensively so a caller
--- passing a raw scheme still resolves.
-local aliases = {
-  postgres = 'postgresql',
-  sqlite3 = 'sqlite',
-}
-
----@private
+--- The `{sql}`-templated explain forms for a scheme (the adapter spec's
+--- `explain` field), or nil when the adapter has none. `plain` is the planner
+--- estimate (never executes); `analyze` runs the query for real timings and is
+--- intentionally absent for adapters with no executing EXPLAIN form.
 ---@param scheme string
----@return string
-local function canonical(scheme)
-  return aliases[scheme] or scheme
+---@return { plain: string, analyze?: string }|nil
+local function templates_for(scheme)
+  local spec = adapters.get(scheme)
+  return spec and spec.explain or nil
 end
 
 ---@private
@@ -79,16 +59,15 @@ end
 ---@param scheme string
 ---@return boolean
 function M.supports(scheme)
-  return templates[canonical(scheme)] ~= nil
+  return templates_for(scheme) ~= nil
 end
 
---- The canonical schemes that support an explain plan, sorted -- for building a
---- clear "not supported for X (supported: ...)" error, or feature-gating a UI.
+--- The canonical adapter names that support an explain plan, sorted -- for
+--- building a clear "not supported for X (supported: ...)" error, or
+--- feature-gating a UI.
 ---@return string[]
 function M.supported_schemes()
-  local names = vim.tbl_keys(templates)
-  table.sort(names)
-  return names
+  return adapters.names('explain')
 end
 
 --- Wrap `sql` in `scheme`'s EXPLAIN syntax, returning the explain query. Returns
@@ -103,8 +82,7 @@ end
 ---@return string|nil err
 function M.wrap(scheme, sql, opts)
   opts = opts or {}
-  local key = canonical(scheme)
-  local template = templates[key]
+  local template = templates_for(scheme)
   if template == nil then
     return nil,
       string.format(
@@ -115,7 +93,7 @@ function M.wrap(scheme, sql, opts)
   end
   if opts.analyze then
     if template.analyze == nil then
-      return nil, string.format('EXPLAIN ANALYZE is not supported for adapter %s', key)
+      return nil, string.format('EXPLAIN ANALYZE is not supported for adapter %s', adapters.canonical(scheme))
     end
     return subst(template.analyze, sql)
   end

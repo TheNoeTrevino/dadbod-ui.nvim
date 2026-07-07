@@ -152,11 +152,11 @@ local function make_entry(record, save_path, config, old_buffers)
     table_helpers = table_helpers.get(scheme, config),
     -- Pure domain containers: drawer expand/collapse state lives in the
     -- drawer's `expand` map (see drawer/ids.lua), never on these.
-    tables = { list = {} },
+    tables = {},
     schemas = { list = {}, items = {} },
     routines = { list = {}, items = {}, flat = {} },
     buffers = { list = buffers_for(old_buffers, save_name), tmp = {} },
-    saved_queries = { list = {} },
+    saved_queries = {},
   }
 end
 

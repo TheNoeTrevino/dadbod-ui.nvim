@@ -74,9 +74,9 @@ describe('explain: supports / supported_schemes', function()
     assert.is_false(explain.supports('bigquery'))
   end)
 
-  it('lists the supported schemes sorted', function()
+  it('lists the supported schemes sorted (canonical adapter names)', function()
     local schemes = explain.supported_schemes()
-    assert.same({ 'clickhouse', 'mariadb', 'mysql', 'oracle', 'postgresql', 'sqlite' }, schemes)
+    assert.same({ 'clickhouse', 'mariadb', 'mysql', 'oracle', 'postgres', 'sqlite' }, schemes)
   end)
 end)
 

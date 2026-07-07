@@ -173,6 +173,16 @@ function Drawer:set_expanded(id, value)
   self.expand[id] = value
 end
 
+--- Mark a connection's section expanded -- the semantic verb for callers
+--- outside the drawer (e.g. the query controller pre-expanding Buffers), so the
+--- id scheme in `drawer/ids.lua` stays a drawer-internal detail.
+---@param key_name string
+---@param section string  'buffers' | 'saved_queries' | 'schemas' | 'tables' | 'routines'
+---@return nil
+function Drawer:expand_section(key_name, section)
+  self:set_expanded(require('dadbod-ui.drawer.ids').section(key_name, section), true)
+end
+
 ---@return boolean
 function Drawer:is_open()
   return self.winid ~= nil and vim.api.nvim_win_is_valid(self.winid)

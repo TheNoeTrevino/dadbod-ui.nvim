@@ -52,10 +52,10 @@ describe('schema introspection: apply_schemas', function()
       { 'app', 'tasks' },
     })
     assert.same({ 'public', 'app' }, entry.schemas.list)
-    assert.same({ 'posts', 'users' }, entry.schemas.items.public.tables.list) -- sorted
-    assert.same({ 'tasks' }, entry.schemas.items.app.tables.list)
+    assert.same({ 'posts', 'users' }, entry.schemas.items.public) -- sorted
+    assert.same({ 'tasks' }, entry.schemas.items.app)
     -- the flat table list collects every schema's tables
-    assert.equals(3, #entry.tables.list)
+    assert.equals(3, #entry.tables)
   end)
 
   it('drops schemas and tables matching hide_schemas', function()
@@ -67,7 +67,7 @@ describe('schema introspection: apply_schemas', function()
       { 'pg_catalog', 'pg_class' },
     })
     assert.same({ 'public' }, entry.schemas.list)
-    assert.same({ 'users' }, entry.tables.list)
+    assert.same({ 'users' }, entry.tables)
     assert.is_nil(entry.schemas.items.information_schema)
   end)
 end)
@@ -90,7 +90,7 @@ describe('schema introspection: rendering', function()
     d:set_expanded(ids.schema(entry.key_name, 'public'), true)
     d:set_expanded(ids.table(entry.key_name, 'public', 'users'), true)
     entry.schemas.list = { 'public' }
-    entry.schemas.items = { public = { tables = { list = { 'users' } } } }
+    entry.schemas.items = { public = { 'users' } }
     d:render()
     local l = lines(d)
     assert.equals('▾ dev', l[1])
@@ -110,7 +110,7 @@ describe('schema introspection: rendering', function()
     assert.is_false(entry.schema_support)
     d:set_expanded(ids.db(entry.key_name), true)
     d:set_expanded(ids.section(entry.key_name, 'tables'), true)
-    entry.tables = { list = { 'contacts' } }
+    entry.tables = { 'contacts' }
     d:render()
     local l = lines(d)
     assert.equals('▾ qa', l[1])
@@ -197,7 +197,7 @@ describe('schema introspection: sqlite end-to-end (guarded)', function()
     d:introspect():connect(entry)
     assert.is_truthy(entry.conn ~= nil and entry.conn ~= '')
     d:introspect():populate_tables(entry)
-    assert.is_true(vim.tbl_contains(entry.tables.list, 'contacts'))
-    assert.is_true(vim.tbl_contains(entry.tables.list, 'notes'))
+    assert.is_true(vim.tbl_contains(entry.tables, 'contacts'))
+    assert.is_true(vim.tbl_contains(entry.tables, 'notes'))
   end)
 end)
