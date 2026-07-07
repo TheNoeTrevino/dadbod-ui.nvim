@@ -14,9 +14,15 @@
 -- context. A name with no built-in handler and no `config.actions` entry is
 -- skipped (neither bound nor shown in help).
 
+--- Builds the `ctx` handed to user actions at trigger time. Aliased (rather
+--- than written inline in the `apply` field below) because an inline
+--- `fun(...): T` followed by another parameter makes LuaLS parse that parameter
+--- as a second return type, silently swallowing it from the signature.
+---@alias DadbodUI.MakeCtx fun(mode: string): DadbodUI.ActionContext
+
 ---@class DadbodUI.MappingsModule
 ---@field normalize fun(spec: DadbodUI.KeySpec): { action: string, modes: string[] }|nil
----@field apply fun(keys: DadbodUI.Keymaps, handlers: table<string, fun(mode: string)>, actions: table<string, DadbodUI.Action>, make_ctx: fun(mode: string): DadbodUI.ActionContext, opts: table)
+---@field apply fun(keys: DadbodUI.Keymaps, handlers: table<string, fun(mode: string)>, actions: table<string, DadbodUI.Action>, make_ctx: DadbodUI.MakeCtx, opts: table)
 ---@field help_lines fun(config: DadbodUI.Config): string[]
 ---@field keys_for_action fun(keys: DadbodUI.Keymaps, action: string): string
 

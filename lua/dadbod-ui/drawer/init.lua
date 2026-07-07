@@ -56,6 +56,8 @@ local M = {}
 ---@field confirm DadbodUI.Confirm  yes/no backend (injectable for specs)
 ---@field connector fun(url: string): string  synchronous connect backend (injectable for specs)
 ---@field async_connector fun(url: string, on_result: fun(ok: boolean, conn: string)): nil  non-blocking connect backend (injectable for specs)
+---@field _painted? DadbodUI.Painted  snapshot of the last paint; diffed by the next render so only the changed span is rewritten (it carries its bufnr, so a recreated buffer invalidates it by construction)
+---@field loading_frames table<string, string>  current spinner frame per loading connection (key_name -> frame), rendered by the content builder while `entry.loading`; view state, like `expand`
 ---@field _query? DadbodUI.Query  lazily-built query controller
 ---@field _introspect? DadbodUI.Introspect  lazily-built introspection controller
 ---@field _connections? DadbodUI.ConnectionsController  lazily-built CRUD controller
@@ -85,6 +87,7 @@ function M.new(instance)
     roots = {},
     content = {},
     expand = {},
+    loading_frames = {},
     help_winid = nil,
     show_details = false,
     input = vim.ui.input,
@@ -93,6 +96,7 @@ function M.new(instance)
     end,
     connector = bridge.connect,
     async_connector = bridge.connect_async,
+    _painted = nil,
     _query = nil,
     _introspect = nil,
     _connections = nil,
@@ -282,7 +286,10 @@ function Drawer:toggle()
   end
 end
 
---- Rebuild `content` from the instance and write the buffer lines.
+--- Rebuild `content` from the instance and write the buffer lines. Incremental:
+--- the paint diffs against the previous render's snapshot and rewrites only the
+--- changed span, so an unchanged render (e.g. the BufEnter re-render) leaves the
+--- buffer, its extmarks and the cursor untouched.
 ---@return DadbodUI.Drawer
 function Drawer:render()
   if not self:is_open() then
@@ -290,45 +297,23 @@ function Drawer:render()
   end
   -- is_open() guarantees a live window, hence a buffer; narrow bufnr to non-nil.
   local bufnr = assert(self.bufnr)
-  painter.paint(bufnr, self:build_content(), self.icons)
+  self._painted = painter.paint(bufnr, self:build_content(), self.icons, self._painted)
   return self
 end
 
---- Repaint a SINGLE db node's line in place, setting its icon to `frame` -- the
---- cheap path the loading spinner drives at 80ms instead of a full `render()`.
---- Scans the live `self.content` for the `type == 'db'` node with `key_name`
---- (rescanning each tick rather than caching a line index, so a mid-load toggle
---- can never repaint the wrong line) and rewrites only that line. No-ops when the
---- drawer is closed or the node has been collapsed away.
----
---- The frame is set as the node's trailing `loading_frame` (rendered by
---- `line_for`) rather than swapped into its icon: the db's fold icon + name stay
---- fixed while only the appended spinner animates, so the node doesn't jitter as
---- frames cycle. The next full `render()` rebuilds without `loading_frame` (the
---- `loading` marker having cleared), dropping the trailer.
+--- Advance the loading spinner on `key_name`'s db node -- the 80ms tick the
+--- introspect controller drives. Records the frame the content builder renders
+--- for a loading entry (appended after the label, so the fold icon + name stay
+--- fixed while only the trailer animates) and re-renders: the incremental paint
+--- rewrites exactly the one changed line, so no second buffer-writing path has
+--- to reproduce `paint`'s output byte-for-byte. Once the `loading` marker
+--- clears, the frame simply stops being rendered.
 ---@param key_name string
 ---@param frame string
 ---@return nil
 function Drawer:repaint_db_node(key_name, frame)
-  if not self:is_open() then
-    return
-  end
-  local bufnr = assert(self.bufnr)
-  for idx, node in ipairs(self.content) do
-    if node.type == 'db' and node.key_name == key_name then
-      node.loading_frame = frame
-      local text = painter.line_for(node)
-      local bo = vim.bo[bufnr]
-      bo.modifiable = true
-      pcall(vim.api.nvim_buf_set_lines, bufnr, idx - 1, idx, false, { text })
-      bo.modifiable = false
-      -- Rewriting the line drops its extmarks, so re-apply the node's highlights
-      -- (over just this line) -- otherwise the db row goes uncolored mid-spin.
-      vim.api.nvim_buf_clear_namespace(bufnr, highlights.NS, idx - 1, idx)
-      painter.apply_line_highlights(bufnr, idx - 1, highlights.highlights_for(node, text, self.icons))
-      return
-    end
-  end
+  self.loading_frames[key_name] = frame
+  self:render()
 end
 
 --- Connection/table info for the current buffer, for embedding in a `statusline`

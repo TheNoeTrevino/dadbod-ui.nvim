@@ -232,9 +232,10 @@ function Drawer:build_db(record)
     label = label .. ' (' .. table.concat(parts, ' - ') .. ')'
   end
   -- While connecting/introspecting the db node keeps its own fold icon and name
-  -- fixed; the loading state shows as a spinner APPENDED after the label (a
-  -- static first frame here, animated in place by `repaint_db_node` over the
-  -- async window). The transient `loading` marker is cleared by the introspect
+  -- fixed; the loading state shows as a spinner APPENDED after the label. The
+  -- current frame lives in the drawer's `loading_frames` (advanced per tick by
+  -- `repaint_db_node`, which just re-renders -- the incremental paint rewrites
+  -- only this line). The transient `loading` marker is cleared by the introspect
   -- controller on data-land/error, dropping the trailer on the next render.
   local node, expanded = self:toggle_node({
     id = ids.db(record.key_name),
@@ -242,7 +243,7 @@ function Drawer:build_db(record)
     label = label,
     key_name = record.key_name,
     extra = {
-      loading_frame = entry.loading and spinners.dots[1] or nil,
+      loading_frame = entry.loading and (self.loading_frames[record.key_name] or spinners.dots[1]) or nil,
       -- on_expand runs the lazy introspection only on the opening flip;
       -- on_collapse stops a mid-load animation so no timer leaks and no stale
       -- spinner reappears.
