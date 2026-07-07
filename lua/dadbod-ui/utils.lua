@@ -18,6 +18,9 @@
 ---@diagnostic disable-next-line: missing-fields
 local M = {}
 
+---@private
+local is_win = vim.fn.has('win32') == 1
+
 --- The group-qualified connection identifier: `{group}_{name}` when grouped,
 --- else just `{name}`. This is the SINGLE source of truth for how a connection
 --- maps to its on-disk names -- the save folder AND its tmp query folder --
@@ -50,10 +53,10 @@ end
 
 --- Canonical form of `path` for EQUALITY checks: absolute, forward slashes,
 --- lowercased on Windows (a case-insensitive filesystem). We build paths with
---- `/` while `fnamemodify(':p')` / buffer names use `\` on Windows, so a raw
---- string compare of the same file can differ per platform -- every buffer-name
---- comparison must go through here (or `same_path`). Comparison only; never use
---- the lowercased result as a real path.
+--- `/` while buffer names use `\` on Windows, so every comparison of a generated
+--- path against a Neovim-reported one must go through here (or `same_path`).
+--- Comparison only; never use the lowercased result as a real path. The `''`
+--- guard matters: abspath('') is the cwd, which could false-match a real path.
 ---@param path string
 ---@return string
 function M.canonical_path(path)
@@ -61,10 +64,7 @@ function M.canonical_path(path)
     return ''
   end
   local p = vim.fs.normalize(vim.fs.abspath(path))
-  if vim.fn.has('win32') == 1 then
-    p = p:lower()
-  end
-  return p
+  return is_win and p:lower() or p
 end
 
 --- Whether `a` and `b` name the same file, separator- and (on Windows)

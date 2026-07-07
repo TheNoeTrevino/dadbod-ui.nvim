@@ -161,10 +161,8 @@ describe('query buffers: window reuse', function()
     vim.cmd('silent! %bwipeout!')
   end)
 
-  -- Regression: under 'nohidden', a modified (unsaved) query buffer used to block
-  -- the window swap, so opening a second query for the same connection split off a
-  -- new window -- two query buffers for one connection. Query buffers now set
-  -- 'bufhidden=hide', so the window is reused and the old buffer just hides.
+  -- Regression: under 'nohidden' a modified query buffer must not block the window
+  -- swap and split off a duplicate window ('bufhidden=hide' lets it just hide).
   it('reuses the one query window for a second query on the same connection (nohidden)', function()
     vim.o.hidden = false
     d = make_drawer({ qa = 'sqlite:/tmp/qa.db' })

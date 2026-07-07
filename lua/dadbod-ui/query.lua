@@ -221,12 +221,10 @@ function Query:open_buffer(entry, name, edit_action, opts)
   if edit_action == 'edit' then
     self:focus_window()
   end
-  -- An already-open buffer is shown as-is (don't clobber its contents). dbui query
-  -- buffers set 'bufhidden=hide' (see setup_buffer), so the buffer being left can
-  -- always be swapped out of the reused window even under 'nohidden' -- it stays
-  -- loaded and reachable in the buffer list / drawer rather than forcing a new
-  -- split. If the switch still fails (e.g. an unrelated modified non-query buffer
-  -- holds the window under 'nohidden'), it is a no-op and we fall through below.
+  -- Show an already-open buffer as-is (don't clobber its contents). If the window
+  -- won't take it (an unrelated modified buffer under 'nohidden' -- query buffers
+  -- themselves never block, see setup_buffer's 'bufhidden=hide'), the switch is a
+  -- no-op and we fall through to the split below.
   local is_existing = utils.loaded_bufnr(full) > -1
   if is_existing then
     pcall(vim.cmd, 'silent! buffer ' .. vim.fn.fnameescape(full))
@@ -238,13 +236,9 @@ function Query:open_buffer(entry, name, edit_action, opts)
 
   vim.cmd('silent! ' .. edit_action .. ' ' .. vim.fn.fnameescape(name))
   if not utils.same_path(vim.api.nvim_buf_get_name(0), full) then
-    -- The window could not take the buffer -- reached only when the reused window
-    -- holds an unrelated modified buffer under 'nohidden' (dbui query buffers set
-    -- 'bufhidden=hide', so they never block the switch). Open in a fresh split so
-    -- the query buffer still appears and that modified buffer is never abandoned.
-    -- Compared canonically: on Windows the buffer name comes back with `\` while
-    -- our generated `full` uses `/`, and a raw compare here split a duplicate
-    -- window on every open.
+    -- The window could not take the buffer (an unrelated modified buffer under
+    -- 'nohidden'). Open in a fresh split so the query buffer still appears and
+    -- that modified buffer is never abandoned.
     local pos = utils.opposite_position(self.config.drawer.position)
     vim.cmd('silent! vertical ' .. pos .. ' split ' .. vim.fn.fnameescape(name))
   end
@@ -327,10 +321,9 @@ function Query:setup_buffer(entry, opts, name)
     -- (e.g. a completion plugin) must not abort opening the buffer. The option
     -- is applied before any autocmd runs, so an error leaves the filetype set
     -- and we still fall through to fill/return the buffer.
-    -- `bufhidden=hide` keeps these scratch query buffers swappable out of their
-    -- window regardless of the global 'hidden' setting, so opening a second query
-    -- for a connection reuses the one query window instead of splitting a new one
-    -- (the old buffer just hides -- still loaded, still listed in the drawer).
+    -- `bufhidden=hide` keeps query buffers swappable out of their window even
+    -- under 'nohidden', so open_buffer can reuse the one query window instead of
+    -- splitting (the old buffer hides -- still loaded, still in the drawer).
     local ok, err =
       pcall(vim.cmd, 'setlocal noswapfile nowrap nospell modifiable bufhidden=hide filetype=' .. entry.filetype)
     if not ok and self.config.debug then
@@ -950,9 +943,9 @@ function Query:remove_buffer(bufnr)
   if entry == nil then
     return
   end
-  local target = vim.fn.fnamemodify(vim.fn.bufname(bufnr), ':p')
+  local target = vim.fn.bufname(bufnr)
   local function keep(path)
-    return vim.fn.fnamemodify(path, ':p') ~= target
+    return not utils.same_path(path, target)
   end
   entry.buffers = vim.tbl_filter(keep, entry.buffers)
   self.drawer:render()
