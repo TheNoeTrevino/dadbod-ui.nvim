@@ -1,11 +1,20 @@
--- The pure tree builders (instance -> Node[])
+-- The pure tree builders (instance -> node tree -> flat Node[])
 --
--- A method mixin merged into `DadbodUI.Drawer` by `drawer/init.lua`: every
--- `render_*` builder plus `build_content` itself. Pure with respect to the
--- window -- these methods append nodes to `self.content` and never touch a
--- buffer (that is `drawer/paint.lua`), which is what keeps `build_content`
--- unit-testable without an open drawer.
+-- A method mixin merged into `DadbodUI.Drawer` by `drawer/init.lua`. Builders
+-- return real tree nodes carrying `children` arrays; `build_content` flattens
+-- the tree depth-first into `self.content` (line N -> node), assigning each
+-- node its `level` (its tree depth), `parent` and `index` as it goes. The flat
+-- array is only the paint/line-lookup projection; navigation walks the tree.
+-- Pure with respect to the window -- no builder touches a buffer (that is
+-- `drawer/paint.lua`), which keeps `build_content` unit-testable without an
+-- open drawer.
+--
+-- Expand/collapse state lives in the drawer's `expand` map (view state), keyed
+-- by the stable node ids in `drawer/ids.lua` -- never in the connection
+-- entries (domain data). A collapsed node simply builds no `children`, so
+-- lazily-introspected data is never demanded early.
 
+local ids = require('dadbod-ui.drawer.ids')
 local spinners = require('dadbod-ui.spinners')
 local utils = require('dadbod-ui.utils')
 
@@ -18,13 +27,17 @@ local function is_connected(entry)
   return require('dadbod-ui.state').is_connected(entry)
 end
 
+---@private
+--- A non-actionable chrome line (`"`-comment hint or blank separator). Rendered
+--- like any node but skipped by navigation and every verb.
+---@param label string
+---@return DadbodUI.Node
+local function hint(label)
+  return { label = label, icon = '', type = 'help', action = 'noaction' }
+end
+
 ---@class DadbodUI.Drawer
 local Drawer = {}
-
----@param node DadbodUI.Node
-function Drawer:add(node)
-  self.content[#self.content + 1] = node
-end
 
 ---@param kind string
 ---@param expanded boolean
@@ -33,121 +46,138 @@ function Drawer:toggle_icon(kind, expanded)
   return expanded and self.icons.expanded[kind] or self.icons.collapsed[kind]
 end
 
---- Rebuild the drawer node list from the instance, storing it on `self.content`
---- (navigation indexes that field) and returning it. Pure with respect to the
---- window: it needs no open drawer, which makes it unit-testable on its own.
+--- Rebuild the drawer tree from the instance and flatten it: `self.roots` holds
+--- the tree (navigation walks parents/children), `self.content` the flat
+--- line-indexed projection (paint + cursor lookup). Returns the flat list.
 ---@return DadbodUI.Node[]
 function Drawer:build_content()
-  self.content = {}
-  self:render_help()
-  self:render_dbs()
+  local roots = {}
+  if self.config.drawer.show_help then
+    roots[#roots + 1] = hint('" Press ? for help')
+    roots[#roots + 1] = hint('')
+  end
+  self:build_dbs(roots)
   if #self.instance.dbs_list == 0 then
-    self:add({ label = '" No connections', icon = '', level = 0, type = 'help', action = 'noaction' })
-    self:add({
+    roots[#roots + 1] = hint('" No connections')
+    roots[#roots + 1] = {
       label = 'Add connection',
       icon = self.icons.add_connection,
-      level = 0,
       type = 'add_connection',
       action = 'call_method',
-    })
+    }
   end
-  self:render_dbout_list()
+  self:build_dbout_section(roots)
+  self.roots = roots
+  self.content = {}
+  self:flatten(roots, 0, nil)
   return self.content
 end
 
+---@private
+--- Depth-first flatten: assign `level` (tree depth), `parent` and `index`, and
+--- append to `self.content` so line N maps to a node.
+---@param nodes DadbodUI.Node[]
+---@param level integer
+---@param parent DadbodUI.Node|nil
 ---@return nil
-function Drawer:render_help()
-  if self.config.drawer.show_help then
-    self:add({ label = '" Press ? for help', icon = '', level = 0, type = 'help', action = 'noaction' })
-    self:add({ label = '', icon = '', level = 0, type = 'help', action = 'noaction' })
+function Drawer:flatten(nodes, level, parent)
+  for _, node in ipairs(nodes) do
+    node.level = level
+    node.parent = parent
+    self.content[#self.content + 1] = node
+    node.index = #self.content
+    if node.children ~= nil then
+      self:flatten(node.children, level + 1, node)
+    end
   end
 end
 
---- Render the connection list. Ungrouped connections render in place; a group
---- gets a single header at the position of its first member, with *all* members
---- gathered under it -- even when they are not contiguous in dbs_list (an
---- interactive `G` leaves a connection in its original file position, so group
---- members can be interleaved with other entries).
+--- Build the connection nodes into `roots`. Ungrouped connections land in
+--- place; a group gets a single node at the position of its first member, with
+--- *all* members gathered as its children -- even when they are not contiguous
+--- in dbs_list (an interactive `G` leaves a connection in its original file
+--- position, so group members can be interleaved with other entries).
+---@param roots DadbodUI.Node[]
 ---@return nil
-function Drawer:render_dbs()
+function Drawer:build_dbs(roots)
   local dbs = self.instance.dbs_list
   local seen_groups = {}
   for _, record in ipairs(dbs) do
     local group = record.group or ''
     if group == '' then
-      self:render_db(record, 0)
+      roots[#roots + 1] = self:build_db(record)
     elseif not seen_groups[group] then
       seen_groups[group] = true
-      local gs = self:group_state(group)
-      local label = self.show_details and (group .. ' (Group)') or group
-      self:add({
-        label = label,
-        icon = self:toggle_icon('group', gs.expanded),
-        level = 0,
+      local id = ids.group(group)
+      local expanded = self:is_expanded(id, self.config.drawer.expand_groups)
+      local node = {
+        label = self.show_details and (group .. ' (Group)') or group,
+        icon = self:toggle_icon('group', expanded),
         type = 'group',
         action = 'toggle',
+        id = id,
         group = group,
-        expanded = gs.expanded,
-        toggle_state = gs,
-      })
-      if gs.expanded then
-        vim
-          .iter(dbs)
-          :filter(function(member)
-            return (member.group or '') == group
-          end)
-          :each(function(member)
-            self:render_db(member, 1)
-          end)
+        expanded = expanded,
+      }
+      if expanded then
+        node.children = {}
+        for _, member in ipairs(dbs) do
+          if (member.group or '') == group then
+            node.children[#node.children + 1] = self:build_db(member)
+          end
+        end
       end
+      roots[#roots + 1] = node
     end
   end
 end
 
---- Render the top-level `Query results` section listing the executed `.dbout`
---- files (the instance's dbout_list). A toggle header whose `show_dbout_list`
---- state expands to the result files, sorted per `dbout_list_sort`, each opening
---- as a preview.
+--- Build the top-level `Query results` section listing the executed `.dbout`
+--- files (the instance's dbout_list): a toggle node expanding to the result
+--- files, sorted per `dbout_list_sort`, each opening as a preview.
+---@param roots DadbodUI.Node[]
 ---@return nil
-function Drawer:render_dbout_list()
+function Drawer:build_dbout_section(roots)
   if next(self.instance.dbout_list) == nil then
     return
   end
   local files = vim.tbl_keys(self.instance.dbout_list)
-  self:add({ label = '', icon = '', level = 0, type = 'help', action = 'noaction' })
-  self:add({
+  roots[#roots + 1] = hint('')
+  local expanded = self:is_expanded(ids.DBOUT)
+  local node = {
     label = string.format('Query results (%d)', #files),
-    icon = self:toggle_icon('saved_queries', self.show_dbout_list),
-    level = 0,
+    icon = self:toggle_icon('saved_queries', expanded),
     type = 'dbout_list',
-    action = 'call_method',
-    expanded = self.show_dbout_list,
-  })
-  if not self.show_dbout_list then
+    action = 'toggle',
+    id = ids.DBOUT,
+    expanded = expanded,
+  }
+  roots[#roots + 1] = node
+  if not expanded then
     return
   end
   local dbout = require('dadbod-ui.dbout')
   table.sort(files, dbout.sort_dbout)
+  node.children = {}
   for _, file in ipairs(files) do
     local content = self.instance.dbout_list[file]
     local label = vim.fs.basename(file)
     if content ~= nil and content ~= '' then
       label = label .. string.format(' (%s)', content)
     end
-    self:add({
+    node.children[#node.children + 1] = {
       label = label,
       icon = self.icons.tables,
-      level = 1,
       type = 'dbout',
       action = 'open',
       file_path = file,
-    })
+    }
   end
 end
 
 ---@param record DadbodUI.ConnectionRecord
----@param level integer
-function Drawer:render_db(record, level)
+---@return DadbodUI.Node
+function Drawer:build_db(record)
   local entry = self.instance.dbs[record.key_name]
   local label = record.name
   if entry.conn_error and entry.conn_error ~= '' then
@@ -166,55 +196,61 @@ function Drawer:render_db(record, level)
     end
     label = label .. ' (' .. table.concat(parts, ' - ') .. ')'
   end
+  local id = ids.db(record.key_name)
+  local expanded = self:is_expanded(id)
   -- While connecting/introspecting the db node keeps its own fold icon and name
   -- fixed; the loading state shows as a spinner APPENDED after the label (a
   -- static first frame here, animated in place by `repaint_db_node` over the
   -- async window). The transient `loading` marker is cleared by the introspect
   -- controller on data-land/error, dropping the trailer on the next render.
-  self:add({
+  local node = {
     label = label,
-    icon = self:toggle_icon('db', entry.expanded),
+    icon = self:toggle_icon('db', expanded),
     loading_frame = entry.loading and spinners.dots[1] or nil,
-    level = level,
     type = 'db',
     action = 'toggle',
+    id = id,
     key_name = record.key_name,
-    expanded = entry.expanded,
-    -- A db's entry IS its `{ expanded }` table; on_expand runs the lazy
-    -- introspection only on the opening flip, never on collapse.
-    toggle_state = entry,
+    expanded = expanded,
+    -- on_expand runs the lazy introspection only on the opening flip, never on
+    -- collapse.
     on_expand = function()
       self:introspect():expand_db(entry)
     end,
-  })
-  if entry.expanded then
-    self:render_db_sections(entry, level + 1)
+  }
+  if expanded then
+    node.children = self:build_db_sections(entry)
   end
+  return node
 end
 
 ---@param entry DadbodUI.ConnectionEntry
----@param level integer
-function Drawer:render_db_sections(entry, level)
+---@return DadbodUI.Node[]
+function Drawer:build_db_sections(entry)
+  local children = {}
   for _, section in ipairs(self.config.drawer.sections) do
     if section == 'new_query' then
-      self:add({
+      children[#children + 1] = {
         label = 'New query',
         icon = self.icons.new_query,
-        level = level,
         type = 'query',
         action = 'open',
         key_name = entry.key_name,
-      })
+      }
     elseif section == 'buffers' and #entry.buffers.list > 0 then
-      self:render_buffers_section(entry, level)
+      children[#children + 1] = self:build_buffers_section(entry)
     elseif section == 'saved_queries' then
-      self:render_saved_queries_section(entry, level)
+      children[#children + 1] = self:build_saved_queries_section(entry)
     elseif section == 'schemas' then
-      self:render_schemas_section(entry, level)
+      children[#children + 1] = self:build_schemas_section(entry)
     elseif section == 'procedures' then
-      self:render_routines_section(entry, level)
+      local node = self:build_routines_section(entry)
+      if node ~= nil then
+        children[#children + 1] = node
+      end
     end
   end
+  return children
 end
 
 --- The drawer label for a buffer file: its basename, with the connection's
@@ -233,130 +269,139 @@ function Drawer:get_buffer_name(entry, buffer)
   return (name:gsub('^' .. vim.pesc(utils.slug(entry.save_name)) .. '%-', ''))
 end
 
---- Render the Buffers section: a toggle header with the open-buffer count, and
---- on expand each buffer as an `open` node (tmp buffers flagged with ` *`).
+--- Build the Buffers section: a toggle node with the open-buffer count whose
+--- children are the buffers as `open` nodes (tmp buffers flagged with ` *`).
 ---@param entry DadbodUI.ConnectionEntry
----@param level integer
----@return nil
-function Drawer:render_buffers_section(entry, level)
-  self:add({
+---@return DadbodUI.Node
+function Drawer:build_buffers_section(entry)
+  local id = ids.section(entry.key_name, 'buffers')
+  local expanded = self:is_expanded(id)
+  local node = {
     label = string.format('Buffers (%d)', #entry.buffers.list),
-    icon = self:toggle_icon('buffers', entry.buffers.expanded),
-    level = level,
+    icon = self:toggle_icon('buffers', expanded),
     type = 'buffers',
     action = 'toggle',
+    id = id,
     key_name = entry.key_name,
-    expanded = entry.buffers.expanded,
-    toggle_state = entry.buffers,
-  })
-  if not entry.buffers.expanded then
-    return
+    expanded = expanded,
+  }
+  if not expanded then
+    return node
   end
+  node.children = {}
   for _, buffer in ipairs(entry.buffers.list) do
     local label = self:get_buffer_name(entry, buffer)
     if self.instance:is_tmp_location_buffer(entry, buffer) then
       label = label .. ' *'
     end
-    self:add({
+    node.children[#node.children + 1] = {
       label = label,
       icon = self.icons.buffers,
-      level = level + 1,
       type = 'buffer',
       action = 'open',
       key_name = entry.key_name,
       file_path = buffer,
-    })
+    }
   end
+  return node
 end
 
---- Render the Saved queries section: a toggle header with the on-disk count, and
---- on expand each saved query as an `open` node carrying its file path.
+--- Build the Saved queries section: a toggle node with the on-disk count whose
+--- children are the saved queries as `open` nodes carrying their file paths.
 ---@param entry DadbodUI.ConnectionEntry
----@param level integer
----@return nil
-function Drawer:render_saved_queries_section(entry, level)
-  self:add({
+---@return DadbodUI.Node
+function Drawer:build_saved_queries_section(entry)
+  local id = ids.section(entry.key_name, 'saved_queries')
+  local expanded = self:is_expanded(id)
+  local node = {
     label = string.format('Saved queries (%d)', #entry.saved_queries.list),
-    icon = self:toggle_icon('saved_queries', entry.saved_queries.expanded),
-    level = level,
+    icon = self:toggle_icon('saved_queries', expanded),
     type = 'saved_queries',
     action = 'toggle',
+    id = id,
     key_name = entry.key_name,
-    expanded = entry.saved_queries.expanded,
-    toggle_state = entry.saved_queries,
-  })
-  if not entry.saved_queries.expanded then
-    return
+    expanded = expanded,
+  }
+  if not expanded then
+    return node
   end
+  node.children = {}
   for _, saved in ipairs(entry.saved_queries.list) do
-    self:add({
+    node.children[#node.children + 1] = {
       label = vim.fs.basename(saved),
       icon = self.icons.saved_query,
-      level = level + 1,
       type = 'saved_query',
       action = 'open',
       key_name = entry.key_name,
       file_path = saved,
       saved = true,
-    })
+    }
   end
+  return node
 end
 
---- Render the Schemas (schema-supporting adapters) or Tables (everything else)
---- section: schema-supporting connections nest tables under a per-schema node;
---- the rest list tables directly under the connection.
+--- Build the Schemas (schema-supporting adapters) or Tables (everything else)
+--- section: schema-supporting connections nest tables under per-schema nodes;
+--- the rest hang tables directly off the Tables node.
 ---@param entry DadbodUI.ConnectionEntry
----@param level integer
-function Drawer:render_schemas_section(entry, level)
+---@return DadbodUI.Node
+function Drawer:build_schemas_section(entry)
   if entry.schema_support then
-    self:add({
+    local id = ids.section(entry.key_name, 'schemas')
+    local expanded = self:is_expanded(id)
+    local node = {
       label = string.format('Schemas (%d)', #entry.schemas.list),
-      icon = self:toggle_icon('schemas', entry.schemas.expanded),
-      level = level,
+      icon = self:toggle_icon('schemas', expanded),
       type = 'schemas',
       action = 'toggle',
+      id = id,
       key_name = entry.key_name,
-      expanded = entry.schemas.expanded,
-      toggle_state = entry.schemas,
-    })
-    if not entry.schemas.expanded then
-      return
+      expanded = expanded,
+    }
+    if not expanded then
+      return node
     end
+    node.children = {}
     for _, schema in ipairs(entry.schemas.list) do
-      local schema_item = entry.schemas.items[schema]
-      local tables = schema_item.tables
-      self:add({
+      local tables = entry.schemas.items[schema].tables
+      local schema_id = ids.schema(entry.key_name, schema)
+      local schema_expanded = self:is_expanded(schema_id)
+      local schema_node = {
         label = string.format('%s (%d)', schema, #tables.list),
-        icon = self:toggle_icon('schema', schema_item.expanded),
-        level = level + 1,
+        icon = self:toggle_icon('schema', schema_expanded),
         type = 'schema',
         action = 'toggle',
+        id = schema_id,
         key_name = entry.key_name,
-        expanded = schema_item.expanded,
-        toggle_state = schema_item,
-      })
-      if schema_item.expanded then
-        self:render_tables(tables, entry, level + 2, schema)
+        expanded = schema_expanded,
+      }
+      if schema_expanded then
+        schema_node.children = self:build_tables(tables.list, entry, schema)
       end
+      node.children[#node.children + 1] = schema_node
     end
-  else
-    self:add({
-      label = string.format('Tables (%d)', #entry.tables.list),
-      icon = self:toggle_icon('tables', entry.tables.expanded),
-      level = level,
-      type = 'tables',
-      action = 'toggle',
-      key_name = entry.key_name,
-      expanded = entry.tables.expanded,
-      toggle_state = entry.tables,
-    })
-    self:render_tables(entry.tables, entry, level + 1, '')
+    return node
   end
+  local id = ids.section(entry.key_name, 'tables')
+  local expanded = self:is_expanded(id)
+  local node = {
+    label = string.format('Tables (%d)', #entry.tables.list),
+    icon = self:toggle_icon('tables', expanded),
+    type = 'tables',
+    action = 'toggle',
+    id = id,
+    key_name = entry.key_name,
+    expanded = expanded,
+  }
+  if expanded then
+    node.children = self:build_tables(entry.tables.list, entry, '')
+  end
+  return node
 end
 
 --- The total number of stored procedures/functions introspected for `entry`
 --- (summed across schema buckets for a schema adapter, or the flat list for a
---- non-schema adapter). Drives the Procedures header count and the non-empty gate.
+--- non-schema adapter). Drives the Procedures node count and the non-empty gate.
 ---@param entry DadbodUI.ConnectionEntry
 ---@return integer
 function Drawer:routine_count(entry)
@@ -369,133 +414,134 @@ function Drawer:routine_count(entry)
   return #entry.routines.flat
 end
 
---- Add one procedure/function leaf node. Its `content` (the adapter's pre-built
---- DDL/source query) rides along so the `open` action reuses the table-helper
---- open path verbatim -- opening it fills a query buffer with the definition SQL,
---- which the user runs to view the source. A `[P]`/`[F]` suffix distinguishes a
---- procedure from a function without depending on an extra icon.
+--- Build one procedure/function leaf node. Its `content` (the adapter's
+--- pre-built DDL/source query) rides along so the `open` action reuses the
+--- table-helper open path verbatim -- opening it fills a query buffer with the
+--- definition SQL, which the user runs to view the source. A `[P]`/`[F]` suffix
+--- distinguishes a procedure from a function without depending on an extra icon.
 ---@param entry DadbodUI.ConnectionEntry
 ---@param routine DadbodUI.RoutineItem
----@param level integer
 ---@param schema string
----@return nil
-function Drawer:add_routine(entry, routine, level, schema)
-  self:add({
+---@return DadbodUI.Node
+function Drawer:build_routine(entry, routine, schema)
+  return {
     label = string.format('%s [%s]', routine.name, routine.kind == 'procedure' and 'P' or 'F'),
     icon = self.icons.procedures,
-    level = level,
     type = 'routine',
     action = 'open',
     key_name = entry.key_name,
     table = routine.name,
     schema = schema,
     content = routine.content,
-  })
+  }
 end
 
---- Render the Procedures section: stored procedures + functions. Only rendered
---- when the adapter supports routines AND at least one exists (no empty node --
---- mirrors how Buffers only shows when non-empty). Schema-supporting adapters nest
---- routines under a per-schema node (like Schemas -> tables); flat adapters list
---- them directly.
+--- Build the Procedures section: stored procedures + functions. Returns nil
+--- when the adapter lacks routine support OR none exist (no empty node --
+--- mirrors how Buffers only shows when non-empty). Schema-supporting adapters
+--- nest routines under per-schema nodes (like Schemas -> tables); flat adapters
+--- list them directly.
 ---@param entry DadbodUI.ConnectionEntry
----@param level integer
----@return nil
-function Drawer:render_routines_section(entry, level)
+---@return DadbodUI.Node|nil
+function Drawer:build_routines_section(entry)
   if not entry.routine_support then
-    return
+    return nil
   end
   local total = self:routine_count(entry)
   if total == 0 then
-    return
+    return nil
   end
   local routines = entry.routines
-  self:add({
+  local id = ids.section(entry.key_name, 'routines')
+  local expanded = self:is_expanded(id)
+  local node = {
     label = string.format('Procedures (%d)', total),
-    icon = self:toggle_icon('procedures', routines.expanded),
-    level = level,
+    icon = self:toggle_icon('procedures', expanded),
     type = 'routines',
     action = 'toggle',
+    id = id,
     key_name = entry.key_name,
-    expanded = routines.expanded,
-    toggle_state = routines,
-  })
-  if not routines.expanded then
-    return
+    expanded = expanded,
+  }
+  if not expanded then
+    return node
   end
+  node.children = {}
   if entry.schema_support then
     for _, schema in ipairs(routines.list) do
       local schema_item = routines.items[schema]
-      self:add({
+      local schema_id = ids.routine_schema(entry.key_name, schema)
+      local schema_expanded = self:is_expanded(schema_id)
+      local schema_node = {
         label = string.format('%s (%d)', schema, #schema_item.list),
-        icon = self:toggle_icon('routine_schema', schema_item.expanded),
-        level = level + 1,
+        icon = self:toggle_icon('routine_schema', schema_expanded),
         type = 'routine_schema',
         action = 'toggle',
+        id = schema_id,
         key_name = entry.key_name,
-        expanded = schema_item.expanded,
-        toggle_state = schema_item,
-      })
-      if schema_item.expanded then
+        expanded = schema_expanded,
+      }
+      if schema_expanded then
+        schema_node.children = {}
         for _, routine in ipairs(schema_item.list) do
-          self:add_routine(entry, routine, level + 2, schema)
+          schema_node.children[#schema_node.children + 1] = self:build_routine(entry, routine, schema)
         end
       end
+      node.children[#node.children + 1] = schema_node
     end
   else
     for _, routine in ipairs(routines.flat) do
-      self:add_routine(entry, routine, level + 1, '')
+      node.children[#node.children + 1] = self:build_routine(entry, routine, '')
     end
   end
+  return node
 end
 
---- Render the tables of a tables node, each a toggle node that expands to show
---- the adapter's table helpers (helper open actions are wired in a later
---- milestone). Honors a configured `table_name_sorter`.
----@param tables DadbodUI.TablesNode
+--- Build the table nodes for a table list, each a toggle node whose children
+--- are the adapter's table helpers. Honors a configured `table_name_sorter`.
+---@param list string[]
 ---@param entry DadbodUI.ConnectionEntry
----@param level integer
 ---@param schema string
-function Drawer:render_tables(tables, entry, level, schema)
-  if not tables.expanded then
-    return
-  end
-  local list = tables.list
+---@return DadbodUI.Node[]
+function Drawer:build_tables(list, entry, schema)
   if self.config.table_name_sorter then
     list = self.config.table_name_sorter(list)
   end
+  local nodes = {}
   for _, table_name in ipairs(list) do
-    local table_item = tables.items[table_name]
-    self:add({
+    local id = ids.table(entry.key_name, schema, table_name)
+    local expanded = self:is_expanded(id)
+    local node = {
       label = table_name,
-      icon = self:toggle_icon('table', table_item.expanded),
-      level = level,
+      icon = self:toggle_icon('table', expanded),
       type = 'table',
       action = 'toggle',
+      id = id,
       key_name = entry.key_name,
-      expanded = table_item.expanded,
-      toggle_state = table_item,
+      expanded = expanded,
       table = table_name,
       schema = schema,
-    })
-    if table_item.expanded then
+    }
+    if expanded then
+      node.children = {}
       local ordered =
         require('dadbod-ui.table_helpers').ordered_names(entry.table_helpers, self.config.table_helpers_order)
       for _, helper_name in ipairs(ordered) do
-        self:add({
+        node.children[#node.children + 1] = {
           label = helper_name,
           icon = self.icons.tables,
-          level = level + 1,
           type = 'table_helper',
           action = 'open',
           key_name = entry.key_name,
           table = table_name,
           schema = schema,
           content = entry.table_helpers[helper_name],
-        })
+        }
       end
     end
+    nodes[#nodes + 1] = node
   end
+  return nodes
 end
 
 return Drawer

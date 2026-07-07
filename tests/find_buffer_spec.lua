@@ -3,6 +3,7 @@
 -- selection. Driven through an injected drawer (DI over the global singleton).
 
 local drawer_mod = require('dadbod-ui.drawer')
+local ids = require('dadbod-ui.drawer.ids')
 local state = require('dadbod-ui.state')
 local config = require('dadbod-ui.config')
 
@@ -60,7 +61,7 @@ describe('find_buffer', function()
     d:find_buffer()
     assert.equals(entry.key_name, vim.b.dbui_db_key_name)
     assert.equals(entry.conn, vim.b.db)
-    assert.is_true(entry.buffers.expanded)
+    assert.is_true(d:is_expanded(ids.section(entry.key_name, 'buffers')))
   end)
 
   it('refuses to adopt an unnamed buffer, never inserting a phantom node', function()
