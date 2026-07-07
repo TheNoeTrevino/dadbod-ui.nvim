@@ -7,6 +7,8 @@
 ---@class DadbodUI.UtilsModule
 ---@field qualified_name fun(name: string, group?: string): string
 ---@field display_name fun(name: string, group?: string): string
+---@field canonical_path fun(path: string): string
+---@field same_path fun(a: string, b: string): boolean
 ---@field loaded_bufnr fun(full_path: string): integer
 ---@field is_file fun(path: string): boolean
 ---@field is_dir fun(path: string): boolean
@@ -46,14 +48,44 @@ function M.display_name(name, group)
   return group .. '/' .. name
 end
 
---- The number of a loaded buffer whose name is exactly `full_path`, else -1.
+--- Canonical form of `path` for EQUALITY checks: absolute, forward slashes,
+--- lowercased on Windows (a case-insensitive filesystem). We build paths with
+--- `/` while `fnamemodify(':p')` / buffer names use `\` on Windows, so a raw
+--- string compare of the same file can differ per platform -- every buffer-name
+--- comparison must go through here (or `same_path`). Comparison only; never use
+--- the lowercased result as a real path.
+---@param path string
+---@return string
+function M.canonical_path(path)
+  if path == '' then
+    return ''
+  end
+  local p = vim.fs.normalize(vim.fs.abspath(path))
+  if vim.fn.has('win32') == 1 then
+    p = p:lower()
+  end
+  return p
+end
+
+--- Whether `a` and `b` name the same file, separator- and (on Windows)
+--- case-insensitively. See `canonical_path`.
+---@param a string
+---@param b string
+---@return boolean
+function M.same_path(a, b)
+  return M.canonical_path(a) == M.canonical_path(b)
+end
+
+--- The number of a loaded buffer whose name resolves to `full_path`, else -1.
 --- Used instead of `vim.fn.bufnr`, whose pattern matching can falsely match an
---- unrelated buffer (the `.`/`*` in a path are treated as regex).
+--- unrelated buffer (the `.`/`*` in a path are treated as regex). Compares
+--- canonically so `/` vs `\` (Windows) never hides an already-open buffer.
 ---@param full_path string
 ---@return integer
 function M.loaded_bufnr(full_path)
+  local want = M.canonical_path(full_path)
   return vim.iter(vim.api.nvim_list_bufs()):find(function(b)
-    return vim.api.nvim_buf_is_loaded(b) and vim.api.nvim_buf_get_name(b) == full_path
+    return vim.api.nvim_buf_is_loaded(b) and M.canonical_path(vim.api.nvim_buf_get_name(b)) == want
   end) or -1
 end
 

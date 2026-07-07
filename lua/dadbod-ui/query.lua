@@ -230,18 +230,21 @@ function Query:open_buffer(entry, name, edit_action, opts)
   local is_existing = utils.loaded_bufnr(full) > -1
   if is_existing then
     pcall(vim.cmd, 'silent! buffer ' .. vim.fn.fnameescape(full))
-    if vim.api.nvim_buf_get_name(0) == full then
+    if utils.same_path(vim.api.nvim_buf_get_name(0), full) then
       self:setup_buffer(entry, vim.tbl_extend('force', opts, { existing_buffer = true }), name)
       return
     end
   end
 
   vim.cmd('silent! ' .. edit_action .. ' ' .. vim.fn.fnameescape(name))
-  if vim.api.nvim_buf_get_name(0) ~= full then
+  if not utils.same_path(vim.api.nvim_buf_get_name(0), full) then
     -- The window could not take the buffer -- reached only when the reused window
     -- holds an unrelated modified buffer under 'nohidden' (dbui query buffers set
     -- 'bufhidden=hide', so they never block the switch). Open in a fresh split so
     -- the query buffer still appears and that modified buffer is never abandoned.
+    -- Compared canonically: on Windows the buffer name comes back with `\` while
+    -- our generated `full` uses `/`, and a raw compare here split a duplicate
+    -- window on every open.
     local pos = utils.opposite_position(self.config.drawer.position)
     vim.cmd('silent! vertical ' .. pos .. ' split ' .. vim.fn.fnameescape(name))
   end
