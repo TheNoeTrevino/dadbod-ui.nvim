@@ -368,7 +368,7 @@ function Drawer:rename_line()
     return
   end
   if item.type == 'buffer' or item.type == 'saved_query' then
-    return self:rename_buffer(item.file_path, item.key_name, item.saved or false)
+    return self:rename_buffer(item.file_path, item.key_name)
   end
   if item.type == 'db' then
     return self:connections():rename_connection(self.instance.dbs[item.key_name])
@@ -376,14 +376,13 @@ function Drawer:rename_line()
 end
 
 --- Rename a written query file on disk and move its buffer tracking to the new
---- name, transferring the buffer-local contract. Saved queries keep their bare
---- name; tmp buffers are re-prefixed with the connection slug. Callback-shaped
---- for our async prompt backend.
+--- name, transferring the buffer-local contract. The file stays in its directory
+--- (which records the owning connection), so the new name is used as-is.
+--- Callback-shaped for our async prompt backend.
 ---@param buffer string  the file being renamed
 ---@param key_name string  the owning connection's key
----@param is_saved_query boolean
 ---@return nil
-function Drawer:rename_buffer(buffer, key_name, is_saved_query)
+function Drawer:rename_buffer(buffer, key_name)
   local notify = require('dadbod-ui.notifications')
   if not utils.is_file(buffer) then
     return notify.error('Only written queries can be renamed.')
@@ -395,10 +394,8 @@ function Drawer:rename_buffer(buffer, key_name, is_saved_query)
   if entry == nil then
     return notify.error('Buffer not attached to any database')
   end
-  local db_slug = utils.slug(entry.name)
-  local is_saved = is_saved_query or not self.instance:is_tmp_location_buffer(entry, buffer)
-  local old_name = self:get_buffer_name(entry, buffer)
-  self.input({ prompt = 'Enter new name: ', default = old_name }, function(new_name)
+  local is_tmp = self.instance:is_tmp_location_buffer(entry, buffer)
+  self.input({ prompt = 'Enter new name: ', default = vim.fs.basename(buffer) }, function(new_name)
     if new_name == nil then
       return
     end
@@ -407,12 +404,7 @@ function Drawer:rename_buffer(buffer, key_name, is_saved_query)
       return notify.error('Valid name must be provided.')
     end
     local dir = vim.fn.fnamemodify(buffer, ':p:h')
-    local new
-    if is_saved then
-      new = string.format('%s/%s', dir, new_name)
-    else
-      new = string.format('%s/%s-%s', dir, db_slug, new_name)
-    end
+    local new = string.format('%s/%s', dir, new_name)
     -- Refuse to silently clobber an existing file at the target path.
     if utils.is_file(new) then
       return notify.error('A query already exists with that name.')
@@ -423,7 +415,7 @@ function Drawer:rename_buffer(buffer, key_name, is_saved_query)
     if vim.fn.rename(buffer, new) ~= 0 then
       return notify.error('Could not rename the query file.')
     end
-    if not is_saved then
+    if is_tmp then
       table.insert(entry.buffers.tmp, new)
     end
 

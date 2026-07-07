@@ -5,7 +5,6 @@
 -- drawer<->query cycle.
 
 ---@class DadbodUI.UtilsModule
----@field slug fun(str: string): string
 ---@field qualified_name fun(name: string, group?: string): string
 ---@field display_name fun(name: string, group?: string): string
 ---@field loaded_bufnr fun(full_path: string): integer
@@ -17,16 +16,9 @@
 ---@diagnostic disable-next-line: missing-fields
 local M = {}
 
---- Strip everything but `[A-Za-z0-9_-]` from `str`.
----@param str string
----@return string
-function M.slug(str)
-  return (str:gsub('[^%w_%-]', ''))
-end
-
 --- The group-qualified connection identifier: `{group}_{name}` when grouped,
 --- else just `{name}`. This is the SINGLE source of truth for how a connection
---- maps to its on-disk names -- the save folder AND its tmp query-buffer files --
+--- maps to its on-disk names -- the save folder AND its tmp query folder --
 --- so a name reused across groups is namespaced per group and never collides or
 --- resolves to the wrong connection. Anything that derives a buffer/save path or
 --- resolves one back to a connection must go through here.

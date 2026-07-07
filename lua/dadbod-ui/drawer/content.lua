@@ -18,7 +18,6 @@ local ids = require('dadbod-ui.drawer.ids')
 local spinner = require('dadbod-ui.spinner')
 local spinners = require('dadbod-ui.spinners')
 local table_helpers = require('dadbod-ui.table_helpers')
-local utils = require('dadbod-ui.utils')
 
 ---@private
 -- The connected predicate lives in state (the SSOT); required lazily here to
@@ -290,22 +289,6 @@ function Drawer:build_db_sections(entry)
   return children
 end
 
---- The drawer label for a buffer file: its basename, with the connection's
---- `<slug>-` prefix (and the legacy `db_ui.` wrapper) stripped for tmp buffers.
----@param entry DadbodUI.ConnectionEntry
----@param buffer string
----@return string
-function Drawer:get_buffer_name(entry, buffer)
-  local name = vim.fs.basename(buffer)
-  if not self.instance:is_tmp_location_buffer(entry, buffer) then
-    return name
-  end
-  if vim.fn.fnamemodify(name, ':r') == 'db_ui' then
-    name = vim.fn.fnamemodify(name, ':e')
-  end
-  return (name:gsub('^' .. vim.pesc(utils.slug(entry.save_name)) .. '%-', ''))
-end
-
 --- Build the Buffers section: a toggle node with the open-buffer count whose
 --- children are the buffers as `open` nodes (tmp buffers flagged with ` *`).
 --- Nil when the connection has no open buffers.
@@ -326,7 +309,7 @@ function Drawer:build_buffers_section(entry)
   end
   node.children = {}
   for _, buffer in ipairs(entry.buffers.list) do
-    local label = self:get_buffer_name(entry, buffer)
+    local label = vim.fs.basename(buffer)
     if self.instance:is_tmp_location_buffer(entry, buffer) then
       label = label .. ' *'
     end

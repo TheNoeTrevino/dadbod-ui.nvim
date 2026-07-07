@@ -63,7 +63,9 @@
 -- `expand` map (keyed by drawer/ids.lua ids), never on these.
 
 --- A connection's open query buffers. `list` holds full buffer file paths;
---- `tmp` is the subset living in the tmp-query location.
+--- `tmp` tracks generated buffers that live outside the configured tmp-query
+--- location (session-local files next to `tempname()`), so
+--- `is_tmp_location_buffer` still recognizes them as scratch queries.
 ---@class DadbodUI.BuffersNode
 ---@field list string[]
 ---@field tmp string[]
@@ -152,7 +154,7 @@
 ---@field name string
 ---@field group string
 ---@field key_name string
----@field save_name string  group-qualified identifier ({group}_{name} when grouped); names the save folder + tmp buffers
+---@field save_name string  group-qualified identifier ({group}_{name} when grouped); names the save folder + tmp query folder
 ---@field scheme string  raw adapter scheme
 ---@field db_name string
 ---@field save_path string

@@ -37,11 +37,6 @@ local utils = require('dadbod-ui.utils')
 local M = {}
 
 ---@private
--- Monotonic suffix for generated buffer names, so two buffers created within the
--- same second don't collide on the second-precision timestamp.
-local name_seq = 0
-
----@private
 --- Replace every literal occurrence of `key` in `s` with `val`. Uses a function
 --- replacement so `%` in `val` (and Lua pattern magic generally) stays literal;
 --- `key` is escaped so `{...}` placeholders match as plain text.
@@ -138,39 +133,49 @@ function Query:open(item, edit_action)
   })
 end
 
---- Build the on-disk name for a new query buffer:
---- `<slug(name-suffix)>-<time>.<ext>`, where the suffix is `query` or
---- `<table>-<label>` and `<ext>` is the adapter's query-input extension
---- (`entry.extension`, e.g. `sql`). The real extension makes the buffer look like
---- a genuine query file to external formatters/linters/LSP, which key off the
---- filename rather than Neovim's `filetype`. Honors a configured
---- `buffer_name_generator` (whose output is used verbatim -- no extension is
---- forced onto a user-supplied name), prefers the tmp-query location, and
---- otherwise drops it next to `tempname()` (tracking it as a tmp buffer).
+--- Build the on-disk name for a new query buffer: `<base>.<ext>` inside the
+--- connection's own tmp subdirectory `<tmp_location>/<save_name>/`, where the
+--- base is `query` or `<table>-<label>` and `<ext>` is the adapter's query-input
+--- extension (`entry.extension`, e.g. `sql`). The directory records ownership
+--- (`state` restores its contents on startup, `get_saved_query_db_name` resolves
+--- it back), and the real extension makes the buffer look like a genuine query
+--- file to external formatters/linters/LSP, which key off the filename rather
+--- than Neovim's `filetype`. A taken name bumps a `-N` counter. Honors a
+--- configured `buffer_name_generator` (whose output is used verbatim -- no
+--- extension or counter is forced onto a user-supplied name). Without a
+--- tmp-query location the subdirectory lives next to `tempname()` instead
+--- (session-local, tracked as a tmp buffer).
 ---@param entry DadbodUI.ConnectionEntry
 ---@param opts { label: string, table?: string, schema?: string, filetype: string }
 ---@return string
 function Query:generate_buffer_name(entry, opts)
-  name_seq = name_seq + 1
-  local time = vim.fn.strftime('%Y-%m-%d-%H-%M-%S') .. '-' .. name_seq
-  local suffix = 'query'
-  if opts.table ~= nil and opts.table ~= '' then
-    suffix = string.format('%s-%s', opts.table, opts.label)
+  local root = self.instance.tmp_location
+  local is_session_tmp = root == ''
+  if is_session_tmp then
+    root = vim.fs.dirname(vim.fn.tempname())
   end
-  -- Prefix with the group-qualified name (not the bare `entry.name`) so tmp query
-  -- files for a name reused across groups stay namespaced and resolve back to the
-  -- right connection (see get_saved_query_db_name / Drawer:pick_db).
-  local buffer_name = utils.slug(string.format('%s-%s', entry.save_name, suffix))
-  buffer_name = string.format('%s-%s.%s', buffer_name, time, entry.extension)
+  local dir = string.format('%s/%s', root, entry.save_name)
+  vim.fn.mkdir(dir, 'p')
+
+  local name
   if self.config.buffer_name_generator then
-    buffer_name = string.format('%s-%s', entry.save_name, self.config.buffer_name_generator(opts))
+    name = string.format('%s/%s', dir, self.config.buffer_name_generator(opts))
+  else
+    local base = 'query'
+    if opts.table ~= nil and opts.table ~= '' then
+      base = string.format('%s-%s', opts.table, opts.label)
+    end
+    name = string.format('%s/%s.%s', dir, base, entry.extension)
+    local n = 1
+    while utils.is_file(name) or vim.tbl_contains(entry.buffers.list, name) do
+      n = n + 1
+      name = string.format('%s/%s-%d.%s', dir, base, n, entry.extension)
+    end
   end
-  if self.instance.tmp_location ~= '' then
-    return string.format('%s/%s', self.instance.tmp_location, buffer_name)
+  if is_session_tmp then
+    table.insert(entry.buffers.tmp, name)
   end
-  local tmp_name = string.format('%s/%s', vim.fs.dirname(vim.fn.tempname()), buffer_name)
-  table.insert(entry.buffers.tmp, tmp_name)
-  return tmp_name
+  return name
 end
 
 --- Move to a window suitable for the query buffer: reuse one already holding a
@@ -1004,30 +1009,18 @@ end
 
 --- Best-effort connection name for a buffer that carries no `b:dbui_db_key_name`
 --- yet, inferred from its on-disk location so `find_buffer` can adopt a plain
---- `.sql` file opened under the tmp-query or save directory. A tmp-location file
---- matches the `<name>-…` buffer prefix (stripping a leading `db_ui.` root); a
---- save-location file lives in a per-connection subdir named for the db. Returns
---- `''` when nothing matches.
+--- `.sql` file opened under the tmp-query or save directory. Both locations use
+--- the same layout -- a per-connection subdirectory named with the
+--- group-qualified name -- so the parent directory's basename IS the connection
+--- (pick_db matches it on the qualified name). Returns `''` when the buffer
+--- lives elsewhere.
 ---@return string
 function Query:get_saved_query_db_name()
   local dir = vim.fn.expand('%:p:h')
-  local tmp = self.instance.tmp_location
-  if tmp ~= '' and tmp == dir then
-    local filename = vim.fn.expand('%:t')
-    if vim.fn.fnamemodify(filename, ':r') == 'db_ui' then
-      filename = vim.fn.fnamemodify(filename, ':e')
-    end
-    local match = vim.iter(self.instance.dbs_list):find(function(record)
-      local qname = utils.qualified_name(record.name, record.group)
-      return filename:match('^' .. vim.pesc(qname) .. '%-') ~= nil
-    end)
-    if match ~= nil then
-      -- Return the group-qualified name so a name reused across groups maps back
-      -- to THIS connection (pick_db matches on the qualified name too).
-      return utils.qualified_name(match.name, match.group)
-    end
-  end
-  if vim.fs.dirname(dir) == self.instance.save_path then
+  local parent = vim.fs.dirname(dir)
+  if
+    (self.instance.tmp_location ~= '' and parent == self.instance.tmp_location) or parent == self.instance.save_path
+  then
     return vim.fs.basename(dir)
   end
   return ''

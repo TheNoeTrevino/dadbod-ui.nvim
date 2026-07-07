@@ -40,7 +40,6 @@ local M = {}
 ---@field dbs_list DadbodUI.ConnectionRecord[]  discovered connection records
 ---@field dbs table<string, DadbodUI.ConnectionEntry>  entries keyed by key_name
 ---@field dbout_list table<string, string>  executed result files -> preview content
----@field old_buffers string[]  tmp-location query files found at startup (restored per-entry)
 ---@field _inputs? DadbodUI.DiscoverInputs  inputs last populated with (for repopulate)
 local Instance = {}
 Instance.__index = Instance
@@ -90,22 +89,17 @@ local function resolve_filetype(url, scheme_info)
 end
 
 ---@private
---- Tmp-location query files belonging to `name`: a startup buffer is restored
---- under a connection when its basename (or extension, for `db_ui.<name>` style
---- names) starts with `<slug(name)>-`. The prefix must be the SLUG of the name
---- (as `query.generate_buffer_name` and `drawer:get_buffer_name` both use), so a
---- connection named e.g. "My DB" -- whose files are `mydb-...` -- still restores
---- its tmp buffers.
----@param old_buffers string[]
----@param name string
+--- Tmp-location query files belonging to a connection: everything in its
+--- per-connection subdirectory `<tmp_location>/<save_name>/` (the directory IS
+--- the ownership record -- see `query.generate_buffer_name`, which creates it).
+---@param tmp_location string
+---@param save_name string
 ---@return string[]
-local function buffers_for(old_buffers, name)
-  local prefix = '^' .. vim.pesc(utils.slug(name)) .. '%-'
-  return vim.tbl_filter(function(path)
-    local tail = vim.fs.basename(path)
-    local ext = vim.fn.fnamemodify(path, ':e')
-    return tail:find(prefix) ~= nil or ext:find(prefix) ~= nil
-  end, old_buffers)
+local function buffers_for(tmp_location, save_name)
+  if tmp_location == '' then
+    return {}
+  end
+  return vim.fn.glob(tmp_location .. '/' .. save_name .. '/*', true, true)
 end
 
 ---@private
@@ -117,15 +111,15 @@ end
 ---@param record DadbodUI.ConnectionRecord
 ---@param save_path string
 ---@param config DadbodUI.Config
----@param old_buffers string[]
+---@param tmp_location string
 ---@return DadbodUI.ConnectionEntry
-local function make_entry(record, save_path, config, old_buffers)
+local function make_entry(record, save_path, config, tmp_location)
   local parsed = bridge.parse_url(record.url)
   local scheme = parsed.scheme or ''
   local scheme_info = schemas.get(scheme, config)
   local db_name = (parsed.path or ''):gsub('^/', '')
-  -- The group-qualified identifier ties the save folder AND the tmp query-buffer
-  -- files to this specific connection, so a name reused across groups never
+  -- The group-qualified identifier names the save folder AND the tmp query
+  -- folder for this specific connection, so a name reused across groups never
   -- collides on disk or resolves back to the wrong db (see utils.qualified_name).
   local save_name = utils.qualified_name(record.name, record.group)
   return {
@@ -155,36 +149,23 @@ local function make_entry(record, save_path, config, old_buffers)
     tables = {},
     schemas = { list = {}, items = {} },
     routines = { list = {}, items = {}, flat = {} },
-    buffers = { list = buffers_for(old_buffers, save_name), tmp = {} },
+    buffers = { list = buffers_for(tmp_location, save_name), tmp = {} },
     saved_queries = {},
   }
 end
 
---- Create a new instance from resolved config (does not populate yet). When a
---- tmp-query location is configured we ensure it exists and snapshot the query
---- files already in it, so connections can restore their open buffers on the
---- next populate.
+--- Create a new instance from resolved config (does not populate yet).
 ---@param config DadbodUI.Config
 ---@return DadbodUI.Instance
 function M.new(config)
-  local save_path = expand_dir(config.save_location)
-  local tmp_location = expand_dir(config.tmp_query_location)
-  local old_buffers = {}
-  if tmp_location ~= '' then
-    if not utils.is_dir(tmp_location) then
-      vim.fn.mkdir(tmp_location, 'p')
-    end
-    old_buffers = vim.fn.glob(tmp_location .. '/*', true, true)
-  end
   return setmetatable({
     config = config,
-    save_path = save_path,
+    save_path = expand_dir(config.save_location),
     connections_path = connections.connections_path(config.save_location),
-    tmp_location = tmp_location,
+    tmp_location = expand_dir(config.tmp_query_location),
     dbs_list = {},
     dbs = {},
     dbout_list = {},
-    old_buffers = old_buffers,
   }, Instance)
 end
 
@@ -208,7 +189,7 @@ function Instance:populate(inputs)
     if prev ~= nil and prev.url == record.url then
       self.dbs[record.key_name] = prev
     else
-      self.dbs[record.key_name] = make_entry(record, self.save_path, self.config, self.old_buffers)
+      self.dbs[record.key_name] = make_entry(record, self.save_path, self.config, self.tmp_location)
     end
   end
   return self
