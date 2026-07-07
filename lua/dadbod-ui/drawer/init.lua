@@ -1,8 +1,9 @@
 -- The tree UI (window + content render + interaction)
 --
--- A scratch buffer whose lines are built from a `content[]` array where line N
--- maps to a node. The cursor line indexes `content` to find the node and its
--- action.
+-- A scratch buffer rendered from a real node tree: `drawer/content.lua` builds
+-- `roots[]` (nodes with `children`) and flattens it into `content[]` (line N
+-- maps to a node, each node carrying `parent`/`index`/`level`). The cursor
+-- line indexes `content`; navigation walks the tree.
 --
 -- The Drawer class is split across this directory: this file owns the window
 -- lifecycle, controller accessors, render orchestration, statusline and
@@ -41,17 +42,19 @@ local M = {}
 ---@field instance DadbodUI.Instance
 ---@field icons DadbodUI.Icons
 ---@field config DadbodUI.Config
----@field content DadbodUI.Node[]  line N -> node
---- Drawer-owned transient VIEW state (group expand + the show_* flags below);
---- entries own DOMAIN expand. See the ownership note above `toggle_line`.
----@field groups table<string, { expanded: boolean }>  per-group expand state
+---@field roots DadbodUI.Node[]  the node tree (navigation walks it)
+---@field content DadbodUI.Node[]  flat projection of the tree; line N -> node
+--- ALL expand/collapse state, keyed by the stable node ids in `drawer/ids.lua`.
+--- Drawer-owned VIEW state: connection entries stay pure domain data. Survives
+--- drawer close/reopen (the drawer is a session singleton) and, because the ids
+--- are domain-derived, re-introspection can never lose it.
+---@field expand table<string, boolean>
 ---@field help_winid? integer  floating help window id, nil when closed
 ---@field show_details boolean
 ---@field input DadbodUI.UiInput  prompt backend (injectable for specs)
 ---@field confirm DadbodUI.Confirm  yes/no backend (injectable for specs)
 ---@field connector fun(url: string): string  synchronous connect backend (injectable for specs)
 ---@field async_connector fun(url: string, on_result: fun(ok: boolean, conn: string)): nil  non-blocking connect backend (injectable for specs)
----@field show_dbout_list boolean  whether the Query results section is expanded
 ---@field _query? DadbodUI.Query  lazily-built query controller
 ---@field _introspect? DadbodUI.Introspect  lazily-built introspection controller
 ---@field _connections? DadbodUI.ConnectionsController  lazily-built CRUD controller
@@ -78,8 +81,9 @@ function M.new(instance)
     instance = instance,
     icons = icons_mod.resolve(instance.config),
     config = instance.config,
+    roots = {},
     content = {},
-    groups = {},
+    expand = {},
     help_winid = nil,
     show_details = false,
     input = vim.ui.input,
@@ -88,7 +92,6 @@ function M.new(instance)
     end,
     connector = bridge.connect,
     async_connector = bridge.connect_async,
-    show_dbout_list = false,
     _query = nil,
     _introspect = nil,
     _connections = nil,
@@ -148,13 +151,36 @@ function Drawer:connections()
   return self._connections
 end
 
----@param name string
----@return { expanded: boolean }
-function Drawer:group_state(name)
-  if self.groups[name] == nil then
-    self.groups[name] = { expanded = self.config.drawer.expand_groups }
+--- Whether the node identified by `id` (see `drawer/ids.lua`) is expanded.
+--- `default` is the state before the user ever touched the node (group nodes
+--- pass `config.drawer.expand_groups`; everything else starts collapsed).
+---@param id string
+---@param default? boolean
+---@return boolean
+function Drawer:is_expanded(id, default)
+  local value = self.expand[id]
+  if value == nil then
+    return default == true
   end
-  return self.groups[name]
+  return value
+end
+
+--- Record expand state for the node identified by `id`.
+---@param id string
+---@param value boolean
+---@return nil
+function Drawer:set_expanded(id, value)
+  self.expand[id] = value
+end
+
+--- Mark a connection's section expanded -- the semantic verb for callers
+--- outside the drawer (e.g. the query controller pre-expanding Buffers), so the
+--- id scheme in `drawer/ids.lua` stays a drawer-internal detail.
+---@param key_name string
+---@param section string  'buffers' | 'saved_queries' | 'schemas' | 'tables' | 'routines'
+---@return nil
+function Drawer:expand_section(key_name, section)
+  self:set_expanded(require('dadbod-ui.drawer.ids').section(key_name, section), true)
 end
 
 ---@return boolean

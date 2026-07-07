@@ -6,7 +6,7 @@
 -- find/reveal, and sibling/parent navigation.
 
 local bridge = require('dadbod-ui.bridge')
-local spinner = require('dadbod-ui.spinner')
+local ids = require('dadbod-ui.drawer.ids')
 local utils = require('dadbod-ui.utils')
 
 ---@private
@@ -90,7 +90,7 @@ function Drawer:toggle_details()
   return self:render()
 end
 
---- Refresh `entry.saved_queries.list` from disk. Thin wrapper over the
+--- Refresh `entry.saved_queries` from disk. Thin wrapper over the
 --- introspection controller (which owns it so the query controller can refresh
 --- saved queries without a drawer back-ref), exposed here for the drawer's own
 --- callers and the saved-query specs.
@@ -138,27 +138,18 @@ end
 
 -- Expand/UI state ownership ---------------------------------------------------
 --
--- Two coherent owners:
---   * DRAWER owns transient VIEW state -- `help_winid`, `show_details`,
---     `show_dbout_list`, and group expand (`self.groups`, via `group_state`).
---     None of it is domain data; it resets with a fresh drawer.
---   * ENTRIES own DOMAIN expand -- `entry.expanded` and the `.expanded` flag on
---     each section/schema/table sub-node; per-connection, surviving a drawer
---     close/reopen on the same instance.
---
--- `toggle_line` special-cases neither: every togglable node carries a
--- `toggle_state` reference to its backing `{ expanded }` table (see the Node
--- type for what each points at), so a toggle is one generic flip, plus an
--- optional `on_expand` for the db's lazy introspection.
---
--- `show_dbout_list` is the lone exception: like the `show_details` boolean it
--- is flipped by name, here on the `call_method` path. It is left there
--- deliberately to keep the action branches (`call_method`/`open`) untouched --
--- those are actions, not expand-state flips.
+-- One owner: the DRAWER holds all view state -- `help_winid`, `show_details`
+-- and the `expand` map (every expand/collapse flag, keyed by the stable node
+-- ids in `drawer/ids.lua`). Connection entries are pure domain data; nothing
+-- in `state.lua` knows what the tree looks like. A toggle is one generic map
+-- flip; per-node side effects ride on the node as `on_expand`/`on_collapse`/
+-- `on_activate` callbacks set at build time, so this dispatcher never grows
+-- type branches.
 
---- Act on the node under the cursor. Toggles groups/dbs/sections; opens query,
+--- Act on the node under the cursor. Runs `activate` callbacks; opens query,
 --- buffer, saved-query and table-helper nodes through the query controller (in
---- `edit_action`, defaulting to `edit`); previews dbout result files.
+--- `edit_action`, defaulting to `edit`); previews dbout result files; flips
+--- toggle nodes.
 ---@param edit_action? string  'edit' | 'vertical … split' (default 'edit')
 ---@return DadbodUI.Drawer|nil
 function Drawer:toggle_line(edit_action)
@@ -166,14 +157,8 @@ function Drawer:toggle_line(edit_action)
   if item == nil or item.action == 'noaction' then
     return
   end
-  if item.action == 'call_method' then
-    if item.type == 'add_connection' then
-      self:connections():add_connection()
-    elseif item.type == 'dbout_list' then
-      self.show_dbout_list = not self.show_dbout_list
-      return self:render()
-    end
-    return
+  if item.on_activate ~= nil then
+    return item.on_activate()
   end
   if item.action == 'open' then
     if item.type == 'dbout' then
@@ -184,23 +169,18 @@ function Drawer:toggle_line(edit_action)
     self:query():open(item, edit_action or 'edit')
     return
   end
-  -- Generic flip (see the ownership note above): every togglable node carries
-  -- `toggle_state`; `on_expand` (db lazy introspection) fires only when the flip
-  -- opens the node, never on collapse.
-  if item.toggle_state ~= nil then
-    item.toggle_state.expanded = not item.toggle_state.expanded
-    if item.toggle_state.expanded then
+  -- Generic flip (see the ownership note above): `item.expanded` is the state
+  -- the node was BUILT with, so its negation is the new state. `on_expand`
+  -- fires only on the opening flip, `on_collapse` only on the closing one.
+  if item.id ~= nil then
+    local opening = not item.expanded
+    self:set_expanded(item.id, opening)
+    if opening then
       if item.on_expand ~= nil then
         item.on_expand()
       end
-    elseif item.type == 'db' and item.key_name ~= nil then
-      -- Collapsing a db that may still be mid-load: stop its loading animation
-      -- and drop the marker so no timer leaks and no stale spinner reappears.
-      spinner.stop(item.key_name)
-      local entry = self.instance.dbs[item.key_name]
-      if entry ~= nil then
-        entry.loading = false
-      end
+    elseif item.on_collapse ~= nil then
+      item.on_collapse()
     end
     return self:render()
   end
@@ -350,7 +330,7 @@ function Drawer:delete_buffer(item)
       return
     end
     pcall(vim.fs.rm, file)
-    entry.saved_queries.list = drop(entry.saved_queries.list)
+    entry.saved_queries = drop(entry.saved_queries)
     entry.buffers.list = drop(entry.buffers.list)
     notify.info('Deleted.')
   elseif self.instance:is_tmp_location_buffer(entry, file) then
@@ -582,8 +562,8 @@ function Drawer:reveal_buffer(entry)
   if vim.fn.exists('*vim_dadbod_completion#fetch') == 1 then
     pcall(vim.fn['vim_dadbod_completion#fetch'], vim.api.nvim_get_current_buf())
   end
-  entry.expanded = true
-  entry.buffers.expanded = true
+  self:set_expanded(ids.db(entry.key_name), true)
+  self:expand_section(entry.key_name, 'buffers')
   self:open()
   local row = 0
   for idx, node in ipairs(self.content) do
@@ -612,11 +592,11 @@ function Drawer:reveal_db(key_name)
     return
   end
   self:open()
-  if entry.expanded then
+  if self:is_expanded(ids.db(key_name)) then
     self:render()
   else
     -- Mark expanded and run the SAME lazy introspection the toggle path fires.
-    entry.expanded = true
+    self:set_expanded(ids.db(key_name), true)
     self:introspect():expand_db(entry)
   end
   self:focus_db(key_name)
@@ -791,93 +771,79 @@ function Drawer:redraw()
   self:render()
 end
 
---- Move to a sibling at the same tree level. `direction` is
---- 'first' | 'last' | 'next' | 'prev'. Stops at level boundaries and at the
---- top-level separators (level 0 with an empty label).
+--- Move to a sibling: another child of the same parent (top-level nodes are
+--- siblings of every other top-level node). `direction` is
+--- 'first' | 'last' | 'next' | 'prev'. Hint/separator chrome is skipped, never
+--- landed on.
 ---@param direction string  'first' | 'last' | 'next' | 'prev'
 ---@return nil
 function Drawer:goto_sibling(direction)
-  local line = self:current_line()
-  local n = #self.content
-  local item = self.content[line]
+  local item = self:get_current_item()
   if item == nil then
     return
   end
-  local level = item.level
-  local is_up = direction == 'first' or direction == 'prev'
-  local is_down = not is_up
-  local is_edge = direction == 'first' or direction == 'last'
-  local is_prev_or_next = not is_edge
-  local last_same = line
-
-  local idx = line
-  while (is_up and idx >= 1) or (is_down and idx <= n) do
-    local adj = is_up and idx - 1 or idx + 1
-    if adj < 1 or adj > n then
-      return
-    end
-    local adjacent = self.content[adj]
-    local on_edge = (is_up and adj == 1) or (is_down and adj == n)
-    if adjacent.level == 0 and adjacent.label == '' then
-      -- A top-level separator ends the scan: stop at the last same-level sibling
-      -- (`last_same`), never at `idx` -- which can be a deeper child we stepped
-      -- over. For prev/next `last_same` stays at the start line (no move), so the
-      -- "stops at level boundaries" contract holds for every direction.
-      return self:set_cursor(last_same)
-    end
-    if is_prev_or_next then
-      if adjacent.level == level then
-        return self:set_cursor(adj)
-      end
-      if adjacent.level < level then
-        return
+  local all = item.parent ~= nil and item.parent.children or self.roots
+  ---@type DadbodUI.Node[]
+  local siblings = {}
+  local pos
+  for _, node in ipairs(all) do
+    if node.action ~= 'noaction' then
+      siblings[#siblings + 1] = node
+      if node == item then
+        pos = #siblings
       end
     end
-    if is_edge then
-      if adjacent.level == level then
-        last_same = adj
-      end
-      if adjacent.level < level or on_edge then
-        return self:set_cursor(last_same)
-      end
-    end
-    idx = adj
+  end
+  if pos == nil then
+    return -- the cursor sits on chrome; nowhere sensible to move
+  end
+  local target
+  if direction == 'first' then
+    target = siblings[1]
+  elseif direction == 'last' then
+    target = siblings[#siblings]
+  elseif direction == 'prev' then
+    target = siblings[pos - 1]
+  else
+    target = siblings[pos + 1]
+  end
+  if target ~= nil and target ~= item then
+    self:set_cursor(target.index)
   end
 end
 
---- Move to the parent node (level - 1) or the first child (level + 1).
---- A collapsed node is expanded first when descending.
+--- Move to the parent node or the first child. A collapsed node is expanded
+--- first when descending.
 ---@param direction string  'parent' | 'child'
 ---@return nil
 function Drawer:goto_node(direction)
-  local line = self:current_line()
-  local item = self.content[line]
+  local item = self:get_current_item()
   if item == nil then
     return
   end
   if direction == 'parent' then
-    -- A top-level node has no parent: the scan would run to idx 0 and
-    -- set_cursor(0) would clamp onto line 1 (the help comment). No-op instead.
-    if item.level == 0 then
-      return
+    -- A top-level node has no parent: no-op (never clamp onto line 1).
+    if item.parent ~= nil then
+      self:set_cursor(item.parent.index)
     end
-    local idx = line
-    while idx >= 1 do
-      idx = idx - 1
-      local adjacent = self.content[idx]
-      if adjacent == nil or adjacent.level < item.level then
-        break
-      end
-    end
-    return self:set_cursor(idx)
+    return
   end
   if item.action ~= 'toggle' then
     return
   end
   if not item.expanded then
+    -- Expanding re-renders (rebuilding every node), so re-resolve the node at
+    -- the same line before reading its children.
     self:toggle_line()
+    item = self.content[item.index]
+    if item == nil then
+      return
+    end
   end
-  self:set_cursor(line + 1)
+  local child = item.children ~= nil and item.children[1] or nil
+  if child ~= nil then
+    self:set_cursor(child.index)
+  end
 end
 
 return Drawer

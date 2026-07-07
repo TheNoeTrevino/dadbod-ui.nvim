@@ -208,14 +208,14 @@ function Introspect:expand_db(entry)
   end)
 end
 
---- Refresh `entry.saved_queries.list` from the files on disk under its save_path.
+--- Refresh `entry.saved_queries` from the files on disk under its save_path.
 --- Lives here so the query controller can refresh saved queries without reaching
 --- back through the drawer.
 ---@param entry DadbodUI.ConnectionEntry
 ---@return nil
 function Introspect:load_saved_queries(entry)
   if entry.save_path ~= '' then
-    entry.saved_queries.list = vim.fn.glob(entry.save_path .. '/*', true, true)
+    entry.saved_queries = vim.fn.glob(entry.save_path .. '/*', true, true)
   end
 end
 
@@ -226,18 +226,6 @@ function Introspect:_is_schema_ignored(schema_name)
   return vim.iter(self.config.hide_schemas):any(function(pattern)
     return vim.fn.match(schema_name, pattern) > -1
   end)
-end
-
---- Ensure every table in `tables.list` has an expand-state item, preserving the
---- existing ones (so a refresh keeps tables expanded).
----@param tables DadbodUI.TablesNode
----@return nil
-function Introspect:populate_table_items(tables)
-  for _, table_name in ipairs(tables.list) do
-    if tables.items[table_name] == nil then
-      tables.items[table_name] = { expanded = false }
-    end
-  end
 end
 
 --- Introspect schemas + tables concurrently and render, with the two queries
@@ -286,7 +274,7 @@ end
 
 --- Fold parsed schema names and (schema, table) rows into the entry, honoring
 --- `hide_schemas`: tables are grouped per schema and also collected into the
---- flat `entry.tables.list`.
+--- flat `entry.tables`.
 ---@param entry DadbodUI.ConnectionEntry
 ---@param schema_list string[]
 ---@param table_rows string[][]
@@ -297,28 +285,25 @@ function Introspect:apply_schemas(entry, schema_list, table_rows)
   end, schema_list)
 
   local tables_by_schema = {}
-  entry.tables.list = {}
+  entry.tables = {}
   for _, row in ipairs(table_rows) do
     local schema_name, table_name = row[1], row[2]
     if not self:_is_schema_ignored(schema_name) then
       tables_by_schema[schema_name] = tables_by_schema[schema_name] or {}
       table.insert(tables_by_schema[schema_name], table_name)
-      table.insert(entry.tables.list, table_name)
+      table.insert(entry.tables, table_name)
     end
   end
 
   entry.schemas.list = visible_schemas
+  -- Rebuilt fresh each introspection: these are pure domain containers, so
+  -- there is no view state to preserve (the drawer's expand map is keyed by
+  -- stable ids and survives on its own).
+  entry.schemas.items = {}
   for _, schema in ipairs(visible_schemas) do
-    if entry.schemas.items[schema] == nil then
-      entry.schemas.items[schema] = {
-        expanded = false,
-        tables = { expanded = true, list = {}, items = {} },
-      }
-    end
     local schema_tables = tables_by_schema[schema] or {}
     table.sort(schema_tables)
-    entry.schemas.items[schema].tables.list = schema_tables
-    self:populate_table_items(entry.schemas.items[schema].tables)
+    entry.schemas.items[schema] = schema_tables
   end
 end
 
@@ -350,19 +335,17 @@ end
 function Introspect:apply_routines(entry, scheme_info, routine_rows)
   if entry.schema_support then
     -- Build a fresh items table in one pass: schemas that no longer have routines
-    -- simply never enter it (pruning), and each new bucket inherits the previous
-    -- node's expand state. `order` preserves first-seen schema order for the drawer.
-    local old_items = entry.routines.items
+    -- simply never enter it (pruning). `order` preserves first-seen schema order
+    -- for the drawer.
     local items, order = {}, {}
     for _, row in ipairs(routine_rows) do
       local schema_name, name, kind = row[1], row[2], row[3]
       if not self:_is_schema_ignored(schema_name) then
         if items[schema_name] == nil then
-          local existing = old_items[schema_name]
-          items[schema_name] = { expanded = existing ~= nil and existing.expanded or false, list = {} }
+          items[schema_name] = {}
           order[#order + 1] = schema_name
         end
-        table.insert(items[schema_name].list, self:_make_routine(scheme_info, schema_name, name, kind))
+        table.insert(items[schema_name], self:_make_routine(scheme_info, schema_name, name, kind))
       end
     end
     entry.routines.list = order
@@ -385,7 +368,7 @@ end
 ---@param entry DadbodUI.ConnectionEntry
 ---@return nil
 function Introspect:populate_tables(entry)
-  entry.tables.list = {}
+  entry.tables = {}
   if not state.is_connected(entry) then
     entry.loading = false
     spinner.stop(entry.key_name)
@@ -394,8 +377,7 @@ function Introspect:populate_tables(entry)
   -- The adapter `tables` call is BLOCKING, so no animation is possible here: the
   -- static loading frame painted on expand is the indicator until the rows land.
   local raw = bridge.adapter_call(entry.conn, 'tables', { entry.conn }, {})
-  entry.tables.list = schemas.normalize_table_list(entry.scheme, raw)
-  self:populate_table_items(entry.tables)
+  entry.tables = schemas.normalize_table_list(entry.scheme, raw)
   local scheme_info = schemas.get(entry.scheme, self.config)
   if entry.routine_support then
     -- Routines aren't part of dadbod's `tables` call, so fetch them separately and

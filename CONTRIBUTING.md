@@ -69,13 +69,15 @@ Please adhere to these separations as much as possible.
 
 `spinners.lua` - spinner frame catalog (data).
 
-`paginator.lua` - per-adapter LIMIT/OFFSET result pagination.
+`paginator.lua` - LIMIT/OFFSET result pagination (styles from the adapter registry).
 
 `bind_params.lua` - bind-parameter detection, quoting and substitution.
 
-`table_helpers.lua` - per-adapter table-helper templates (data).
+`table_helpers.lua` - table-helper merge + ordering (templates live on the adapter specs).
 
-`schemas/` - per-adapter introspection SQL + parsers: `init.lua` dispatches, `parse.lua` is the shared toolkit, one file per adapter.
+`adapters/` - the per-database registry, one spec file per adapter (introspection SQL, table helpers, EXPLAIN templates, pagination style, export flags). Adding an adapter is one file here; users can register their own via `api.register_adapter`.
+
+`schemas/` - introspection behavior over the adapter specs: `init.lua` (command building, dispatch), `parse.lua` (the shared parsing toolkit).
 
 `introspect.lua` - connect + schema/table introspection for a connection.
 
@@ -89,7 +91,7 @@ Please adhere to these separations as much as possible.
 
 `dbout/` - result buffers: `init.lua` (wiring), `winbar.lua`, `pagination.lua`, `cells.lua` (folds + cell/FK nav), `ctx.lua` (shared state).
 
-`export.lua` - native CLI result export orchestration, with `export_formats.lua` (pure formatters), `export_extract.lua` (output parsing) and `export_adapters.lua` (capability matrix).
+`export.lua` - native CLI result export orchestration, with `export_formats.lua` (pure formatters), `export_extract.lua` (output parsing) and `export_adapters.lua` (capability access over the adapter specs).
 
 ## Testing
 

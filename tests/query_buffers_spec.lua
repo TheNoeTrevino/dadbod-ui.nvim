@@ -4,6 +4,7 @@
 -- nothing is executed here (execution is covered in dbout_spec).
 
 local drawer_mod = require('dadbod-ui.drawer')
+local ids = require('dadbod-ui.drawer.ids')
 local state = require('dadbod-ui.state')
 local config = require('dadbod-ui.config')
 
@@ -125,8 +126,8 @@ describe('query buffers: open', function()
     query_bufs[#query_bufs + 1] = vim.api.nvim_get_current_buf()
 
     assert.equals(1, #entry.buffers.list)
-    assert.is_true(entry.buffers.expanded)
-    entry.expanded = true
+    assert.is_true(d:is_expanded(ids.section(entry.key_name, 'buffers')))
+    d:set_expanded(ids.db(entry.key_name), true)
     d:render()
     assert.is_true(has_line(d, 'Buffers (1)'))
   end)

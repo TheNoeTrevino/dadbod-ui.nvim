@@ -113,6 +113,7 @@
 ---@field export fun(spec: DadbodUI.ApiExportSpec): boolean, string|nil
 ---@field on fun(event: DadbodUI.EventName, cb: fun(event: DadbodUI.HookEvent)): DadbodUI.EventHandle|nil, string|nil
 ---@field off fun(handle: DadbodUI.EventHandle): boolean
+---@field register_adapter fun(spec: DadbodUI.Adapter): DadbodUI.Adapter
 ---@field statusline fun(opts?: DadbodUI.StatuslineOpts): string
 ---@field buf DadbodUI.ApiBufModule  verbs acting on the CURRENT query buffer
 ---@field dbout DadbodUI.ApiDboutModule  verbs acting on the CURRENT `.dbout` result buffer
@@ -335,7 +336,7 @@ function M.info(name)
     url = entry.url,
     conn = entry.conn or '',
     scheme = entry.scheme,
-    tables = entry.tables.list,
+    tables = entry.tables,
     schemas = entry.schemas.list,
     connected = state.is_connected(entry),
   }
@@ -587,14 +588,14 @@ function M.introspect(name, cb)
       local routines = {}
       if entry.schema_support then
         for _, schema in ipairs(entry.routines.list) do
-          vim.list_extend(routines, entry.routines.items[schema].list)
+          vim.list_extend(routines, entry.routines.items[schema])
         end
       else
         routines = entry.routines.flat
       end
       cb({
         schemas = entry.schemas.list,
-        tables = entry.tables.list,
+        tables = entry.tables,
         routines = routines,
       })
     end
@@ -823,6 +824,26 @@ end
 ---@return boolean
 function M.off(handle)
   return require('dadbod-ui.events').off(handle)
+end
+
+-- Adapters -------------------------------------------------------------------
+
+--- Register a custom database adapter (or override a built-in by reusing its
+--- name). One spec drives every capability -- drawer introspection, table
+--- helpers, EXPLAIN, pagination, export: >lua
+---   require('dadbod-ui.api').register_adapter({
+---     name = 'duckdb',
+---     table_helpers = { List = 'SELECT * FROM "{table}" LIMIT 200' },
+---     explain = { plain = 'EXPLAIN {sql}' },
+---     pagination = 'limit_offset',
+---   })
+--- <
+--- Register before connecting (entries capture their adapter metadata when the
+--- connection list is built).
+---@param spec DadbodUI.Adapter
+---@return DadbodUI.Adapter
+function M.register_adapter(spec)
+  return require('dadbod-ui.adapters').register(spec)
 end
 
 -- Statusline -----------------------------------------------------------------

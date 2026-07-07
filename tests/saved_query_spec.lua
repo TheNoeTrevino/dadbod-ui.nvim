@@ -3,8 +3,15 @@
 -- No DB binary is needed -- nothing is executed.
 
 local drawer_mod = require('dadbod-ui.drawer')
+local ids = require('dadbod-ui.drawer.ids')
 local state = require('dadbod-ui.state')
 local config = require('dadbod-ui.config')
+
+-- Expand the connection + its Saved queries section in the drawer's expand map.
+local function expand_saved(d, entry)
+  d:set_expanded(ids.db(entry.key_name), true)
+  d:set_expanded(ids.section(entry.key_name, 'saved_queries'), true)
+end
 
 local SAVE_ROOT = '/tmp/dbui_saved'
 
@@ -79,8 +86,7 @@ describe('saved queries', function()
 
     local saved = entry.save_path .. '/myquery.sql'
     assert.equals(1, vim.fn.filereadable(saved))
-    entry.expanded = true
-    entry.saved_queries.expanded = true
+    expand_saved(d, entry)
     d:render()
     assert.is_true(has_line(d, 'Saved queries (1)'))
     assert.is_true(has_line(d, 'myquery.sql'))
@@ -94,8 +100,7 @@ describe('saved queries', function()
     local saved = entry.save_path .. '/keep.sql'
     vim.fn.writefile({ 'select 1' }, saved)
     d:load_saved_queries(entry)
-    entry.expanded = true
-    entry.saved_queries.expanded = true
+    expand_saved(d, entry)
     d:render()
 
     local ln = line_of(d, function(n)
@@ -106,7 +111,7 @@ describe('saved queries', function()
     d:delete_line()
 
     assert.equals(0, vim.fn.filereadable(saved))
-    assert.equals(0, #entry.saved_queries.list)
+    assert.equals(0, #entry.saved_queries)
   end)
 
   it('renames a saved query (file and node) on r', function()
@@ -119,8 +124,7 @@ describe('saved queries', function()
     local saved = entry.save_path .. '/orig.sql'
     vim.fn.writefile({ 'select 1' }, saved)
     d:load_saved_queries(entry)
-    entry.expanded = true
-    entry.saved_queries.expanded = true
+    expand_saved(d, entry)
     d:render()
 
     local ln = line_of(d, function(n)
@@ -145,8 +149,7 @@ describe('saved queries', function()
     local saved = entry.save_path .. '/orig.sql'
     vim.fn.writefile({ 'select 1' }, saved)
     d:load_saved_queries(entry)
-    entry.expanded = true
-    entry.saved_queries.expanded = true
+    expand_saved(d, entry)
     d:render()
 
     local ln = line_of(d, function(n)
@@ -171,7 +174,7 @@ describe('saved queries', function()
     assert.is_not_nil(msg) -- notified the failure
     assert.equals(1, vim.fn.filereadable(saved)) -- original file still on disk
     -- Tracking untouched: the file did NOT vanish from the drawer's list.
-    assert.is_true(vim.tbl_contains(entry.saved_queries.list, saved))
+    assert.is_true(vim.tbl_contains(entry.saved_queries, saved))
     assert.equals(0, vim.fn.filereadable(entry.save_path .. '/renamed.sql'))
   end)
 
@@ -187,8 +190,7 @@ describe('saved queries', function()
     vim.fn.writefile({ 'select 1' }, saved)
     vim.fn.writefile({ 'select 2' }, taken)
     d:load_saved_queries(entry)
-    entry.expanded = true
-    entry.saved_queries.expanded = true
+    expand_saved(d, entry)
     d:render()
 
     local ln = line_of(d, function(n)
@@ -208,6 +210,6 @@ describe('saved queries', function()
     assert.is_not_nil(msg)
     assert.equals(1, vim.fn.filereadable(saved)) -- original untouched
     assert.same({ 'select 2' }, vim.fn.readfile(taken)) -- target NOT overwritten
-    assert.is_true(vim.tbl_contains(entry.saved_queries.list, saved))
+    assert.is_true(vim.tbl_contains(entry.saved_queries, saved))
   end)
 end)

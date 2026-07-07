@@ -7,6 +7,7 @@
 
 local schemas = require('dadbod-ui.schemas')
 local drawer_mod = require('dadbod-ui.drawer')
+local ids = require('dadbod-ui.drawer.ids')
 local state = require('dadbod-ui.state')
 local config = require('dadbod-ui.config')
 
@@ -95,10 +96,9 @@ describe('routines: result parsing', function()
   it('parses postgres (schema, name, kind) rows via parse_results min_len 3', function()
     local pg = schemas.get('postgres')
     local out = pg.parse_results({
-      'routine_schema|routine_name|routine_type',
       'public|do_thing|procedure',
       'public|calc|function',
-      '(2 rows)',
+      '',
     }, 3)
     assert.same({ 'public', 'do_thing', 'procedure' }, out[1])
     assert.same({ 'public', 'calc', 'function' }, out[2])
@@ -108,7 +108,6 @@ describe('routines: result parsing', function()
   it('parses mysql tab-delimited routine rows', function()
     local my = schemas.get('mysql')
     local out = my.parse_results({
-      'routine_schema\troutine_name\troutine_type',
       'app\tdo_thing\tprocedure',
     }, 3)
     assert.same({ 'app', 'do_thing', 'procedure' }, out[1])
@@ -135,11 +134,11 @@ describe('routines: apply_routines', function()
       { 'pg_catalog', 'internal', 'function' },
     })
     assert.same({ 'public', 'app' }, entry.routines.list)
-    assert.equals(2, #entry.routines.items.public.list)
-    assert.equals('do_thing', entry.routines.items.public.list[1].name)
-    assert.equals('procedure', entry.routines.items.public.list[1].kind)
+    assert.equals(2, #entry.routines.items.public)
+    assert.equals('do_thing', entry.routines.items.public[1].name)
+    assert.equals('procedure', entry.routines.items.public[1].kind)
     -- the pre-built definition query rides on the item (drives the open action)
-    assert.is_truthy(entry.routines.items.public.list[1].content:match('pg_get_functiondef'))
+    assert.is_truthy(entry.routines.items.public[1].content:match('pg_get_functiondef'))
     -- hidden schema dropped
     assert.is_nil(entry.routines.items.pg_catalog)
   end)
@@ -159,7 +158,7 @@ describe('routines: apply_routines', function()
     assert.is_truthy(entry.routines.flat[1].content:find('SHOW CREATE PROCEDURE', 1, true))
   end)
 
-  it('preserves per-schema expand state across a refresh and prunes emptied schemas', function()
+  it('prunes emptied schemas across a refresh; drawer expand state is untouched', function()
     d = make_drawer({ dev = 'postgres://h/dev' })
     local entry = entry_named(d, 'dev')
     local scheme_info = schemas.get(entry.scheme, d.config)
@@ -167,10 +166,12 @@ describe('routines: apply_routines', function()
       { 'public', 'a', 'procedure' },
       { 'app', 'b', 'function' },
     })
-    entry.routines.items.public.expanded = true
+    -- Expand state lives in the drawer's map (keyed by stable ids), so a
+    -- refresh that rebuilds the domain containers cannot lose it.
+    d:set_expanded(ids.routine_schema(entry.key_name, 'public'), true)
     -- a refresh where `app` no longer has routines
     d:introspect():apply_routines(entry, scheme_info, { { 'public', 'a', 'procedure' } })
-    assert.is_true(entry.routines.items.public.expanded)
+    assert.is_true(d:is_expanded(ids.routine_schema(entry.key_name, 'public')))
     assert.is_nil(entry.routines.items.app)
     assert.same({ 'public' }, entry.routines.list)
   end)
@@ -202,7 +203,7 @@ describe('routines: concurrent populate', function()
     bridge.run_many = function(specs, on_done)
       assert.equals(1, #specs)
       seen_query = specs[1].stdin -- mysql feeds the query on stdin
-      on_done({ completed('routine_schema\troutine_name\troutine_type\napp\tdo_thing\tprocedure\n') })
+      on_done({ completed('app\tdo_thing\tprocedure\n') })
     end
     local real_adapter_call = bridge.adapter_call
     bridge.adapter_call = function()
@@ -223,16 +224,16 @@ describe('routines: concurrent populate', function()
     bridge.run_many = function(specs, on_done)
       assert.equals(3, #specs) -- schemas + tables + routines, one round-trip
       on_done({
-        completed('schema_name\npublic\n(1 row)\n'),
-        completed('table_schema|table_name\npublic|users\n(1 row)\n'),
-        completed('routine_schema|routine_name|routine_type\npublic|do_thing|procedure\n(1 row)\n'),
+        completed('public\n'),
+        completed('public|users\n'),
+        completed('public|do_thing|procedure\n'),
       })
     end
     d:introspect():populate_schemas(entry)
     assert.same({ 'public' }, entry.schemas.list)
-    assert.same({ 'users' }, entry.schemas.items.public.tables.list)
+    assert.same({ 'users' }, entry.schemas.items.public)
     assert.same({ 'public' }, entry.routines.list)
-    assert.equals('do_thing', entry.routines.items.public.list[1].name)
+    assert.equals('do_thing', entry.routines.items.public[1].name)
   end)
 end)
 
@@ -249,16 +250,14 @@ describe('routines: drawer rendering', function()
     d = make_drawer({ dev = 'postgres://h/dev' })
     d:open()
     local entry = entry_named(d, 'dev')
-    entry.expanded = true
-    entry.routines.expanded = true
+    d:set_expanded(ids.db(entry.key_name), true)
+    d:set_expanded(ids.section(entry.key_name, 'routines'), true)
+    d:set_expanded(ids.routine_schema(entry.key_name, 'public'), true)
     entry.routines.list = { 'public' }
     entry.routines.items = {
       public = {
-        expanded = true,
-        list = {
-          { name = 'do_thing', kind = 'procedure', content = 'x' },
-          { name = 'calc', kind = 'function', content = 'y' },
-        },
+        { name = 'do_thing', kind = 'procedure', content = 'x' },
+        { name = 'calc', kind = 'function', content = 'y' },
       },
     }
     d:render()
@@ -273,8 +272,8 @@ describe('routines: drawer rendering', function()
     d = make_drawer({ app = 'mysql://h/app' })
     d:open()
     local entry = entry_named(d, 'app')
-    entry.expanded = true
-    entry.routines.expanded = true
+    d:set_expanded(ids.db(entry.key_name), true)
+    d:set_expanded(ids.section(entry.key_name, 'routines'), true)
     entry.routines.flat = { { name = 'run', kind = 'procedure', content = 'z' } }
     d:render()
     local l = lines(d)
@@ -286,7 +285,7 @@ describe('routines: drawer rendering', function()
     d = make_drawer({ dev = 'postgres://h/dev' })
     d:open()
     local entry = entry_named(d, 'dev')
-    entry.expanded = true
+    d:set_expanded(ids.db(entry.key_name), true)
     d:render()
     for _, line in ipairs(lines(d)) do
       assert.is_nil(line:match('Procedures'))
@@ -298,7 +297,7 @@ describe('routines: drawer rendering', function()
     d:open()
     local entry = entry_named(d, 'qa')
     assert.is_false(entry.routine_support)
-    entry.expanded = true
+    d:set_expanded(ids.db(entry.key_name), true)
     -- even if some stray state existed, the section is gated on routine_support
     d:render()
     for _, line in ipairs(lines(d)) do

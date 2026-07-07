@@ -5,6 +5,7 @@
 -- guarded sqlite end-to-end, which pends without the binary.
 
 local drawer_mod = require('dadbod-ui.drawer')
+local ids = require('dadbod-ui.drawer.ids')
 local state = require('dadbod-ui.state')
 local config = require('dadbod-ui.config')
 local notifications = require('dadbod-ui.notifications')
@@ -66,15 +67,11 @@ describe('drawer loading: line_for', function()
     d:open()
     local entry = entry_named(d, 'dev')
     -- exercise several node kinds at once: db, sections, schema, table, help
-    entry.expanded = true
-    entry.schemas.expanded = true
+    d:set_expanded(ids.db(entry.key_name), true)
+    d:set_expanded(ids.section(entry.key_name, 'schemas'), true)
+    d:set_expanded(ids.schema(entry.key_name, 'public'), true)
     entry.schemas.list = { 'public' }
-    entry.schemas.items = {
-      public = {
-        expanded = true,
-        tables = { expanded = true, list = { 'users' }, items = { users = { expanded = false } } },
-      },
-    }
+    entry.schemas.items = { public = { 'users' } }
     d:render()
     local rendered = lines(d)
     assert.is_true(#rendered > 4)
@@ -170,7 +167,7 @@ describe('drawer loading: lifecycle marker', function()
     end
     d:open()
     local entry = entry_named(d, 'dev')
-    entry.expanded = true
+    d:set_expanded(ids.db(entry.key_name), true)
     d:introspect():expand_db(entry)
     vim.wait(1000, function()
       return entry.conn_tried
@@ -191,7 +188,7 @@ describe('drawer loading: lifecycle marker', function()
     end
     d:open()
     local entry = entry_named(d, 'dev')
-    entry.expanded = true
+    d:set_expanded(ids.db(entry.key_name), true)
     d:introspect():expand_db(entry)
     vim.wait(1000, function()
       return entry.conn_tried
@@ -231,10 +228,10 @@ describe('drawer loading: sqlite end-to-end (guarded)', function()
     d.async_connector = require('dadbod-ui.bridge').connect_async
     d:open()
     local entry = entry_named(d, 'qa')
-    entry.expanded = true
+    d:set_expanded(ids.db(entry.key_name), true)
     d:introspect():expand_db(entry)
     local ok = vim.wait(3000, function()
-      return not entry.loading and #entry.tables.list > 0
+      return not entry.loading and #entry.tables > 0
     end, 25)
     assert.is_true(ok, 'expected tables to load and the loading marker to clear')
     assert.is_true(state.is_connected(entry))

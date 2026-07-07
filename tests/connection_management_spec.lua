@@ -1,4 +1,5 @@
 local drawer_mod = require('dadbod-ui.drawer')
+local ids = require('dadbod-ui.drawer.ids')
 local state = require('dadbod-ui.state')
 local config = require('dadbod-ui.config')
 local connections = require('dadbod-ui.connections')
@@ -331,7 +332,7 @@ describe('connection management: group', function()
     }
     connections.write_file(dir .. '/connections.json', seed)
     d = make_drawer({ save_location = dir, file_entries = seed })
-    d.groups['Test'] = { expanded = true }
+    d:set_expanded(ids.group('Test'), true)
     d:open()
     local l = lines(d)
     -- exactly one "Test" header, with both grouped members under it
@@ -359,7 +360,7 @@ describe('connection management: group', function()
     connections.write_file(dir .. '/connections.json', seed)
     d = make_drawer({ save_location = dir, file_entries = seed })
     d:open()
-    d.groups['Local'] = { expanded = true }
+    d:set_expanded(ids.group('Local'), true)
     d:toggle_details()
     local qa_line
     for _, l in ipairs(lines(d)) do
@@ -514,7 +515,7 @@ describe('connection management: reorder', function()
     }
     connections.write_file(dir .. '/connections.json', seed)
     d = make_drawer({ save_location = dir, file_entries = seed })
-    d.groups['G'] = { expanded = true }
+    d:set_expanded(ids.group('G'), true)
     d:open()
     -- a is ungrouped, directly above group G; C-Down crosses the boundary into G
     vim.api.nvim_win_set_cursor(d.winid, { db_line(d, 'a'), 0 })
@@ -535,7 +536,7 @@ describe('connection management: reorder', function()
     }
     connections.write_file(dir .. '/connections.json', seed)
     d = make_drawer({ save_location = dir, file_entries = seed })
-    d.groups['G'] = { expanded = true }
+    d:set_expanded(ids.group('G'), true)
     d:open()
     -- the ungrouped dev sits below group G's dev; crossing up would duplicate it
     local ungrouped_dev = d.instance.dbs['dev_file']
@@ -571,10 +572,10 @@ describe('connection management: redraw', function()
   it('preserves an expanded connection across a redraw', function()
     d = make_drawer({ save_location = dir, g_dbs = { dev = 'postgres://h/dev' } })
     d:open()
-    entry_named(d, 'dev').expanded = true
+    d:set_expanded(ids.db(entry_named(d, 'dev').key_name), true)
     vim.api.nvim_win_set_cursor(d.winid, { 1, 0 })
     d:redraw()
-    assert.is_true(entry_named(d, 'dev').expanded)
+    assert.is_true(d:is_expanded(ids.db(entry_named(d, 'dev').key_name)))
   end)
 end)
 
@@ -598,9 +599,9 @@ describe('connection management: preserves state across an edit', function()
       inputs = { 'sqlite:' .. dir .. '/qa.db', 'qa' },
     })
     d:open()
-    entry_named(d, 'dev').expanded = true
+    d:set_expanded(ids.db(entry_named(d, 'dev').key_name), true)
     d:connections():add_connection()
     assert.is_not_nil(entry_named(d, 'qa')) -- the add landed
-    assert.is_true(entry_named(d, 'dev').expanded) -- and dev stayed open
+    assert.is_true(d:is_expanded(ids.db(entry_named(d, 'dev').key_name))) -- and dev stayed open
   end)
 end)

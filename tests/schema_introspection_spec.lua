@@ -3,6 +3,7 @@
 -- sections, schema-support detection, and a guarded end-to-end sqlite expand.
 
 local drawer_mod = require('dadbod-ui.drawer')
+local ids = require('dadbod-ui.drawer.ids')
 local state = require('dadbod-ui.state')
 local config = require('dadbod-ui.config')
 local notifications = require('dadbod-ui.notifications')
@@ -51,12 +52,10 @@ describe('schema introspection: apply_schemas', function()
       { 'app', 'tasks' },
     })
     assert.same({ 'public', 'app' }, entry.schemas.list)
-    assert.same({ 'posts', 'users' }, entry.schemas.items.public.tables.list) -- sorted
-    assert.same({ 'tasks' }, entry.schemas.items.app.tables.list)
+    assert.same({ 'posts', 'users' }, entry.schemas.items.public) -- sorted
+    assert.same({ 'tasks' }, entry.schemas.items.app)
     -- the flat table list collects every schema's tables
-    assert.equals(3, #entry.tables.list)
-    -- per-table expand state is seeded
-    assert.is_false(entry.schemas.items.public.tables.items.users.expanded)
+    assert.equals(3, #entry.tables)
   end)
 
   it('drops schemas and tables matching hide_schemas', function()
@@ -68,7 +67,7 @@ describe('schema introspection: apply_schemas', function()
       { 'pg_catalog', 'pg_class' },
     })
     assert.same({ 'public' }, entry.schemas.list)
-    assert.same({ 'users' }, entry.tables.list)
+    assert.same({ 'users' }, entry.tables)
     assert.is_nil(entry.schemas.items.information_schema)
   end)
 end)
@@ -86,15 +85,12 @@ describe('schema introspection: rendering', function()
     d = make_drawer({ dev = 'postgres://h/dev' })
     d:open()
     local entry = entry_named(d, 'dev')
-    entry.expanded = true
-    entry.schemas.expanded = true
+    d:set_expanded(ids.db(entry.key_name), true)
+    d:set_expanded(ids.section(entry.key_name, 'schemas'), true)
+    d:set_expanded(ids.schema(entry.key_name, 'public'), true)
+    d:set_expanded(ids.table(entry.key_name, 'public', 'users'), true)
     entry.schemas.list = { 'public' }
-    entry.schemas.items = {
-      public = {
-        expanded = true,
-        tables = { expanded = true, list = { 'users' }, items = { users = { expanded = true } } },
-      },
-    }
+    entry.schemas.items = { public = { 'users' } }
     d:render()
     local l = lines(d)
     assert.equals('▾ dev', l[1])
@@ -112,8 +108,9 @@ describe('schema introspection: rendering', function()
     d:open()
     local entry = entry_named(d, 'qa')
     assert.is_false(entry.schema_support)
-    entry.expanded = true
-    entry.tables = { expanded = true, list = { 'contacts' }, items = { contacts = { expanded = false } } }
+    d:set_expanded(ids.db(entry.key_name), true)
+    d:set_expanded(ids.section(entry.key_name, 'tables'), true)
+    entry.tables = { 'contacts' }
     d:render()
     local l = lines(d)
     assert.equals('▾ qa', l[1])
@@ -200,7 +197,7 @@ describe('schema introspection: sqlite end-to-end (guarded)', function()
     d:introspect():connect(entry)
     assert.is_truthy(entry.conn ~= nil and entry.conn ~= '')
     d:introspect():populate_tables(entry)
-    assert.is_true(vim.tbl_contains(entry.tables.list, 'contacts'))
-    assert.is_true(vim.tbl_contains(entry.tables.list, 'notes'))
+    assert.is_true(vim.tbl_contains(entry.tables, 'contacts'))
+    assert.is_true(vim.tbl_contains(entry.tables, 'notes'))
   end)
 end)

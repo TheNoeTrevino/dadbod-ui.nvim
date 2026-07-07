@@ -183,7 +183,7 @@ function M.get_conn_info(key_name)
   return {
     url = entry.url,
     conn = entry.conn or '',
-    tables = entry.tables.list,
+    tables = entry.tables,
     schemas = entry.schemas.list,
     scheme = entry.scheme,
     connected = state.is_connected(entry) and 1 or 0,
