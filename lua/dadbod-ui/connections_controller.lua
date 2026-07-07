@@ -59,6 +59,20 @@ local function require_file_source(entry, verb)
   return false
 end
 
+---@private
+--- Guard flows that create entries in connections.json: with no save location
+--- configured there is no store to write, so refuse with a pointer at the
+--- setup option. Returns true when the store is writable.
+---@param controller DadbodUI.ConnectionsController
+---@return boolean
+local function require_store(controller)
+  if controller.instance.connections_path ~= nil then
+    return true
+  end
+  require('dadbod-ui.notifications').error('Please set up a valid save location via setup({ save_location = ... })')
+  return false
+end
+
 ---@class DadbodUI.ConnectionsController
 ---@field instance DadbodUI.Instance
 ---@field input DadbodUI.UiInput  prompt backend (injectable for specs)
@@ -98,15 +112,18 @@ function Controller:read_store()
   return list
 end
 
---- Persist `connections.json`, re-discover, and re-render.
+--- Persist `connections.json`, re-discover, and re-render. Routes the "no store
+--- configured" refusal through `require_store` (loud, single owner) rather than
+--- silently dropping the write -- unreachable from flows that already guard at
+--- entry, but a future unguarded flow surfaces the setup error instead of
+--- swallowing the user's change.
 ---@param list DadbodUI.FileConnection[]
 ---@return nil
 function Controller:commit_connections(list)
-  local path = self.instance.connections_path
-  if path == nil then
+  if not require_store(self) then
     return
   end
-  connections.write_file(path, list)
+  connections.write_file(self.instance.connections_path, list)
   self.instance:repopulate()
   self.render()
 end
@@ -115,10 +132,10 @@ end
 --- url then a name; rejects an invalid url, a blank name, or a duplicate name.
 ---@return nil
 function Controller:add_connection()
-  local notify = require('dadbod-ui.notifications')
-  if self.instance.connections_path == nil then
-    return notify.error('Please set up a valid save location via setup({ save_location = ... })')
+  if not require_store(self) then
+    return
   end
+  local notify = require('dadbod-ui.notifications')
   self.input({ prompt = 'Enter connection url: ' }, function(url)
     if url == nil then
       return
@@ -205,10 +222,10 @@ end
 ---@param entry DadbodUI.ConnectionEntry
 ---@return nil
 function Controller:duplicate_connection(entry)
-  local notify = require('dadbod-ui.notifications')
-  if self.instance.connections_path == nil then
-    return notify.error('Please set up a valid save location via setup({ save_location = ... })')
+  if not require_store(self) then
+    return
   end
+  local notify = require('dadbod-ui.notifications')
   self.input({ prompt = 'Enter name for the duplicate: ', default = entry.name }, function(name)
     if name == nil then
       return
@@ -286,7 +303,6 @@ function Controller:move_connection(entry, direction)
   if not require_file_source(entry, 'move') then
     return
   end
-  local notify = require('dadbod-ui.notifications')
   local store = self:read_store()
   if store == nil then
     return
@@ -294,10 +310,14 @@ function Controller:move_connection(entry, direction)
   -- Pass entry.group so the right clone is located when a same (name, url)
   -- exists in two groups.
   local list, err = connections.move_connection(store, entry.name, entry.url, direction, entry.group)
-  if list == nil then
-    return notify.error(err or 'Could not move connection.')
+  if err ~= nil then
+    return require('dadbod-ui.notifications').error(err)
   end
-  self:commit_connections(list)
+  -- (nil, nil) is a no-op (clamped at an edge / nothing matched): don't rewrite
+  -- the store just to normalize its order.
+  if list ~= nil then
+    self:commit_connections(list)
+  end
 end
 
 --- Confirm, then remove a file-source connection. Only file-source connections

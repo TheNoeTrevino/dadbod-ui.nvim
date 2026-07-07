@@ -368,10 +368,11 @@ function M.rename_connection(list, old_name, old_url, new_name, new_url, group)
   local match_idx = vim.iter(ipairs(list)):find(function(_, conn)
     return target_conn(conn, old_name, resolved, group)
   end)
-  -- A rename keeps the entry's group, so the new name only collides within it.
-  local group = match_idx ~= nil and (list[match_idx].group or '') or ''
+  -- A rename keeps the entry's group, so the new name only collides within it
+  -- (not the group-hint parameter above, which is nil when the caller can't know).
+  local entry_group = match_idx ~= nil and (list[match_idx].group or '') or ''
   local collides = vim.iter(ipairs(list)):any(function(i, conn)
-    return i ~= match_idx and same_slot(conn, new_name, group)
+    return i ~= match_idx and same_slot(conn, new_name, entry_group)
   end)
   if collides then
     return nil, 'Connection with that name already exists in that group. Please enter a different name.'
@@ -425,13 +426,6 @@ function M.set_group(list, name, url, group, cur_group)
 end
 
 ---@private
---- Reorder the connection matching (name, url) one slot up or down among its
---- GROUP SIBLINGS -- the connections sharing its group (`''`/ungrouped is its
---- own sibling set). The drawer collates a group's members under one header
---- regardless of their raw array positions, so "up"/"down" is defined in that
---- visual sibling order, not raw array adjacency: it swaps the connection with
---- the nearest *earlier* (`up`) or *later* (`down`) connection sharing its group,
---- skipping over members of other groups in between. A no-op -- the list returned
 --- The VISUAL (block) order of `list`, mirroring how the drawer renders it:
 --- ungrouped connections appear in place, and each group's members are gathered
 --- contiguously at the group's first-seen position. This is the order `<C-Up>` /
@@ -439,19 +433,26 @@ end
 ---@param list DadbodUI.FileConnection[]
 ---@return DadbodUI.FileConnection[]
 local function visual_order(list)
-  local vis, seen = {}, {}
+  -- Bucket the grouped connections first, then emit each whole bucket at its
+  -- group's first-seen position -- two linear passes instead of rescanning the
+  -- list per group. Emitting CONSUMES the bucket, which is also the
+  -- already-emitted marker.
+  local buckets = vim.iter(list):fold({}, function(acc, conn)
+    local gl = (conn.group or ''):lower()
+    if gl ~= '' then
+      acc[gl] = acc[gl] or {}
+      table.insert(acc[gl], conn)
+    end
+    return acc
+  end)
+  local vis = {}
   for _, conn in ipairs(list) do
-    local group = (conn.group or '')
-    local gl = group:lower()
-    if group == '' then
+    local gl = (conn.group or ''):lower()
+    if gl == '' then
       vis[#vis + 1] = conn
-    elseif not seen[gl] then
-      seen[gl] = true
-      for _, member in ipairs(list) do
-        if (member.group or '') ~= '' and (member.group or ''):lower() == gl then
-          vis[#vis + 1] = member
-        end
-      end
+    elseif buckets[gl] ~= nil then
+      vim.list_extend(vis, buckets[gl])
+      buckets[gl] = nil
     end
   end
   return vis
@@ -463,13 +464,14 @@ end
 --- adopts the neighbouring block's group -- moving into the next group, out of a
 --- group into ungrouped space, or into an ungrouped connection's group -- which is
 --- what lets `<C-Up>`/`<C-Down>` drive the entire move (replacing the old
---- cut/paste flow). Clamped at the very top (`up`) / bottom (`down`) and a no-op
---- when nothing matches. Crossing into a group that already holds a *different*
---- connection of the same name is refused with `(nil, err)` (the `same_slot`
---- rule, which would otherwise collide two entries under one `key_name`).
---- Returns the list in normalized (block-contiguous) visual order, so groups stay
---- gathered. `(new_list, nil)` on success. `group` disambiguates which clone to
---- move when the same (name, url) lives in two groups; it is nil only when
+--- cut/paste flow). Three distinct outcomes: `(new_list, nil)` on an actual move
+--- (in normalized block-contiguous visual order, so groups stay gathered);
+--- `(nil, nil)` when there is nothing to do -- clamped at the very top/bottom or
+--- no matching connection -- so callers never rewrite the store for a no-op;
+--- `(nil, err)` when crossing into a group that already holds a *different*
+--- connection of the same name (the `same_slot` rule, which would otherwise
+--- collide two entries under one `key_name`). `group` disambiguates which clone
+--- to move when the same (name, url) lives in two groups; it is nil only when
 --- unknown.
 ---@param list DadbodUI.FileConnection[]
 ---@param name string
@@ -479,18 +481,23 @@ end
 ---@return DadbodUI.FileConnection[]|nil, string|nil
 function M.move_connection(list, name, url, direction, group)
   local resolved = bridge.resolve(url):lower()
-  -- Deepcopy up front and drive everything off the copy's visual order, so the
-  -- returned list is a fresh, block-contiguous ordering and the input is untouched.
+  -- Check for a match on the raw list before paying for the copy: the no-match
+  -- no-op should not deepcopy + reorder just to throw the result away.
+  local matches = vim.iter(list):any(function(conn)
+    return target_conn(conn, name, resolved, group)
+  end)
+  if not matches then
+    return nil, nil -- nothing matches: nothing to move
+  end
+  -- Deepcopy and drive everything off the copy's visual order, so the returned
+  -- list is a fresh, block-contiguous ordering and the input is untouched.
   local out = visual_order(vim.deepcopy(list))
   local i = vim.iter(ipairs(out)):find(function(_, conn)
     return target_conn(conn, name, resolved, group)
   end)
-  if i == nil then
-    return out, nil
-  end
   local j = direction == 'up' and i - 1 or i + 1
   if j < 1 or j > #out then
-    return out, nil -- clamped at the very top / bottom
+    return nil, nil -- clamped at the very top / bottom
   end
 
   local moving = out[i]

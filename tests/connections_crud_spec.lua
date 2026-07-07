@@ -312,23 +312,26 @@ describe('connections: move_connection', function()
     assert.same({ 'b', 'a' }, names(list))
   end)
 
-  it('clamps: moving the first item up is a no-op', function()
+  it('clamps: moving the first item up is a (nil, nil) no-op', function()
     local base = {
       { name = 'a', url = 'postgres://h/a' },
       { name = 'b', url = 'postgres://h/b' },
     }
+    -- nil list + nil err = nothing to do; the caller must not rewrite the store.
     local list, err = connections.move_connection(base, 'a', 'postgres://h/a', 'up')
     assert.is_nil(err)
-    assert.same({ 'a', 'b' }, names(list))
+    assert.is_nil(list)
+    assert.same({ 'a', 'b' }, names(base)) -- input untouched
   end)
 
-  it('clamps: moving the last item down is a no-op', function()
+  it('clamps: moving the last item down is a (nil, nil) no-op', function()
     local base = {
       { name = 'a', url = 'postgres://h/a' },
       { name = 'b', url = 'postgres://h/b' },
     }
-    local list = connections.move_connection(base, 'b', 'postgres://h/b', 'down')
-    assert.same({ 'a', 'b' }, names(list))
+    local list, err = connections.move_connection(base, 'b', 'postgres://h/b', 'down')
+    assert.is_nil(err)
+    assert.is_nil(list)
   end)
 
   it('reorders among siblings within a group', function()
@@ -392,11 +395,12 @@ describe('connections: move_connection', function()
     assert.equals(2, #base) -- input untouched
   end)
 
-  it('leaves the list unchanged when nothing matches', function()
+  it('returns a (nil, nil) no-op when nothing matches', function()
     local base = { { name = 'a', url = 'postgres://h/a' } }
     local list, err = connections.move_connection(base, 'zzz', 'postgres://h/zzz', 'down')
     assert.is_nil(err)
-    assert.same({ 'a' }, names(list))
+    assert.is_nil(list)
+    assert.same({ 'a' }, names(base)) -- input untouched
   end)
 
   it('moves only the targeted clone when a same name+url lives in two groups', function()

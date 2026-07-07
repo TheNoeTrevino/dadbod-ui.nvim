@@ -139,10 +139,10 @@ end
 function Drawer:build_dbs(roots)
   local dbs = self.instance.dbs_list
   local seen_groups = {}
-  for _, record in ipairs(dbs) do
-    local group = record.group or ''
+  for _, entry in ipairs(dbs) do
+    local group = entry.group or ''
     if group == '' then
-      roots[#roots + 1] = self:build_db(record)
+      roots[#roots + 1] = self:build_db(entry)
     elseif not seen_groups[group] then
       seen_groups[group] = true
       local node, expanded = self:toggle_node({
@@ -210,11 +210,10 @@ function Drawer:build_dbout_section(roots)
     :totable()
 end
 
----@param record DadbodUI.ConnectionRecord
+---@param entry DadbodUI.ConnectionEntry
 ---@return DadbodUI.Node
-function Drawer:build_db(record)
-  local entry = self.instance.dbs[record.key_name]
-  local label = record.name
+function Drawer:build_db(entry)
+  local label = entry.name
   if entry.conn_error and entry.conn_error ~= '' then
     label = label .. ' ' .. self.icons.connection_error
   elseif is_connected(entry) then
@@ -238,12 +237,12 @@ function Drawer:build_db(record)
   -- only this line). The transient `loading` marker is cleared by the introspect
   -- controller on data-land/error, dropping the trailer on the next render.
   local node, expanded = self:toggle_node({
-    id = ids.db(record.key_name),
+    id = ids.db(entry.key_name),
     type = 'db',
     label = label,
-    key_name = record.key_name,
+    key_name = entry.key_name,
     extra = {
-      loading_frame = entry.loading and (self.loading_frames[record.key_name] or spinners.dots[1]) or nil,
+      loading_frame = entry.loading and (self.loading_frames[entry.key_name] or spinners.dots[1]) or nil,
       -- on_expand runs the lazy introspection only on the opening flip;
       -- on_collapse stops a mid-load animation so no timer leaks and no stale
       -- spinner reappears.

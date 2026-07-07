@@ -16,27 +16,26 @@ local state = require('dadbod-ui.state')
 ---@param name string
 ---@return DadbodUI.ConnectionEntry|nil
 return function(name)
-  local instance = state.get()
-  local list = instance.dbs_list
+  local list = state.get().dbs_list
   -- Each form is tried as its OWN pass so precedence holds across the whole list:
   -- an exact key_name anywhere beats a bare-name match earlier in the list.
   -- Exact key_name: never ambiguous, so it wins.
-  local record = vim.iter(list):find(function(r)
-    return r.key_name == name
+  local entry = vim.iter(list):find(function(e)
+    return e.key_name == name
   end)
   -- `group/name`: the friendly disambiguator for a name reused across groups.
   local group, conn = name:match('^(.+)/(.+)$')
-  if record == nil and group ~= nil then
-    record = vim.iter(list):find(function(r)
-      return r.group == group and r.name == conn
+  if entry == nil and group ~= nil then
+    entry = vim.iter(list):find(function(e)
+      return e.group == group and e.name == conn
     end)
   end
   -- Bare display name (first match; reached when `name` has no '/' or its
   -- group/name form matched nothing but the literal name still exists).
-  if record == nil then
-    record = vim.iter(list):find(function(r)
-      return r.name == name
+  if entry == nil then
+    entry = vim.iter(list):find(function(e)
+      return e.name == name
     end)
   end
-  return record and instance.dbs[record.key_name] or nil
+  return entry
 end

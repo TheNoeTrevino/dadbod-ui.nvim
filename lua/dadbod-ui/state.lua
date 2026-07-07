@@ -37,7 +37,7 @@ local M = {}
 ---@field save_path string         resolved save dir ('' when unset)
 ---@field connections_path string|nil
 ---@field tmp_location string      resolved tmp-query dir (the session temp dir when unconfigured)
----@field dbs_list DadbodUI.ConnectionRecord[]  discovered connection records
+---@field dbs_list DadbodUI.ConnectionEntry[]  the connections in discovery order -- the SAME entry objects as `dbs`, so there is one object per connection with a list view and a key view
 ---@field dbs table<string, DadbodUI.ConnectionEntry>  entries keyed by key_name
 ---@field dbout_list table<string, string>  executed result files -> preview content
 ---@field _inputs? DadbodUI.DiscoverInputs  inputs last populated with (for repopulate)
@@ -195,9 +195,9 @@ end
 function Instance:populate(inputs)
   self._inputs = inputs
   local previous = self.dbs
-  self.dbs_list = connections.discover(self.config, inputs)
+  self.dbs_list = {}
   self.dbs = {}
-  for _, record in ipairs(self.dbs_list) do
+  for i, record in ipairs(connections.discover(self.config, inputs)) do
     -- An unchanged connection (same key_name and url) keeps its existing entry
     -- as-is: the static metadata is a pure function of (url, config) and the
     -- interactive state (live handle, introspected schemas/tables)
@@ -205,11 +205,10 @@ function Instance:populate(inputs)
     -- rebuilt -- which also avoids re-running make_entry's bridge calls for
     -- every connection on each repopulate.
     local prev = previous[record.key_name]
-    if prev ~= nil and prev.url == record.url then
-      self.dbs[record.key_name] = prev
-    else
-      self.dbs[record.key_name] = make_entry(record, self.save_path, self.config, self.tmp_location)
-    end
+    local entry = (prev ~= nil and prev.url == record.url) and prev
+      or make_entry(record, self.save_path, self.config, self.tmp_location)
+    self.dbs_list[i] = entry
+    self.dbs[record.key_name] = entry
   end
   return self
 end
@@ -275,15 +274,14 @@ end
 --- List connections with their connection state.
 ---@return DadbodUI.ConnectionInfo[]
 function Instance:connections_list()
-  return vim.tbl_map(function(r)
-    local entry = self.dbs[r.key_name]
+  return vim.tbl_map(function(entry)
     return {
-      name = r.name,
-      group = r.group,
-      key_name = r.key_name,
-      url = r.url,
-      is_connected = entry ~= nil and M.is_connected(entry),
-      source = r.source,
+      name = entry.name,
+      group = entry.group,
+      key_name = entry.key_name,
+      url = entry.url,
+      is_connected = M.is_connected(entry),
+      source = entry.source,
     }
   end, self.dbs_list)
 end
