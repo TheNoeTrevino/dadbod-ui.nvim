@@ -213,6 +213,7 @@
 ---@field content? string  helper SQL template (table_helper nodes)
 ---@field file_path? string  on-disk path (buffer / saved_query / dbout nodes)
 ---@field saved? boolean  true for saved-query nodes (vs tmp/open buffers)
+---@field detail? boolean  the label ends in a `(…)` detail suffix (stamped where the suffix is appended; renders dimmed)
 ---@field loading_frame? string  trailing spinner frame for a connecting db node (appended after the label; animated in place by repaint_db_node)
 
 --- A command spec for the bridge concurrency helpers.
