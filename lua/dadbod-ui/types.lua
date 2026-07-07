@@ -284,7 +284,7 @@
 --- Per-call options for dadbod-ui.notifications.
 ---@class DadbodUI.NotifyOpts
 ---@field echo? boolean   force the :echo backend for this call
----@field title? string   override the '[DBUI]' title
+---@field title? string   override the '[Dadbod-UI]' title
 ---@field delay? integer  notify timeout in ms (honored by nvim-notify)
 
 --- The effective icon set (dadbod-ui.icons).
@@ -384,7 +384,7 @@
 --- Options for `require('dadbod-ui').statusline()` (the `db_ui#statusline()`
 --- opts dict). All optional.
 ---@class DadbodUI.StatuslineOpts
----@field prefix? string  leading text (default 'DBUI: ')
+---@field prefix? string  leading text (default 'Dadbod-UI: ')
 ---@field separator? string  joiner between the shown fields (default ' -> ')
 ---@field show? string[]  fields to show, in order (default { 'db_name', 'schema', 'table' })
 

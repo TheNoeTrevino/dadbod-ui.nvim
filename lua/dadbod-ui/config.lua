@@ -16,6 +16,9 @@
 ---@field resolve fun(opts?: DadbodUI.Config): DadbodUI.Config
 
 ---@private
+local constants = require('dadbod-ui.constants')
+
+---@private
 ---@type DadbodUI.ConfigModule
 ---@diagnostic disable-next-line: missing-fields
 local M = {}
@@ -23,7 +26,7 @@ local M = {}
 --- Built-in defaults.
 ---@type DadbodUI.Config
 M.defaults = {
-  save_location = '~/.local/share/db_ui',
+  save_location = constants.save_location,
   tmp_query_location = '',
   table_helpers = {},
   -- Display order for a table's helpers (`List`, `Columns`, ..., plus any
@@ -33,9 +36,9 @@ M.defaults = {
   -- shown blank); any present helper not named here falls back after those,
   -- sorted alphabetically. Defaults to the standard drawer help-key sequence.
   table_helpers_order = { 'List', 'Columns', 'Indexes', 'Primary Keys', 'Foreign Keys', 'References' },
-  env_variable_url = 'DBUI_URL',
-  env_variable_name = 'DBUI_NAME',
-  dotenv_variable_prefix = 'DB_UI_',
+  env_variable_url = constants.env_variable_url,
+  env_variable_name = constants.env_variable_name,
+  dotenv_variable_prefix = constants.dotenv_variable_prefix,
   ---@type table  icon overrides (see dadbod-ui.icons)
   icons = {},
   use_nerd_fonts = false,

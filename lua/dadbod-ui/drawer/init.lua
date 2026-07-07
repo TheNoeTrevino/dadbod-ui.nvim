@@ -22,6 +22,7 @@
 -- reaches into it for `open_buffer`/`focus_window`; the query controller's one
 -- back-ref to the drawer is `drawer:render()`.
 
+local constants = require('dadbod-ui.constants')
 local icons_mod = require('dadbod-ui.icons')
 local bridge = require('dadbod-ui.bridge')
 local highlights = require('dadbod-ui.highlights')
@@ -208,7 +209,9 @@ function Drawer:open(mods)
   local ok = pcall(vim.cmd, string.format('%s vertical %s %dnew', mods or '', side, self.config.drawer.width))
   local win = vim.api.nvim_get_current_win()
   if not ok or win == prev_win or vim.api.nvim_get_current_buf() == prev_buf then
-    require('dadbod-ui.notifications').error('Could not open the DBUI drawer window (no room to split).')
+    require('dadbod-ui.notifications').error(
+      'Could not open the ' .. constants.name .. ' drawer window (no room to split).'
+    )
     return self
   end
   self.winid = win
@@ -242,11 +245,11 @@ function Drawer:open(mods)
     end,
   })
   self:render()
-  bo.filetype = 'dbui'
+  bo.filetype = constants.drawer_filetype
   -- Signal that the drawer opened so users can hook it (`autocmd User DBUIOpened`).
   -- We fire only on a real open, not when `open()` focuses an already-open drawer
   -- (the early return above), so this stays a one-shot open event.
-  vim.api.nvim_exec_autocmds('User', { pattern = 'DBUIOpened' })
+  vim.api.nvim_exec_autocmds('User', { pattern = constants.drawer_opened_event })
   return self
 end
 
@@ -366,7 +369,7 @@ function Drawer:statusline(opts)
       parts[#parts + 1] = value
     end
   end
-  return (opts.prefix or 'DBUI: ') .. table.concat(parts, opts.separator or ' -> ')
+  return (opts.prefix or constants.statusline_prefix) .. table.concat(parts, opts.separator or ' -> ')
 end
 
 --- The drawer's built-in action handlers, keyed by the ids in
