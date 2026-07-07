@@ -55,7 +55,7 @@ describe('adapters: custom registration drives every capability', function()
       name = 'duckfake',
       aliases = { 'duckfake2' },
       schema = function()
-        return { schemes_query = 'SELECT s', schemes_tables_query = 'SELECT s, t', quote = 1 }
+        return { schemes_query = 'SELECT s', schemes_tables_query = 'SELECT s, t', quote = true }
       end,
       table_helpers = { List = 'SELECT * FROM "{table}"', Peek = 'SELECT 1' },
       explain = { plain = 'EXPLAIN {sql}' },

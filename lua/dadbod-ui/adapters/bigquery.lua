@@ -9,10 +9,12 @@ local parse = require('dadbod-ui.schemas.parse')
 return {
   name = 'bigquery',
 
-  ---@param _config? DadbodUI.Config
+  ---@param config? DadbodUI.Config
   ---@return DadbodUI.SchemaAdapter
-  schema = function(_config)
-    local region = vim.g.db_adapter_bigquery_region or 'region-us'
+  schema = function(config)
+    -- A resolved config always carries the default; the literal only covers a
+    -- direct schema() call with no config (tests, ad-hoc callers).
+    local region = config and config.bigquery_region or 'region-us'
     return {
       callable = 'filter',
       args = { '--format=csv', '--max_rows=100000' },

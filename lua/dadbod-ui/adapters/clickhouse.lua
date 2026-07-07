@@ -20,7 +20,7 @@ return {
         return parse.results_parser(results, '\\t', min_len)
       end,
       default_scheme = '',
-      quote = 1,
+      quote = true,
     }
   end,
 

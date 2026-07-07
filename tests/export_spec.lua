@@ -407,15 +407,18 @@ end)
 describe('export.format_opts (config wiring)', function()
   it('folds the top-level coerce_numbers into the per-format opts', function()
     local cfg = { coerce_numbers = true, json = { wrap_table_name = false } }
-    local opts = export.format_opts(cfg, 'json', 'postgres')
+    local opts = export.format_opts(cfg, 'json', false)
     assert.is_true(opts.coerce_numbers)
     assert.is_false(opts.wrap_table_name)
   end)
 
-  it('derives quote_identifiers for SQL from the adapter quote flag', function()
-    assert.is_true(export.format_opts({}, 'sql', 'postgres').quote_identifiers) -- pg quotes
-    assert.is_false(export.format_opts({}, 'sql', 'mysql').quote_identifiers) -- mysql does not
-    assert.is_false(export.format_opts({}, 'sql', 'sqlite').quote_identifiers) -- sqlite: no quote flag
+  it('derives quote_identifiers for SQL from the resolved adapter quote flag', function()
+    local function quote_of(scheme)
+      return require('dadbod-ui.schemas').get(scheme).quote == true
+    end
+    assert.is_true(export.format_opts({}, 'sql', quote_of('postgres')).quote_identifiers) -- pg quotes
+    assert.is_false(export.format_opts({}, 'sql', quote_of('mysql')).quote_identifiers) -- mysql does not
+    assert.is_false(export.format_opts({}, 'sql', quote_of('sqlite')).quote_identifiers) -- sqlite: no quote flag
   end)
 end)
 

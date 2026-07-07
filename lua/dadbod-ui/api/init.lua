@@ -791,7 +791,7 @@ function M.export(spec)
     path = spec.path,
     source = spec.name,
     prefer_native = spec.prefer_native ~= false,
-    format_opts = export.format_opts(cfg, spec.format, entry.scheme),
+    format_opts = export.format_opts(cfg, spec.format, entry.quote),
   })
   return true
 end

@@ -52,7 +52,7 @@
 ---@field export fun(params: table, deps?: DadbodUI.ExportDeps)
 ---@field _dbout_progress fun(bufnr: integer): DadbodUI.ExportProgress|nil  test seam: default winbar progress backend
 ---@field default_path fun(source: string, fmt: string, dir?: string): string
----@field format_opts fun(cfg: table, fmt: string, scheme: string): table
+---@field format_opts fun(cfg: table, fmt: string, quote: boolean): table
 ---@field export_prompt fun(info: { url: string, scheme: string, query: string, source?: string }, deps?: DadbodUI.ExportDeps)
 ---@field export_interactive fun(bufnr: integer, deps?: DadbodUI.ExportDeps, page_choice?: 'full'|'current')
 
@@ -462,16 +462,18 @@ end
 --- The per-format options handed to a formatter: the format's own config
 --- sub-table merged with the top-level `coerce_numbers` (which lives outside the
 --- per-format tables, so it must be folded in here), plus `quote_identifiers` for
---- SQL derived from the adapter's `quote` flag (postgres quotes identifiers;
---- mysql / sqlite do not).
+--- SQL from the adapter's resolved `quote` flag (postgres quotes identifiers;
+--- mysql / sqlite do not). Takes the boolean, not a scheme: the quote fact is
+--- resolved once (`entry.quote`, or `schemas.get(scheme, config)` on the dbout
+--- path) rather than re-derived here by re-running the adapter's schema builder.
 ---@param cfg table  the resolved `export` config block
 ---@param fmt string
----@param scheme string
+---@param quote boolean  whether the adapter quotes identifiers
 ---@return table
-function M.format_opts(cfg, fmt, scheme)
+function M.format_opts(cfg, fmt, quote)
   local opts = vim.tbl_extend('force', { coerce_numbers = cfg.coerce_numbers }, cfg[fmt] or {})
   if fmt == 'sql' then
-    opts.quote_identifiers = require('dadbod-ui.schemas').get(scheme).quote == 1
+    opts.quote_identifiers = quote == true
   end
   return opts
 end
@@ -551,7 +553,13 @@ function M.export_prompt(info, deps)
         path = path,
         source = source,
         prefer_native = prefer_native,
-        format_opts = M.format_opts(cfg, fmt, info.scheme),
+        -- The dbout path has no connection entry, only the scheme: resolve the
+        -- quote flag with the session config (never a config-less schema build).
+        format_opts = M.format_opts(
+          cfg,
+          fmt,
+          require('dadbod-ui.schemas').get(info.scheme, require('dadbod-ui.state').config()).quote == true
+        ),
       }, deps)
     end)
   end)

@@ -148,7 +148,7 @@ local function make_entry(record, save_path, config, tmp_location)
     -- is defined). Adapters without one -- notably sqlite, which has no stored
     -- routines -- introspect no routines and render no Procedures node.
     routine_support = scheme_info.procedures_query ~= nil and scheme_info.procedures_query ~= '',
-    quote = scheme_info.quote ~= nil and scheme_info.quote ~= 0,
+    quote = scheme_info.quote == true,
     default_scheme = scheme_info.default_scheme or '',
     filetype = resolve_filetype(record.url, scheme_info),
     extension = resolve_extension(record.url),

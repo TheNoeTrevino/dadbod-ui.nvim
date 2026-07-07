@@ -45,6 +45,8 @@ M.defaults = {
   use_postgres_views = true,
   hide_schemas = {},
   is_oracle_legacy = false,
+  -- The BigQuery region whose INFORMATION_SCHEMA the introspection queries read.
+  bigquery_region = 'region-us',
   debug = false,
   -- Backend for the connection picker (`require('dadbod-ui.api').pick()`).
   -- 'auto' tries Snacks.nvim, Telescope.nvim, then fzf-lua, falling back to
