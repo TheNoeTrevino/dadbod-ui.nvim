@@ -15,6 +15,7 @@
 -- (The drawer in turn reaches back into the query controller for `open_buffer`,
 -- e.g. when renaming a buffer file.)
 
+local constants = require('dadbod-ui.constants')
 local bridge = require('dadbod-ui.bridge')
 local bind_params = require('dadbod-ui.bind_params')
 local introspect = require('dadbod-ui.introspect')
@@ -195,7 +196,9 @@ function Query:focus_window()
   -- (b) else any normal editable window.
   local editable = vim.iter(wins):find(function(win)
     local buf = vim.api.nvim_win_get_buf(win)
-    return vim.bo[buf].filetype ~= 'dbui' and vim.bo[buf].buftype ~= 'nofile' and vim.bo[buf].modifiable
+    return vim.bo[buf].filetype ~= constants.drawer_filetype
+      and vim.bo[buf].buftype ~= 'nofile'
+      and vim.bo[buf].modifiable
   end)
   if editable then
     vim.api.nvim_set_current_win(editable)

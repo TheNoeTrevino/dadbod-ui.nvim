@@ -70,11 +70,11 @@ return {
   -- No `:DBUI*` commands are shipped: drive everything from `require('dadbod-ui.api')`.
   -- These `keys` both define your mappings and lazy-load the plugin on first use.
   keys = {
-    { prefix .. "d", function() require("dadbod-ui.api").toggle() end, desc = "Toggle DBUI" },
-    { prefix .. "o", function() require("dadbod-ui.api").open() end, desc = "Open DBUI" },
-    { prefix .. "f", function() require("dadbod-ui.api").buf.find() end, desc = "DBUI find buffer" },
-    { prefix .. "a", function() require("dadbod-ui.api").add_connection() end, desc = "DBUI add connection" },
-    { prefix .. "i", function() require("dadbod-ui.api").buf.last_query_info() end, desc = "DBUI last query info" },
+    { prefix .. "d", function() require("dadbod-ui.api").toggle() end, desc = "Toggle Dadbod-UI" },
+    { prefix .. "o", function() require("dadbod-ui.api").open() end, desc = "Open Dadbod-UI" },
+    { prefix .. "f", function() require("dadbod-ui.api").buf.find() end, desc = "Dadbod-UI find buffer" },
+    { prefix .. "a", function() require("dadbod-ui.api").add_connection() end, desc = "Dadbod-UI add connection" },
+    { prefix .. "i", function() require("dadbod-ui.api").buf.last_query_info() end, desc = "Dadbod-UI last query info" },
   },
   ---@type DadbodUI.Config
   opts = {

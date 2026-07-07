@@ -5,6 +5,7 @@
 -- opens, the interactive connection CRUD dispatchers, buffer rename/delete,
 -- find/reveal, and sibling/parent navigation.
 
+local constants = require('dadbod-ui.constants')
 local bridge = require('dadbod-ui.bridge')
 local ids = require('dadbod-ui.drawer.ids')
 local utils = require('dadbod-ui.utils')
@@ -527,7 +528,7 @@ end
 function Drawer:find_buffer()
   local notify = require('dadbod-ui.notifications')
   if #self.instance.dbs_list == 0 then
-    return notify.error('No database entries found in DBUI.')
+    return notify.error('No database entries found in ' .. constants.name .. '.')
   end
   local key = vim.b.dbui_db_key_name
   local entry = key and self.instance.dbs[key] or nil

@@ -50,7 +50,7 @@ describe('statusline', function()
     vim.b.dbui_db_key_name = entry_named(d, 'qa').key_name
     vim.b.dbui_schema_name = 'public'
     vim.b.dbui_table_name = 'contacts'
-    assert.equals('DBUI: qa -> public -> contacts', d:statusline())
+    assert.equals('Dadbod-UI: qa -> public -> contacts', d:statusline())
   end)
 
   it('drops empty fields from the join', function()
@@ -59,7 +59,7 @@ describe('statusline', function()
     vim.b.dbui_db_key_name = entry_named(d, 'qa').key_name
     vim.b.dbui_schema_name = ''
     vim.b.dbui_table_name = 'contacts'
-    assert.equals('DBUI: qa -> contacts', d:statusline())
+    assert.equals('Dadbod-UI: qa -> contacts', d:statusline())
   end)
 
   it('honors custom prefix, separator and show order', function()

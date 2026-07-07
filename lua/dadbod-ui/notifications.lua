@@ -7,7 +7,7 @@
 -- Honors the resolved config (read lazily from `dadbod-ui.state`):
 -- `disable_info_notifications` suppresses info, `force_echo_notifications`
 -- forces the echo backend, `use_nvim_notify` opts into nvim-notify niceties
--- (info-toast replacement). The title is always `[DBUI]`.
+-- (info-toast replacement). The title is always `constants.notify_title`.
 
 ---@class DadbodUI.NotificationsModule
 ---@field info fun(msg: string|string[], opts?: DadbodUI.NotifyOpts)
@@ -21,7 +21,7 @@
 local M = {}
 
 ---@private
-local TITLE = '[DBUI]'
+local TITLE = require('dadbod-ui.constants').notify_title
 
 ---@private
 ---@type table<DadbodUI.NotifyKind, integer>
