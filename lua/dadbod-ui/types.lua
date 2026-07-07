@@ -92,6 +92,24 @@
 ---@field items table<string, DadbodUI.RoutineItem[]>  per-schema routines (schema adapters)
 ---@field flat DadbodUI.RoutineItem[]  routines, ungrouped (non-schema adapters)
 
+--- One database adapter, registered under its canonical `name` and every
+--- `aliases` entry (dadbod-ui.adapters). The single per-scheme registry: each
+--- capability module (schemas, table_helpers, explain, paginator,
+--- export_adapters) reads its data from here, so adding an adapter is one file
+--- (or one `adapters.register` call) and aliasing is resolved exactly once.
+--- Every capability field is optional -- an absent field means the adapter
+--- doesn't support that feature.
+---@class DadbodUI.Adapter
+---@field name string  canonical adapter name (also a valid url scheme)
+---@field aliases? string[]  other url schemes that resolve to this adapter (e.g. 'postgresql')
+---@field schema? fun(config?: DadbodUI.Config): DadbodUI.SchemaAdapter  introspection SQL + parsers + dbout metadata
+---@field table_helpers? table<string, string>|fun(config: DadbodUI.Config): table<string, string>  helper name -> SQL template
+---@field explain? { plain: string, analyze?: string }  EXPLAIN templates ({sql} placeholder)
+---@field pagination? 'limit_offset'|'limit_comma'  LIMIT clause style (absent: no pagination)
+---@field export? { stdin: boolean, extract: string[], native: table<string, string[]> }  CLI export flags
+---@field db_path_lists_tables? boolean  a url naming a database in its path lists tables directly instead of schemas (mysql/mariadb)
+---@field normalize_tables? fun(raw: string[]): string[]  clean dadbod's raw `tables` output (sqlite splitting, mysql header filter)
+
 --- Per-adapter introspection metadata (dadbod-ui.schemas). M6 uses the
 --- schema/table listing fields, M10 uses the dbout foreign-key / cell / layout
 --- fields below.

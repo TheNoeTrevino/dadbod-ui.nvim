@@ -5,37 +5,33 @@
 -- wrap -- the clause is appended to the query string and a guard bails out the
 -- moment the query already carries a paging clause or is not a plain SELECT.
 --
--- Two append styles, declared per scheme below (mirroring the scheme->config
--- shape of `dadbod-ui.table_helpers`):
+-- Two append styles, declared per adapter (the spec's `pagination` field):
 --   * `limit_offset` -- `LIMIT <length> OFFSET <offset>` (postgres, sqlite,
 --     clickhouse, bigquery)
 --   * `limit_comma`  -- `LIMIT <offset>, <length>` (mysql, mariadb)
 -- sqlserver (TOP injection) and oracle (ROWNUM) are left UNSUPPORTED for now --
 -- they would require clause-level (AST) rewriting rather than a simple appended
--- clause -- so they are absent from the table and `paginate` no-ops for them.
+-- clause -- so their specs carry no `pagination` and `paginate` no-ops for them.
 
 ---@class DadbodUI.PaginatorModule
 ---@field supports fun(scheme: string): boolean
 ---@field paginate fun(scheme: string, sql: string, page: integer, page_size: integer): string|nil
+
+---@private
+local adapters = require('dadbod-ui.adapters')
 
 ---@type DadbodUI.PaginatorModule
 ---@diagnostic disable-next-line: missing-fields
 local M = {}
 
 ---@private
--- scheme -> append style. Keyed by BOTH the raw scheme (entry.scheme, e.g.
--- `postgres`/`sqlite3`) and the canonical name, so a lookup works regardless of
--- which the caller holds.
-local styles = {
-  postgresql = 'limit_offset',
-  postgres = 'limit_offset',
-  sqlite = 'limit_offset',
-  sqlite3 = 'limit_offset',
-  clickhouse = 'limit_offset',
-  bigquery = 'limit_offset',
-  mysql = 'limit_comma',
-  mariadb = 'limit_comma',
-}
+--- The adapter's LIMIT-clause style, or nil when pagination is unsupported.
+---@param scheme string
+---@return string|nil
+local function style_for(scheme)
+  local spec = adapters.get(scheme)
+  return spec and spec.pagination or nil
+end
 
 ---@private
 -- Words whose presence (case-insensitive, on a word boundary) means we must not
@@ -48,7 +44,7 @@ local guard = { 'limit', 'offset', 'fetch', 'top', 'into', 'update', 'procedure'
 ---@param scheme string
 ---@return boolean
 function M.supports(scheme)
-  return styles[scheme] ~= nil
+  return style_for(scheme) ~= nil
 end
 
 ---@private
@@ -83,7 +79,7 @@ end
 ---@param page_size integer  rows per page
 ---@return string|nil
 function M.paginate(scheme, sql, page, page_size)
-  local style = styles[scheme]
+  local style = style_for(scheme)
   if style == nil then
     return nil
   end

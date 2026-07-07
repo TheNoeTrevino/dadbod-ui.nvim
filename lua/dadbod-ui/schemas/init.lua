@@ -23,6 +23,8 @@
 ---@field normalize_table_list fun(scheme: string, raw: string[]): string[]
 
 ---@private
+local adapters = require('dadbod-ui.adapters')
+---@private
 local bridge = require('dadbod-ui.bridge')
 ---@private
 local parse = require('dadbod-ui.schemas.parse')
@@ -33,42 +35,26 @@ local M = {}
 
 M.results_parser = parse.results_parser
 
----@private
--- scheme -> builder. Postgres aliases share one builder. sqlite's entry carries
--- ONLY dbout-navigation metadata (no schemes_query), so it keeps the tables-only
--- drawer path while still supporting the foreign-key jump + cell/header nav.
-local builders = {
-  postgres = require('dadbod-ui.schemas.postgres'),
-  postgresql = require('dadbod-ui.schemas.postgres'),
-  sqlserver = require('dadbod-ui.schemas.sqlserver'),
-  mysql = require('dadbod-ui.schemas.mysql'),
-  mariadb = require('dadbod-ui.schemas.mysql'),
-  oracle = require('dadbod-ui.schemas.oracle'),
-  bigquery = require('dadbod-ui.schemas.bigquery'),
-  sqlite = require('dadbod-ui.schemas.sqlite'),
-  sqlite3 = require('dadbod-ui.schemas.sqlite'),
-  clickhouse = require('dadbod-ui.schemas.clickhouse'),
-}
-
---- The metadata for `scheme`, or an empty table for a scheme we don't know.
---- Note this is NOT the same as "no schema support": sqlite returns a non-empty
---- table carrying only dbout-navigation fields (no `schemes_query`), so it has
---- metadata without schema support. `config` tunes the queries that depend on
---- options (`use_postgres_views`, `is_oracle_legacy`).
+--- The metadata for `scheme` (built by its adapter's `schema` field), or an
+--- empty table for a scheme we don't know. Note this is NOT the same as "no
+--- schema support": sqlite returns a non-empty table carrying only
+--- dbout-navigation fields (no `schemes_query`), so it has metadata without
+--- schema support. `config` tunes the queries that depend on options
+--- (`use_postgres_views`, `is_oracle_legacy`).
 ---@param scheme string  raw url scheme
 ---@param config? DadbodUI.Config
 ---@return DadbodUI.SchemaAdapter
 function M.get(scheme, config)
-  local builder = builders[scheme]
-  if builder == nil then
+  local spec = adapters.get(scheme)
+  if spec == nil or spec.schema == nil then
     return {}
   end
-  return builder(config)
+  return spec.schema(config)
 end
 
 --- Whether the adapter exposes schemas for this url: schema support requires a
---- `schemes_query`, and MySQL/MariaDB urls that name a database in the path list
---- tables directly instead.
+--- `schemes_query`, and adapters flagged `db_path_lists_tables` (mysql/mariadb)
+--- list tables directly when the url names a database in its path.
 ---@param scheme_info DadbodUI.SchemaAdapter
 ---@param parsed_url DadbodUI.ParsedUrl
 ---@return boolean
@@ -76,8 +62,8 @@ function M.supports_schemes(scheme_info, parsed_url)
   if scheme_info == nil or scheme_info.schemes_query == nil or scheme_info.schemes_query == '' then
     return false
   end
-  local scheme_name = (parsed_url.scheme or ''):lower()
-  if (scheme_name == 'mysql' or scheme_name == 'mariadb') and (parsed_url.path or '') ~= '/' then
+  local spec = adapters.get(parsed_url.scheme)
+  if spec ~= nil and spec.db_path_lists_tables and (parsed_url.path or '') ~= '/' then
     return false
   end
   return true
@@ -144,33 +130,18 @@ function M.result_lines(result)
 end
 
 --- Normalize the raw table list dadbod's `tables` adapter call returns for a
---- non-schema adapter: sqlite lists tables as space-separated strings (split and
---- sort), mysql prepends a header / warning lines (filter them out).
+--- non-schema adapter, via the adapter's `normalize_tables` (sqlite splits
+--- space-separated chunks, mysql filters header/warning lines). Identity for
+--- adapters without one.
 ---@param scheme string
 ---@param raw string[]
 ---@return string[]
 function M.normalize_table_list(scheme, raw)
-  local lower = scheme:lower()
-  if lower:match('^sqlite') then
-    local flattened = vim
-      .iter(raw)
-      :map(function(chunk)
-        return vim.split(chunk, '%s+', { trimempty = true })
-      end)
-      :flatten()
-      :map(vim.trim)
-      :totable()
-    table.sort(flattened)
-    return flattened
+  local spec = adapters.get(scheme)
+  if spec == nil or spec.normalize_tables == nil then
+    return raw
   end
-  if lower:match('^mysql') then
-    return vim.tbl_filter(function(name)
-      -- Anchored to the START of the name: an unanchored `Tables_in_` would also
-      -- drop any real table whose name merely CONTAINS that substring.
-      return not name:match('mysql: %[Warning%]') and not name:match('^Tables_in')
-    end, raw)
-  end
-  return raw
+  return spec.normalize_tables(raw)
 end
 
 return M
