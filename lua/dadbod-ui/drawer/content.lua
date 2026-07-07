@@ -18,7 +18,6 @@ local ids = require('dadbod-ui.drawer.ids')
 local spinner = require('dadbod-ui.spinner')
 local spinners = require('dadbod-ui.spinners')
 local table_helpers = require('dadbod-ui.table_helpers')
-local utils = require('dadbod-ui.utils')
 
 ---@private
 -- The connected predicate lives in state (the SSOT); required lazily here to
@@ -154,12 +153,15 @@ function Drawer:build_dbs(roots)
         extra = { group = group },
       })
       if expanded then
-        node.children = {}
-        for _, member in ipairs(dbs) do
-          if (member.group or '') == group then
-            node.children[#node.children + 1] = self:build_db(member)
-          end
-        end
+        node.children = vim
+          .iter(dbs)
+          :filter(function(member)
+            return (member.group or '') == group
+          end)
+          :map(function(member)
+            return self:build_db(member)
+          end)
+          :totable()
       end
       roots[#roots + 1] = node
     end
@@ -189,21 +191,23 @@ function Drawer:build_dbout_section(roots)
   end
   local dbout = require('dadbod-ui.dbout')
   table.sort(files, dbout.sort_dbout)
-  node.children = {}
-  for _, file in ipairs(files) do
-    local content = self.instance.dbout_list[file]
-    local label = vim.fs.basename(file)
-    if content ~= nil and content ~= '' then
-      label = label .. string.format(' (%s)', content)
-    end
-    node.children[#node.children + 1] = {
-      label = label,
-      icon = self.icons.tables,
-      type = 'dbout',
-      action = 'open',
-      file_path = file,
-    }
-  end
+  node.children = vim
+    .iter(files)
+    :map(function(file)
+      local content = self.instance.dbout_list[file]
+      local label = vim.fs.basename(file)
+      if content ~= nil and content ~= '' then
+        label = label .. string.format(' (%s)', content)
+      end
+      return {
+        label = label,
+        icon = self.icons.tables,
+        type = 'dbout',
+        action = 'open',
+        file_path = file,
+      }
+    end)
+    :totable()
 end
 
 ---@param record DadbodUI.ConnectionRecord
@@ -290,55 +294,41 @@ function Drawer:build_db_sections(entry)
   return children
 end
 
---- The drawer label for a buffer file: its basename, with the connection's
---- `<slug>-` prefix (and the legacy `db_ui.` wrapper) stripped for tmp buffers.
----@param entry DadbodUI.ConnectionEntry
----@param buffer string
----@return string
-function Drawer:get_buffer_name(entry, buffer)
-  local name = vim.fs.basename(buffer)
-  if not self.instance:is_tmp_location_buffer(entry, buffer) then
-    return name
-  end
-  if vim.fn.fnamemodify(name, ':r') == 'db_ui' then
-    name = vim.fn.fnamemodify(name, ':e')
-  end
-  return (name:gsub('^' .. vim.pesc(utils.slug(entry.save_name)) .. '%-', ''))
-end
-
 --- Build the Buffers section: a toggle node with the open-buffer count whose
 --- children are the buffers as `open` nodes (tmp buffers flagged with ` *`).
 --- Nil when the connection has no open buffers.
 ---@param entry DadbodUI.ConnectionEntry
 ---@return DadbodUI.Node|nil
 function Drawer:build_buffers_section(entry)
-  if #entry.buffers.list == 0 then
+  if #entry.buffers == 0 then
     return nil
   end
   local node, expanded = self:toggle_node({
     id = ids.section(entry.key_name, 'buffers'),
     type = 'buffers',
-    label = string.format('Buffers (%d)', #entry.buffers.list),
+    label = string.format('Buffers (%d)', #entry.buffers),
     key_name = entry.key_name,
   })
   if not expanded then
     return node
   end
-  node.children = {}
-  for _, buffer in ipairs(entry.buffers.list) do
-    local label = self:get_buffer_name(entry, buffer)
-    if self.instance:is_tmp_location_buffer(entry, buffer) then
-      label = label .. ' *'
-    end
-    node.children[#node.children + 1] = {
-      label = label,
-      icon = self.icons.buffers,
-      type = 'buffer',
-      action = 'open',
-      key_name = entry.key_name,
-      file_path = buffer,
-    }
-  end
+  node.children = vim
+    .iter(entry.buffers)
+    :map(function(buffer)
+      local label = vim.fs.basename(buffer)
+      if self.instance:is_tmp_location_buffer(buffer) then
+        label = label .. ' *'
+      end
+      return {
+        label = label,
+        icon = self.icons.buffers,
+        type = 'buffer',
+        action = 'open',
+        key_name = entry.key_name,
+        file_path = buffer,
+      }
+    end)
+    :totable()
   return node
 end
 
@@ -356,18 +346,20 @@ function Drawer:build_saved_queries_section(entry)
   if not expanded then
     return node
   end
-  node.children = {}
-  for _, saved in ipairs(entry.saved_queries) do
-    node.children[#node.children + 1] = {
-      label = vim.fs.basename(saved),
-      icon = self.icons.saved_query,
-      type = 'saved_query',
-      action = 'open',
-      key_name = entry.key_name,
-      file_path = saved,
-      saved = true,
-    }
-  end
+  node.children = vim
+    .iter(entry.saved_queries)
+    :map(function(saved)
+      return {
+        label = vim.fs.basename(saved),
+        icon = self.icons.saved_query,
+        type = 'saved_query',
+        action = 'open',
+        key_name = entry.key_name,
+        file_path = saved,
+        saved = true,
+      }
+    end)
+    :totable()
   return node
 end
 
@@ -477,8 +469,8 @@ function Drawer:build_routines_section(entry)
   if not expanded then
     return node
   end
-  node.children = {}
   if entry.schema_support then
+    node.children = {}
     for _, schema in ipairs(routines.list) do
       local schema_routines = routines.items[schema]
       local schema_node, schema_expanded = self:toggle_node({
@@ -488,17 +480,22 @@ function Drawer:build_routines_section(entry)
         key_name = entry.key_name,
       })
       if schema_expanded then
-        schema_node.children = {}
-        for _, routine in ipairs(schema_routines) do
-          schema_node.children[#schema_node.children + 1] = self:build_routine(entry, routine, schema)
-        end
+        schema_node.children = vim
+          .iter(schema_routines)
+          :map(function(routine)
+            return self:build_routine(entry, routine, schema)
+          end)
+          :totable()
       end
       node.children[#node.children + 1] = schema_node
     end
   else
-    for _, routine in ipairs(routines.flat) do
-      node.children[#node.children + 1] = self:build_routine(entry, routine, '')
-    end
+    node.children = vim
+      .iter(routines.flat)
+      :map(function(routine)
+        return self:build_routine(entry, routine, '')
+      end)
+      :totable()
   end
   return node
 end
@@ -516,34 +513,37 @@ function Drawer:build_tables(list, entry, schema)
   -- The helper order is per-connection, not per-table: computed once for the
   -- first expanded table and reused.
   local ordered
-  local nodes = {}
-  for _, table_name in ipairs(list) do
-    local node, expanded = self:toggle_node({
-      id = ids.table(entry.key_name, schema, table_name),
-      type = 'table',
-      label = table_name,
-      key_name = entry.key_name,
-      extra = { table = table_name, schema = schema },
-    })
-    if expanded then
-      ordered = ordered or table_helpers.ordered_names(entry.table_helpers, self.config.table_helpers_order)
-      node.children = {}
-      for _, helper_name in ipairs(ordered) do
-        node.children[#node.children + 1] = {
-          label = helper_name,
-          icon = self.icons.tables,
-          type = 'table_helper',
-          action = 'open',
-          key_name = entry.key_name,
-          table = table_name,
-          schema = schema,
-          content = entry.table_helpers[helper_name],
-        }
+  return vim
+    .iter(list)
+    :map(function(table_name)
+      local node, expanded = self:toggle_node({
+        id = ids.table(entry.key_name, schema, table_name),
+        type = 'table',
+        label = table_name,
+        key_name = entry.key_name,
+        extra = { table = table_name, schema = schema },
+      })
+      if expanded then
+        ordered = ordered or table_helpers.ordered_names(entry.table_helpers, self.config.table_helpers_order)
+        node.children = vim
+          .iter(ordered)
+          :map(function(helper_name)
+            return {
+              label = helper_name,
+              icon = self.icons.tables,
+              type = 'table_helper',
+              action = 'open',
+              key_name = entry.key_name,
+              table = table_name,
+              schema = schema,
+              content = entry.table_helpers[helper_name],
+            }
+          end)
+          :totable()
       end
-    end
-    nodes[#nodes + 1] = node
-  end
-  return nodes
+      return node
+    end)
+    :totable()
 end
 
 return Drawer

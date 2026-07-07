@@ -125,7 +125,7 @@ describe('query buffers: open', function()
     d:query():open({ type = 'query', key_name = entry.key_name }, 'edit')
     query_bufs[#query_bufs + 1] = vim.api.nvim_get_current_buf()
 
-    assert.equals(1, #entry.buffers.list)
+    assert.equals(1, #entry.buffers)
     assert.is_true(d:is_expanded(ids.section(entry.key_name, 'buffers')))
     d:set_expanded(ids.db(entry.key_name), true)
     d:render()
@@ -143,13 +143,32 @@ describe('query buffers: filename extension', function()
     end
   end)
 
-  it('names a New query buffer with the adapter query-input extension', function()
-    d = make_drawer({ qa = 'sqlite:/tmp/qa.db' })
+  -- A fresh tmp root per test: without one the generator falls back to the
+  -- session-shared tempname dir, where files written by OTHER specs for a
+  -- same-named connection would (correctly) bump the collision counter.
+  local function fresh_tmp()
+    local tmp = vim.fn.tempname()
+    vim.fn.mkdir(tmp, 'p')
+    return tmp
+  end
+
+  it('names a New query buffer inside the connection folder, with the adapter extension', function()
+    d = make_drawer({ qa = 'sqlite:/tmp/qa.db' }, { tmp_query_location = fresh_tmp() })
     local entry = entry_named(d, 'qa')
     assert.equals('sql', entry.extension)
     local name = d:query():generate_buffer_name(entry, { label = '', filetype = entry.filetype })
-    -- <slug(name-query)>-<time>.sql -- a real .sql file so formatters/linters attach.
-    assert.matches('qa%-query%-[%d%-]+%.sql$', name)
+    -- <tmp>/qa/query.sql -- the folder records ownership; a real .sql file so
+    -- formatters/linters attach.
+    assert.matches('/qa/query%.sql$', name)
+  end)
+
+  it('bumps a counter instead of reusing a taken name', function()
+    d = make_drawer({ qa = 'sqlite:/tmp/qa.db' }, { tmp_query_location = fresh_tmp() })
+    local entry = entry_named(d, 'qa')
+    local first = d:query():generate_buffer_name(entry, { label = '', filetype = entry.filetype })
+    table.insert(entry.buffers, first)
+    local second = d:query():generate_buffer_name(entry, { label = '', filetype = entry.filetype })
+    assert.matches('/qa/query%-2%.sql$', second)
   end)
 
   it('names a table-helper buffer with the extension too', function()
@@ -157,7 +176,7 @@ describe('query buffers: filename extension', function()
     local entry = entry_named(d, 'qa')
     local name = d:query()
       :generate_buffer_name(entry, { table = 'contacts', label = 'List', filetype = entry.filetype })
-    assert.matches('qa%-contacts%-List%-[%d%-]+%.sql$', name)
+    assert.matches('/qa/contacts%-List%.sql$', name)
   end)
 
   it('uses the extension from the adapter, not a hardcoded sql (mysql -> sql ext, mysql filetype)', function()
@@ -191,7 +210,7 @@ describe('query buffers: filename extension', function()
     })
     local entry = entry_named(d, 'qa')
     local name = d:query():generate_buffer_name(entry, { label = '', filetype = entry.filetype })
-    assert.matches('qa%-custom%-name$', name)
+    assert.matches('/qa/custom%-name$', name)
     assert.is_nil(name:match('%.sql$'))
   end)
 end)

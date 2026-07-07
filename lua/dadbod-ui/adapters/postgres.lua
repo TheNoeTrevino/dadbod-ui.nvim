@@ -89,7 +89,10 @@ return {
   schema = function(config)
     local use_views = config == nil or config.use_postgres_views
     return {
-      args = { '-A', '-c' },
+      -- `-A` unaligned, `-t` tuples-only: machine-readable pipe-separated rows
+      -- with no header line and no `(N rows)` footer, so the parser needs no
+      -- slice calibration against psql's human framing.
+      args = { '-A', '-t', '-c' },
       schemes_query = list_schema_query,
       schemes_tables_query = use_views and tables_and_views_query or tables_query,
       procedures_query = procedures_query,
@@ -103,7 +106,7 @@ return {
         local nonempty = vim.tbl_filter(function(row)
           return row ~= ''
         end, results)
-        return parse.results_parser(parse.vslice(nonempty, 1, -2), '|', min_len)
+        return parse.results_parser(nonempty, '|', min_len)
       end,
       default_scheme = 'public',
       quote = 1,

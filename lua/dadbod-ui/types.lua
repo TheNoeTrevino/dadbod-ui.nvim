@@ -62,12 +62,6 @@
 -- Pure domain containers: drawer expand/collapse state lives in the drawer's
 -- `expand` map (keyed by drawer/ids.lua ids), never on these.
 
---- A connection's open query buffers. `list` holds full buffer file paths;
---- `tmp` is the subset living in the tmp-query location.
----@class DadbodUI.BuffersNode
----@field list string[]
----@field tmp string[]
-
 --- The schemas collection for a connection: schema names in introspection
 --- order, plus each schema's (sorted) table names.
 ---@class DadbodUI.SchemasNode
@@ -152,10 +146,11 @@
 ---@field name string
 ---@field group string
 ---@field key_name string
----@field save_name string  group-qualified identifier ({group}_{name} when grouped); names the save folder + tmp buffers
+---@field save_name string  group-qualified identifier ({group}_{name} when grouped); names the save folder + tmp query folder
 ---@field scheme string  raw adapter scheme
 ---@field db_name string
 ---@field save_path string
+---@field tmp_path string  this connection's tmp query folder (<tmp_location>/<save_name>); the ownership record for scratch buffers
 ---@field conn? string  live connection handle, set when connected
 ---@field conn_error? string  last connection error, if any
 ---@field connect_ms? integer  elapsed ms of the last successful connect (shown in the details view, not a popup)
@@ -171,7 +166,7 @@
 ---@field schemas DadbodUI.SchemasNode
 ---@field routines DadbodUI.RoutinesNode  stored procedures / functions for this connection
 ---@field routine_support boolean  does the adapter expose stored procedures/functions
----@field buffers DadbodUI.BuffersNode  open query buffers for this connection
+---@field buffers string[]  open query buffers for this connection (full file paths)
 ---@field saved_queries string[]  persisted saved-query file paths under save_path
 
 -- Behavioural controllers are declared module-locally (like `Instance` in
@@ -284,7 +279,7 @@
 --- Per-call options for dadbod-ui.notifications.
 ---@class DadbodUI.NotifyOpts
 ---@field echo? boolean   force the :echo backend for this call
----@field title? string   override the '[DBUI]' title
+---@field title? string   override the '[Dadbod-UI]' title
 ---@field delay? integer  notify timeout in ms (honored by nvim-notify)
 
 --- The effective icon set (dadbod-ui.icons).
@@ -384,7 +379,7 @@
 --- Options for `require('dadbod-ui').statusline()` (the `db_ui#statusline()`
 --- opts dict). All optional.
 ---@class DadbodUI.StatuslineOpts
----@field prefix? string  leading text (default 'DBUI: ')
+---@field prefix? string  leading text (default 'Dadbod-UI: ')
 ---@field separator? string  joiner between the shown fields (default ' -> ')
 ---@field show? string[]  fields to show, in order (default { 'db_name', 'schema', 'table' })
 

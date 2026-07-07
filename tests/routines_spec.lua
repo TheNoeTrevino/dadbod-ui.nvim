@@ -96,10 +96,9 @@ describe('routines: result parsing', function()
   it('parses postgres (schema, name, kind) rows via parse_results min_len 3', function()
     local pg = schemas.get('postgres')
     local out = pg.parse_results({
-      'routine_schema|routine_name|routine_type',
       'public|do_thing|procedure',
       'public|calc|function',
-      '(2 rows)',
+      '',
     }, 3)
     assert.same({ 'public', 'do_thing', 'procedure' }, out[1])
     assert.same({ 'public', 'calc', 'function' }, out[2])
@@ -109,7 +108,6 @@ describe('routines: result parsing', function()
   it('parses mysql tab-delimited routine rows', function()
     local my = schemas.get('mysql')
     local out = my.parse_results({
-      'routine_schema\troutine_name\troutine_type',
       'app\tdo_thing\tprocedure',
     }, 3)
     assert.same({ 'app', 'do_thing', 'procedure' }, out[1])
@@ -205,7 +203,7 @@ describe('routines: concurrent populate', function()
     bridge.run_many = function(specs, on_done)
       assert.equals(1, #specs)
       seen_query = specs[1].stdin -- mysql feeds the query on stdin
-      on_done({ completed('routine_schema\troutine_name\troutine_type\napp\tdo_thing\tprocedure\n') })
+      on_done({ completed('app\tdo_thing\tprocedure\n') })
     end
     local real_adapter_call = bridge.adapter_call
     bridge.adapter_call = function()
@@ -226,9 +224,9 @@ describe('routines: concurrent populate', function()
     bridge.run_many = function(specs, on_done)
       assert.equals(3, #specs) -- schemas + tables + routines, one round-trip
       on_done({
-        completed('schema_name\npublic\n(1 row)\n'),
-        completed('table_schema|table_name\npublic|users\n(1 row)\n'),
-        completed('routine_schema|routine_name|routine_type\npublic|do_thing|procedure\n(1 row)\n'),
+        completed('public\n'),
+        completed('public|users\n'),
+        completed('public|do_thing|procedure\n'),
       })
     end
     d:introspect():populate_schemas(entry)

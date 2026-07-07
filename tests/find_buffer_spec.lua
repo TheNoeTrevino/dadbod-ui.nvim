@@ -47,7 +47,7 @@ describe('find_buffer', function()
     end
     d:find_buffer()
     notify.error = saved
-    assert.equals('No database entries found in DBUI.', msg)
+    assert.equals('No database entries found in Dadbod-UI.', msg)
   end)
 
   it('adopts a bare buffer under a lone connection, writing the contract', function()
@@ -81,7 +81,7 @@ describe('find_buffer', function()
     notify.error = saved
     assert.matches('unnamed buffer', msg)
     assert.is_nil(vim.b.dbui_db_key_name)
-    assert.equals(0, #entry.buffers.list)
+    assert.equals(0, #entry.buffers)
   end)
 
   it('reveals a buffer that already carries the contract and moves the cursor onto it', function()

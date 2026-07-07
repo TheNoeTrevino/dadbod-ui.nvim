@@ -25,6 +25,9 @@ return {
   ---@return DadbodUI.SchemaAdapter
   schema = function(_config)
     return {
+      -- `-N` (--skip-column-names): machine-readable TSV rows with no header
+      -- line, so the parser needs no header-dropping slice.
+      args = { '-N' },
       schemes_query = 'SELECT schema_name FROM information_schema.schemata',
       schemes_tables_query = 'SELECT table_schema, table_name FROM information_schema.tables',
       -- Routines come from `information_schema.ROUTINES` filtered to
@@ -62,7 +65,7 @@ return {
       layout_flag = '\\G',
       requires_stdin = true,
       parse_results = function(results, min_len)
-        return parse.results_parser(parse.vslice(results, 1), '\\t', min_len)
+        return parse.results_parser(results, '\\t', min_len)
       end,
       default_scheme = '',
       quote = 0,

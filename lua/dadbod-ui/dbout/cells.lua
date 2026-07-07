@@ -242,9 +242,16 @@ local function cursor_cell_span(sep_line_nr, data_line)
   return M.cell_range(vim.fn.getline(sep_line_nr), cursor_col)
 end
 
+---@private
+-- Whether a foreign-key lookup is already in flight: the async round-trip is
+-- short, but a second <C-]> before it lands must not race a duplicate lookup.
+local fk_jump_pending = false
+
 --- Jump from the foreign-key cell under the cursor to the row(s) it references.
---- Resolves the foreign table with a synchronous introspection query and runs the
---- resulting `SELECT`, both through `bridge`.
+--- Resolves the foreign table with a NON-BLOCKING introspection query
+--- (`bridge.run_many`), then runs the resulting `SELECT` -- both through
+--- `bridge`. Everything the callback needs (cell context, config) is captured
+--- before dispatch, so a focus change during the round-trip cannot misread it.
 ---@return nil
 function M.jump_to_foreign_table()
   local notify = require('dadbod-ui.notifications')
@@ -254,6 +261,9 @@ function M.jump_to_foreign_table()
   end
   if scheme_info.foreign_key_query == nil then
     return notify.error(string.format('Foreign key jump not supported for %s scheme.', bridge.scheme_of(url)))
+  end
+  if fk_jump_pending then
+    return
   end
 
   local sep_line_nr = cell_line_number(scheme_info)
@@ -271,18 +281,22 @@ function M.jump_to_foreign_table()
   -- An adapter with a foreign_key_query always carries a parser + select template.
   local parser = assert(scheme_info.parse_virtual_results or scheme_info.parse_results)
   local template = assert(scheme_info.select_foreign_key_query)
-  local result = parser(schemas.query(url, scheme_info, fk_query), 3)
-  if #result == 0 then
-    return notify.error('No valid foreign key found.')
-  end
-
-  -- result rows are { foreign_table_name, foreign_column_name, foreign_table_schema }
-  local row = result[1]
-  local query = M.foreign_select(template, row[3], row[1], row[2], field_value)
-  -- Run quietly when the inline summary is on, so dadbod's `Running query...`
-  -- echo doesn't reappear for the jump (the summary still renders via on_post).
   local config = ctx.current_config()
-  bridge.execute(url, query, config.results.query_time.enabled, config.results.layout == 'vertical')
+
+  fk_jump_pending = true
+  bridge.run_many({ schemas.command_spec(url, scheme_info, fk_query) }, function(results)
+    fk_jump_pending = false
+    local result = parser(schemas.result_lines(results[1]), 3)
+    if #result == 0 then
+      return notify.error('No valid foreign key found.')
+    end
+    -- result rows are { foreign_table_name, foreign_column_name, foreign_table_schema }
+    local row = result[1]
+    local query = M.foreign_select(template, row[3], row[1], row[2], field_value)
+    -- Run quietly when the inline summary is on, so dadbod's `Running query...`
+    -- echo doesn't reappear for the jump (the summary still renders via on_post).
+    bridge.execute(url, query, config.results.query_time.enabled, config.results.layout == 'vertical')
+  end)
 end
 
 --- Visually select the cell value under the cursor (the `vic` text object / the

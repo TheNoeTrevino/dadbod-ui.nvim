@@ -45,6 +45,8 @@ Please adhere to these separations as much as possible.
 
 `bridge.lua` - the only module allowed to touch `vim-dadbod`, the 'bridge'
 
+`constants.lua` - some display variables like notification titles and such. More importantly, this is where things go that shouldn't ever change
+
 `config.lua` - defaults and option resolution.
 
 `state.lua` - the central instance (connections, entries, paths). We treat this the single source of truth for anything stateful
