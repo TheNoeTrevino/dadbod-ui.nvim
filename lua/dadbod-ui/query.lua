@@ -134,46 +134,32 @@ function Query:open(item, edit_action)
 end
 
 --- Build the on-disk name for a new query buffer: `<base>.<ext>` inside the
---- connection's own tmp subdirectory `<tmp_location>/<save_name>/`, where the
---- base is `query` or `<table>-<label>` and `<ext>` is the adapter's query-input
---- extension (`entry.extension`, e.g. `sql`). The directory records ownership
---- (`state` restores its contents on startup, `get_saved_query_db_name` resolves
---- it back), and the real extension makes the buffer look like a genuine query
---- file to external formatters/linters/LSP, which key off the filename rather
---- than Neovim's `filetype`. A taken name bumps a `-N` counter. Honors a
---- configured `buffer_name_generator` (whose output is used verbatim -- no
---- extension or counter is forced onto a user-supplied name). Without a
---- tmp-query location the subdirectory lives next to `tempname()` instead
---- (session-local, tracked as a tmp buffer).
+--- connection's own tmp folder (`entry.tmp_path`), where the base is `query` or
+--- `<table>-<label>` and `<ext>` is the adapter's query-input extension
+--- (`entry.extension`, e.g. `sql`). The folder records ownership (`state`
+--- restores its contents on startup, `entry_for_dir` resolves it back), and the
+--- real extension makes the buffer look like a genuine query file to external
+--- formatters/linters/LSP, which key off the filename rather than Neovim's
+--- `filetype`. A taken name bumps a `-N` counter. Honors a configured
+--- `buffer_name_generator` (whose output is used verbatim -- no extension or
+--- counter is forced onto a user-supplied name).
 ---@param entry DadbodUI.ConnectionEntry
 ---@param opts { label: string, table?: string, schema?: string, filetype: string }
 ---@return string
 function Query:generate_buffer_name(entry, opts)
-  local root = self.instance.tmp_location
-  local is_session_tmp = root == ''
-  if is_session_tmp then
-    root = vim.fs.dirname(vim.fn.tempname())
-  end
-  local dir = string.format('%s/%s', root, entry.save_name)
-  vim.fn.mkdir(dir, 'p')
-
-  local name
+  vim.fn.mkdir(entry.tmp_path, 'p')
   if self.config.buffer_name_generator then
-    name = string.format('%s/%s', dir, self.config.buffer_name_generator(opts))
-  else
-    local base = 'query'
-    if opts.table ~= nil and opts.table ~= '' then
-      base = string.format('%s-%s', opts.table, opts.label)
-    end
-    name = string.format('%s/%s.%s', dir, base, entry.extension)
-    local n = 1
-    while utils.is_file(name) or vim.tbl_contains(entry.buffers.list, name) do
-      n = n + 1
-      name = string.format('%s/%s-%d.%s', dir, base, n, entry.extension)
-    end
+    return string.format('%s/%s', entry.tmp_path, self.config.buffer_name_generator(opts))
   end
-  if is_session_tmp then
-    table.insert(entry.buffers.tmp, name)
+  local base = 'query'
+  if opts.table ~= nil and opts.table ~= '' then
+    base = string.format('%s-%s', opts.table, opts.label)
+  end
+  local name = string.format('%s/%s.%s', entry.tmp_path, base, entry.extension)
+  local n = 1
+  while utils.is_file(name) or vim.tbl_contains(entry.buffers, name) do
+    n = n + 1
+    name = string.format('%s/%s-%d.%s', entry.tmp_path, base, n, entry.extension)
   end
   return name
 end
@@ -319,15 +305,13 @@ end
 function Query:setup_buffer(entry, opts, name)
   Query.write_contract(vim.api.nvim_get_current_buf(), entry, opts)
   local is_existing = opts.existing_buffer or false
-  local db_buffers = entry.buffers
-
-  if not vim.tbl_contains(db_buffers.list, name) then
-    if #db_buffers.list == 0 then
+  if not vim.tbl_contains(entry.buffers, name) then
+    if #entry.buffers == 0 then
       -- The connection's first open buffer: expand its Buffers section so the
       -- buffer is visible in the drawer right away.
       self.drawer:expand_section(entry.key_name, 'buffers')
     end
-    table.insert(db_buffers.list, name)
+    table.insert(entry.buffers, name)
     self.drawer:render()
   end
 
@@ -342,7 +326,7 @@ function Query:setup_buffer(entry, opts, name)
     end
   end
   local is_sql = vim.bo.filetype == entry.filetype
-  local is_tmp = self.instance:is_tmp_location_buffer(entry, name)
+  local is_tmp = self.instance:is_tmp_location_buffer(name)
   local bufnr = vim.api.nvim_get_current_buf()
 
   do
@@ -958,8 +942,7 @@ function Query:remove_buffer(bufnr)
   local function keep(path)
     return vim.fn.fnamemodify(path, ':p') ~= target
   end
-  entry.buffers.list = vim.tbl_filter(keep, entry.buffers.list)
-  entry.buffers.tmp = vim.tbl_filter(keep, entry.buffers.tmp)
+  entry.buffers = vim.tbl_filter(keep, entry.buffers)
   self.drawer:render()
 end
 
@@ -1005,25 +988,6 @@ end
 ---@return DadbodUI.LastQueryInfo
 function Query:get_last_query_info()
   return { last_query = self.last_query, last_query_time = self.last_query_time }
-end
-
---- Best-effort connection name for a buffer that carries no `b:dbui_db_key_name`
---- yet, inferred from its on-disk location so `find_buffer` can adopt a plain
---- `.sql` file opened under the tmp-query or save directory. Both locations use
---- the same layout -- a per-connection subdirectory named with the
---- group-qualified name -- so the parent directory's basename IS the connection
---- (pick_db matches it on the qualified name). Returns `''` when the buffer
---- lives elsewhere.
----@return string
-function Query:get_saved_query_db_name()
-  local dir = vim.fn.expand('%:p:h')
-  local parent = vim.fs.dirname(dir)
-  if
-    (self.instance.tmp_location ~= '' and parent == self.instance.tmp_location) or parent == self.instance.save_path
-  then
-    return vim.fs.basename(dir)
-  end
-  return ''
 end
 
 M.Query = Query

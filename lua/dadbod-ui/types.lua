@@ -62,14 +62,6 @@
 -- Pure domain containers: drawer expand/collapse state lives in the drawer's
 -- `expand` map (keyed by drawer/ids.lua ids), never on these.
 
---- A connection's open query buffers. `list` holds full buffer file paths;
---- `tmp` tracks generated buffers that live outside the configured tmp-query
---- location (session-local files next to `tempname()`), so
---- `is_tmp_location_buffer` still recognizes them as scratch queries.
----@class DadbodUI.BuffersNode
----@field list string[]
----@field tmp string[]
-
 --- The schemas collection for a connection: schema names in introspection
 --- order, plus each schema's (sorted) table names.
 ---@class DadbodUI.SchemasNode
@@ -158,6 +150,7 @@
 ---@field scheme string  raw adapter scheme
 ---@field db_name string
 ---@field save_path string
+---@field tmp_path string  this connection's tmp query folder (<tmp_location>/<save_name>); the ownership record for scratch buffers
 ---@field conn? string  live connection handle, set when connected
 ---@field conn_error? string  last connection error, if any
 ---@field connect_ms? integer  elapsed ms of the last successful connect (shown in the details view, not a popup)
@@ -173,7 +166,7 @@
 ---@field schemas DadbodUI.SchemasNode
 ---@field routines DadbodUI.RoutinesNode  stored procedures / functions for this connection
 ---@field routine_support boolean  does the adapter expose stored procedures/functions
----@field buffers DadbodUI.BuffersNode  open query buffers for this connection
+---@field buffers string[]  open query buffers for this connection (full file paths)
 ---@field saved_queries string[]  persisted saved-query file paths under save_path
 
 -- Behavioural controllers are declared module-locally (like `Instance` in

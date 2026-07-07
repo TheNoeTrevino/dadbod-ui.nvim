@@ -295,25 +295,24 @@ end
 ---@param entry DadbodUI.ConnectionEntry
 ---@return DadbodUI.Node|nil
 function Drawer:build_buffers_section(entry)
-  if #entry.buffers.list == 0 then
+  if #entry.buffers == 0 then
     return nil
   end
   local node, expanded = self:toggle_node({
     id = ids.section(entry.key_name, 'buffers'),
     type = 'buffers',
-    label = string.format('Buffers (%d)', #entry.buffers.list),
+    label = string.format('Buffers (%d)', #entry.buffers),
     key_name = entry.key_name,
   })
   if not expanded then
     return node
   end
-  node.children = {}
-  for _, buffer in ipairs(entry.buffers.list) do
+  node.children = vim.tbl_map(function(buffer)
     local label = vim.fs.basename(buffer)
-    if self.instance:is_tmp_location_buffer(entry, buffer) then
+    if self.instance:is_tmp_location_buffer(buffer) then
       label = label .. ' *'
     end
-    node.children[#node.children + 1] = {
+    return {
       label = label,
       icon = self.icons.buffers,
       type = 'buffer',
@@ -321,7 +320,7 @@ function Drawer:build_buffers_section(entry)
       key_name = entry.key_name,
       file_path = buffer,
     }
-  end
+  end, entry.buffers)
   return node
 end
 

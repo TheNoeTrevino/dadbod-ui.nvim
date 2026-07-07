@@ -8,11 +8,11 @@ describe('state: instance paths', function()
     assert.equals('/tmp/dbui_test/connections.json', inst.connections_path)
   end)
 
-  it('leaves paths empty when unset', function()
+  it('falls back to the session temp dir when tmp_query_location is unset', function()
     local inst = state.new(config.resolve({ save_location = '', tmp_query_location = '' }))
     assert.equals('', inst.save_path)
     assert.is_nil(inst.connections_path)
-    assert.equals('', inst.tmp_location)
+    assert.equals(vim.fs.dirname(vim.fn.tempname()), inst.tmp_location)
   end)
 end)
 
@@ -78,7 +78,7 @@ describe('state: populate', function()
       file_entries = {},
     })
     -- The directory is the ownership record: only qa's folder restores to qa.
-    assert.same({ restored }, inst.dbs['qa_g:dbs'].buffers.list)
+    assert.same({ restored }, inst.dbs['qa_g:dbs'].buffers)
   end)
 
   it('restores tmp buffers for a connection whose name carries spaces', function()
@@ -91,7 +91,7 @@ describe('state: populate', function()
       g_dbs = { ['My DB'] = 'sqlite:/tmp/mydb.db' },
       file_entries = {},
     })
-    assert.same({ restored }, inst.dbs['My DB_g:dbs'].buffers.list)
+    assert.same({ restored }, inst.dbs['My DB_g:dbs'].buffers)
   end)
 
   it('connections_list reports name/url/source and not-connected', function()

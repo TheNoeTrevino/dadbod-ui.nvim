@@ -74,11 +74,10 @@ describe('grouped buffer/save naming', function()
     vim.fn.writefile({ 'select 1' }, saved)
     vim.cmd('edit ' .. vim.fn.fnameescape(saved))
 
-    -- The qualified folder name identifies the connection unambiguously.
-    assert.equals('b_prod', d:query():get_saved_query_db_name())
-
+    -- The qualified folder identifies the connection unambiguously; pick_db
+    -- adopts it without prompting (three connections exist).
     local picked
-    d:pick_db('b_prod', function(e)
+    d:pick_db(function(e)
       picked = e
     end)
     assert.equals(b.key_name, picked.key_name)
@@ -89,20 +88,16 @@ describe('grouped buffer/save naming', function()
     local a = entry(d, 'a_prod_file')
     -- Open a real tmp buffer on group a, then ask which db it belongs to.
     d:query():open({ type = 'query', key_name = a.key_name }, 'edit')
-    assert.equals('a_prod', d:query():get_saved_query_db_name())
-
-    local picked
-    d:pick_db(d:query():get_saved_query_db_name(), function(e)
-      picked = e
-    end)
-    assert.equals(a.key_name, picked.key_name)
+    local dir = vim.fs.dirname(vim.api.nvim_buf_get_name(0))
+    assert.equals(a.key_name, d.instance:entry_for_dir(dir).key_name)
   end)
 
   it('still resolves an ungrouped connection by its bare name', function()
     d = make_drawer()
     local s = entry(d, 'stage_file')
     d:query():open({ type = 'query', key_name = s.key_name }, 'edit')
-    assert.equals(TMP_ROOT .. '/stage', vim.fs.dirname(vim.api.nvim_buf_get_name(0)))
-    assert.equals('stage', d:query():get_saved_query_db_name())
+    local dir = vim.fs.dirname(vim.api.nvim_buf_get_name(0))
+    assert.equals(TMP_ROOT .. '/stage', dir)
+    assert.equals(s.key_name, d.instance:entry_for_dir(dir).key_name)
   end)
 end)

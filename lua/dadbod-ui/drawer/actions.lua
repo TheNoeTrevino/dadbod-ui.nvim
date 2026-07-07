@@ -332,14 +332,14 @@ function Drawer:delete_buffer(item)
     end
     pcall(vim.fs.rm, file)
     entry.saved_queries = drop(entry.saved_queries)
-    entry.buffers.list = drop(entry.buffers.list)
+    entry.buffers = drop(entry.buffers)
     notify.info('Deleted.')
-  elseif self.instance:is_tmp_location_buffer(entry, file) then
+  elseif self.instance:is_tmp_location_buffer(file) then
     if not self.confirm('Are you sure you want to delete query?') then
       return
     end
     pcall(vim.fs.rm, file)
-    entry.buffers.list = drop(entry.buffers.list)
+    entry.buffers = drop(entry.buffers)
     notify.info('Deleted.')
   else
     return
@@ -394,7 +394,6 @@ function Drawer:rename_buffer(buffer, key_name)
   if entry == nil then
     return notify.error('Buffer not attached to any database')
   end
-  local is_tmp = self.instance:is_tmp_location_buffer(entry, buffer)
   self.input({ prompt = 'Enter new name: ', default = vim.fs.basename(buffer) }, function(new_name)
     if new_name == nil then
       return
@@ -411,12 +410,9 @@ function Drawer:rename_buffer(buffer, key_name)
     end
     -- rename() returns 0 on success; on failure (read-only dir, invalid name) bail
     -- BEFORE mutating any tracking, or the file would vanish from the drawer while
-    -- still on disk. (tmp tracking is likewise only inserted after success.)
+    -- still on disk.
     if vim.fn.rename(buffer, new) ~= 0 then
       return notify.error('Could not rename the query file.')
-    end
-    if is_tmp then
-      table.insert(entry.buffers.tmp, new)
     end
 
     -- loaded_bufnr, not vim.fn.bufnr: the path is looked up exactly, never as a
@@ -436,16 +432,16 @@ function Drawer:rename_buffer(buffer, key_name)
       -- needed), so we never round-trip through vim.fn.bufnr's pattern matching.
       new_bufnr = vim.fn.bufadd(new)
       vim.bo[new_bufnr].buflisted = true
-      table.insert(entry.buffers.list, new)
+      table.insert(entry.buffers, new)
     else
-      local idx = vim.fn.index(entry.buffers.list, buffer)
+      local idx = vim.fn.index(entry.buffers, buffer)
       if idx > -1 then
-        table.insert(entry.buffers.list, idx + 1, new)
+        table.insert(entry.buffers, idx + 1, new)
       end
     end
-    entry.buffers.list = vim.tbl_filter(function(v)
+    entry.buffers = vim.tbl_filter(function(v)
       return v ~= buffer
-    end, entry.buffers.list)
+    end, entry.buffers)
 
     if new_bufnr > -1 then
       -- Carry the contract onto the renamed buffer through the single writer,
@@ -469,15 +465,19 @@ function Drawer:rename_buffer(buffer, key_name)
 end
 
 --- Resolve which connection to adopt for a buffer that has no `b:dbui_db_key_name`
---- yet, then hand it to `cb`. `saved_name` is the best-effort name inferred from
---- the buffer's path (`Query:get_saved_query_db_name`): non-empty picks that db by
---- name; otherwise a lone connection is taken automatically and several prompt the
---- (injectable) selector. `cb` receives the entry, or nil when nothing resolves or
---- the user cancels. Callback-shaped for the async selector.
----@param saved_name string
+--- yet, then hand it to `cb`. A buffer inside a connection's tmp or save folder
+--- already names its owner (the folder is the ownership record --
+--- `instance:entry_for_dir`); otherwise a lone connection is taken automatically
+--- and several prompt the (injectable) selector. `cb` receives the entry, or nil
+--- when nothing resolves or the user cancels. Callback-shaped for the async
+--- selector.
 ---@param cb fun(entry: DadbodUI.ConnectionEntry|nil)
 ---@return nil
-function Drawer:pick_db(saved_name, cb)
+function Drawer:pick_db(cb)
+  local owner = self.instance:entry_for_dir(vim.fn.expand('%:p:h'))
+  if owner ~= nil then
+    return cb(owner)
+  end
   local list = self.instance.dbs_list
   ---@param r DadbodUI.ConnectionRecord|nil
   ---@return DadbodUI.ConnectionEntry|nil
@@ -486,14 +486,6 @@ function Drawer:pick_db(saved_name, cb)
   end
   if #list == 0 then
     return cb(nil)
-  end
-  if saved_name ~= '' then
-    -- `saved_name` is the group-qualified id from get_saved_query_db_name, so match
-    -- on the same qualified id -- a bare-name match would resolve a name reused
-    -- across groups to whichever came first (wrong db).
-    return cb(entry_of(vim.iter(list):find(function(r)
-      return utils.qualified_name(r.name, r.group):lower() == saved_name:lower()
-    end)))
   end
   if #list == 1 then
     return cb(entry_of(list[1]))
@@ -527,8 +519,7 @@ function Drawer:find_buffer()
   if entry ~= nil then
     return self:reveal_buffer(entry)
   end
-  local saved_name = self:query():get_saved_query_db_name()
-  self:pick_db(saved_name, function(chosen)
+  self:pick_db(function(chosen)
     if chosen == nil then
       return notify.error('No database entries selected or found.')
     end
@@ -545,7 +536,7 @@ end
 ---@return nil
 function Drawer:reveal_buffer(entry)
   local bufname = vim.api.nvim_buf_get_name(0)
-  -- Refuse an unnamed buffer: adopting it would insert '' into entry.buffers.list
+  -- Refuse an unnamed buffer: adopting it would insert '' into entry.buffers
   -- and render a phantom empty node in the drawer.
   if bufname == '' then
     return require('dadbod-ui.notifications').error('Cannot assign an unnamed buffer; save it to a file first.')
@@ -693,8 +684,7 @@ function Drawer:switch_buffer(target_name)
     local function keep(path)
       return vim.fn.fnamemodify(path, ':p') ~= target_path
     end
-    current.buffers.list = vim.tbl_filter(keep, current.buffers.list)
-    current.buffers.tmp = vim.tbl_filter(keep, current.buffers.tmp)
+    current.buffers = vim.tbl_filter(keep, current.buffers)
 
     -- Connect so b:db is a live handle, then rewrite the contract, re-register,
     -- rewire autocmds and re-apply the winbar -- all through the open path's

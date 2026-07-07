@@ -46,7 +46,7 @@ describe('switch_buffer', function()
     local bufname = vim.api.nvim_buf_get_name(0)
     local bufnr = vim.api.nvim_get_current_buf()
     assert.equals(a.key_name, vim.b.dbui_db_key_name)
-    assert.is_true(vim.tbl_contains(a.buffers.list, bufname))
+    assert.is_true(vim.tbl_contains(a.buffers, bufname))
 
     -- Pick connection b from the injected selector.
     d:query().select = function(items, _, on_choice)
@@ -57,8 +57,8 @@ describe('switch_buffer', function()
     -- Contract now points at b, and the tracking moved with it.
     assert.equals(b.key_name, vim.b[bufnr].dbui_db_key_name)
     assert.equals(b.conn, vim.b[bufnr].db)
-    assert.is_true(vim.tbl_contains(b.buffers.list, bufname))
-    assert.is_false(vim.tbl_contains(a.buffers.list, bufname))
+    assert.is_true(vim.tbl_contains(b.buffers, bufname))
+    assert.is_false(vim.tbl_contains(a.buffers, bufname))
 
     -- Winbar reflects the new connection.
     local win = vim.fn.bufwinid(bufnr)
@@ -147,8 +147,8 @@ describe('switch_buffer', function()
     local ok, err = d:switch_buffer('b')
     assert.is_true(ok, err)
     assert.equals(b.key_name, vim.b[bufnr].dbui_db_key_name)
-    assert.is_true(vim.tbl_contains(b.buffers.list, bufname))
-    assert.is_false(vim.tbl_contains(a.buffers.list, bufname))
+    assert.is_true(vim.tbl_contains(b.buffers, bufname))
+    assert.is_false(vim.tbl_contains(a.buffers, bufname))
   end)
 
   it('errors for an unknown named target, leaving the buffer put', function()
