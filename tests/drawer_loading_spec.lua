@@ -95,6 +95,7 @@ describe('drawer loading: repaint_db_node', function()
     d:open()
     local before = lines(d)
     local entry_b = entry_named(d, 'b')
+    entry_b.loading = true
     d:repaint_db_node(entry_b.key_name, '@@')
     local after = lines(d)
     -- the matching db line gained a trailing frame; its leading icon + name stay
@@ -108,11 +109,14 @@ describe('drawer loading: repaint_db_node', function()
     assert.equals(before[changed[1]] .. ' @@', after[changed[1]])
   end)
 
-  it('no-ops when the node is absent (collapsed away / unknown key)', function()
+  it('leaves the buffer untouched for an unknown / not-loading key', function()
     d = make_drawer({ a = 'postgres://h/a' })
     d:open()
     local before = lines(d)
     d:repaint_db_node('does-not-exist', '@@')
+    assert.same(before, lines(d))
+    -- a known connection that is not loading renders no frame either
+    d:repaint_db_node(entry_named(d, 'a').key_name, '@@')
     assert.same(before, lines(d))
   end)
 
@@ -130,6 +134,7 @@ describe('drawer loading: repaint_db_node', function()
       end
     end
     assert.is_number(idx)
+    entry.loading = true
     d:repaint_db_node(entry.key_name, '@@')
     -- the icon (at least) is re-highlighted as an extmark on that line
     local marks = vim.api.nvim_buf_get_extmarks(d.bufnr, highlights.NS, { idx, 0 }, { idx, -1 }, {})
