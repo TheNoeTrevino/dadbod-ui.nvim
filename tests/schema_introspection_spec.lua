@@ -3,7 +3,6 @@
 -- sections, schema-support detection, and a guarded end-to-end sqlite expand.
 
 local drawer_mod = require('dadbod-ui.drawer')
-local ids = require('dadbod-ui.drawer.ids')
 local state = require('dadbod-ui.state')
 local config = require('dadbod-ui.config')
 local notifications = require('dadbod-ui.notifications')
@@ -56,6 +55,8 @@ describe('schema introspection: apply_schemas', function()
     assert.same({ 'tasks' }, entry.schemas.items.app.tables.list)
     -- the flat table list collects every schema's tables
     assert.equals(3, #entry.tables.list)
+    -- per-table expand state is seeded
+    assert.is_false(entry.schemas.items.public.tables.items.users.expanded)
   end)
 
   it('drops schemas and tables matching hide_schemas', function()
@@ -85,12 +86,15 @@ describe('schema introspection: rendering', function()
     d = make_drawer({ dev = 'postgres://h/dev' })
     d:open()
     local entry = entry_named(d, 'dev')
-    d:set_expanded(ids.db(entry.key_name), true)
-    d:set_expanded(ids.section(entry.key_name, 'schemas'), true)
-    d:set_expanded(ids.schema(entry.key_name, 'public'), true)
-    d:set_expanded(ids.table(entry.key_name, 'public', 'users'), true)
+    entry.expanded = true
+    entry.schemas.expanded = true
     entry.schemas.list = { 'public' }
-    entry.schemas.items = { public = { tables = { list = { 'users' } } } }
+    entry.schemas.items = {
+      public = {
+        expanded = true,
+        tables = { expanded = true, list = { 'users' }, items = { users = { expanded = true } } },
+      },
+    }
     d:render()
     local l = lines(d)
     assert.equals('▾ dev', l[1])
@@ -108,9 +112,8 @@ describe('schema introspection: rendering', function()
     d:open()
     local entry = entry_named(d, 'qa')
     assert.is_false(entry.schema_support)
-    d:set_expanded(ids.db(entry.key_name), true)
-    d:set_expanded(ids.section(entry.key_name, 'tables'), true)
-    entry.tables = { list = { 'contacts' } }
+    entry.expanded = true
+    entry.tables = { expanded = true, list = { 'contacts' }, items = { contacts = { expanded = false } } }
     d:render()
     local l = lines(d)
     assert.equals('▾ qa', l[1])

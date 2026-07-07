@@ -59,30 +59,37 @@
 ---@field url string
 ---@field group? string
 
--- Pure domain containers: drawer expand/collapse state lives in the drawer's
--- `expand` map (keyed by drawer/ids.lua ids), never on these.
+--- Expand state for a single table node.
+---@class DadbodUI.TableItem
+---@field expanded boolean
 
---- A tables collection.
+--- A tables collection: `{ expanded, list, items }`.
 ---@class DadbodUI.TablesNode
+---@field expanded boolean
 ---@field list string[]
+---@field items table<string, DadbodUI.TableItem>
 
 --- A connection's open query buffers. `list` holds full buffer file paths;
 --- `tmp` is the subset living in the tmp-query location.
 ---@class DadbodUI.BuffersNode
+---@field expanded boolean
 ---@field list string[]
 ---@field tmp string[]
 
 --- A connection's persisted saved queries. `list` holds full file paths under
 --- the connection's save_path.
 ---@class DadbodUI.SavedQueriesNode
+---@field expanded boolean
 ---@field list string[]
 
 --- A single schema and the tables under it.
 ---@class DadbodUI.SchemaItem
+---@field expanded boolean
 ---@field tables DadbodUI.TablesNode
 
 --- The schemas collection for a connection.
 ---@class DadbodUI.SchemasNode
+---@field expanded boolean
 ---@field list string[]
 ---@field items table<string, DadbodUI.SchemaItem>
 
@@ -98,6 +105,7 @@
 --- The routines under one schema (schema-supporting adapters). Mirrors
 --- `DadbodUI.SchemaItem`'s nesting so the drawer renders it the same way.
 ---@class DadbodUI.RoutineSchemaItem
+---@field expanded boolean
 ---@field list DadbodUI.RoutineItem[]
 
 --- The stored procedures / functions collection for a connection (M-routines).
@@ -105,6 +113,7 @@
 --- mirroring `DadbodUI.SchemasNode`); flat adapters (mysql-with-db) populate
 --- `flat`. Empty for adapters with no routine support (e.g. sqlite).
 ---@class DadbodUI.RoutinesNode
+---@field expanded boolean
 ---@field list string[]  schema names that own routines (schema adapters)
 ---@field items table<string, DadbodUI.RoutineSchemaItem>  per-schema routines (schema adapters)
 ---@field flat DadbodUI.RoutineItem[]  routines, ungrouped (non-schema adapters)
@@ -160,6 +169,7 @@
 ---@field connect_ms? integer  elapsed ms of the last successful connect (shown in the details view, not a popup)
 ---@field conn_tried boolean  whether a connection was attempted
 ---@field loading? boolean  transient: connecting/introspecting (drawer shows the loading icon); cleared on data-land/error
+---@field expanded boolean  drawer expand state
 ---@field schema_support boolean  does the adapter expose schemas
 ---@field quote boolean  whether the adapter quotes identifiers (used by M8)
 ---@field default_scheme string  the adapter's default schema name
@@ -195,22 +205,17 @@
 ---@field is_connected boolean
 ---@field source DadbodUI.Source
 
---- A drawer tree node. Builders create it with `children` (only when
---- expanded); the flatten step assigns `level` (tree depth), `parent` and
---- `index` (its line number / position in the flat content[] projection).
+--- A drawer tree node; one per rendered line (content[line]).
 ---@class DadbodUI.Node
 ---@field label string
 ---@field icon string
+---@field level integer
 ---@field type string  'group'|'db'|'query'|'schemas'|'tables'|'schema'|'table'|'table_helper'|'routines'|'routine_schema'|'routine'|'buffer'|'saved_query'|'buffers'|'saved_queries'|'dbout'|'dbout_list'|'help'|'add_connection'|...
 ---@field action string  'toggle'|'open'|'call_method'|'noaction'
----@field id? string  stable expand-map id (drawer/ids.lua); present on every toggle node
----@field children? DadbodUI.Node[]  built only when the node is expanded
----@field level integer  tree depth; assigned by the flatten step
----@field parent? DadbodUI.Node  assigned by the flatten step (nil for roots)
----@field index? integer  line number in the flat content[] projection; assigned by the flatten step
 ---@field key_name? string
 ---@field group? string
----@field expanded? boolean  the expand state the node was built with
+---@field expanded? boolean
+---@field toggle_state? { expanded: boolean }  the `{ expanded }` table this node flips on toggle (entry for db, group_state for group, the section sub-node otherwise)
 ---@field on_expand? fun()  side effect fired once a toggle opens the node (db lazy introspection)
 ---@field table? string  table name (table / table_helper nodes)
 ---@field schema? string  schema name (table / table_helper nodes)

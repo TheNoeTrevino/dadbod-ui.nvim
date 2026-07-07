@@ -69,25 +69,31 @@ describe('drawer: sibling navigation', function()
     assert.equals(0, node.level)
   end)
 
-  it('last lands on the final sibling under the same parent, never a deeper child', function()
-    -- Expand 'a' and give it an expanded Buffers section holding one buffer:
-    -- the buffer node (a grandchild) renders between the Buffers header and
-    -- the later sections, but siblings are the PARENT'S children, so `last`
-    -- from New query must land on the final section header, not the buffer.
-    local ids = require('dadbod-ui.drawer.ids')
-    local record = d.instance.dbs_list[1] -- 'a'
-    local entry = d.instance.dbs[record.key_name]
-    entry.buffers.list = { '/tmp/dbui_nav/buf.sql' }
-    d:set_expanded(ids.db(entry.key_name), true)
-    d:set_expanded(ids.section(entry.key_name, 'buffers'), true)
-    d:render()
-    d:set_cursor(2) -- on New query (first child of 'a')
+  it('last stops at the final same-level sibling when a separator ends the scan', function()
+    -- A level-1 sibling (Buffers) followed by a deeper child (buf), then a
+    -- top-level separator: `last` must land on Buffers, not the deeper `buf`.
+    d.content = {
+      { level = 0, label = 'a', type = 'db', action = 'toggle' },
+      { level = 1, label = 'New query', type = 'query', action = 'open' },
+      { level = 1, label = 'Buffers', type = 'buffers', action = 'toggle' },
+      { level = 2, label = 'buf', type = 'buffer', action = 'open' },
+      { level = 0, label = '', type = 'help', action = 'noaction' },
+      { level = 0, label = 'Query results', type = 'dbout_list', action = 'call_method' },
+    }
+    vim.bo[d.bufnr].modifiable = true
+    vim.api.nvim_buf_set_lines(d.bufnr, 0, -1, false, {
+      'a',
+      'New query',
+      'Buffers',
+      'buf',
+      '',
+      'Query results',
+    })
+    vim.bo[d.bufnr].modifiable = false
+    d:set_cursor(2) -- on New query (level 1)
     d:goto_sibling('last')
-    local node = d.content[cursor_line(d)]
-    assert.equals('a', node.parent.label) -- still a child of 'a'
-    assert.equals('schemas', node.type) -- the last section header
-    -- and the deeper buffer node was skipped over, not landed on
-    assert.is_not.equals('buffer', node.type)
+    assert.equals(3, cursor_line(d)) -- Buffers, the last level-1 sibling
+    assert.equals('Buffers', d.content[cursor_line(d)].label)
   end)
 end)
 

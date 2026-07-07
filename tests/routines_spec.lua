@@ -7,7 +7,6 @@
 
 local schemas = require('dadbod-ui.schemas')
 local drawer_mod = require('dadbod-ui.drawer')
-local ids = require('dadbod-ui.drawer.ids')
 local state = require('dadbod-ui.state')
 local config = require('dadbod-ui.config')
 
@@ -160,7 +159,7 @@ describe('routines: apply_routines', function()
     assert.is_truthy(entry.routines.flat[1].content:find('SHOW CREATE PROCEDURE', 1, true))
   end)
 
-  it('prunes emptied schemas across a refresh; drawer expand state is untouched', function()
+  it('preserves per-schema expand state across a refresh and prunes emptied schemas', function()
     d = make_drawer({ dev = 'postgres://h/dev' })
     local entry = entry_named(d, 'dev')
     local scheme_info = schemas.get(entry.scheme, d.config)
@@ -168,12 +167,10 @@ describe('routines: apply_routines', function()
       { 'public', 'a', 'procedure' },
       { 'app', 'b', 'function' },
     })
-    -- Expand state lives in the drawer's map (keyed by stable ids), so a
-    -- refresh that rebuilds the domain containers cannot lose it.
-    d:set_expanded(ids.routine_schema(entry.key_name, 'public'), true)
+    entry.routines.items.public.expanded = true
     -- a refresh where `app` no longer has routines
     d:introspect():apply_routines(entry, scheme_info, { { 'public', 'a', 'procedure' } })
-    assert.is_true(d:is_expanded(ids.routine_schema(entry.key_name, 'public')))
+    assert.is_true(entry.routines.items.public.expanded)
     assert.is_nil(entry.routines.items.app)
     assert.same({ 'public' }, entry.routines.list)
   end)
@@ -252,12 +249,12 @@ describe('routines: drawer rendering', function()
     d = make_drawer({ dev = 'postgres://h/dev' })
     d:open()
     local entry = entry_named(d, 'dev')
-    d:set_expanded(ids.db(entry.key_name), true)
-    d:set_expanded(ids.section(entry.key_name, 'routines'), true)
-    d:set_expanded(ids.routine_schema(entry.key_name, 'public'), true)
+    entry.expanded = true
+    entry.routines.expanded = true
     entry.routines.list = { 'public' }
     entry.routines.items = {
       public = {
+        expanded = true,
         list = {
           { name = 'do_thing', kind = 'procedure', content = 'x' },
           { name = 'calc', kind = 'function', content = 'y' },
@@ -276,8 +273,8 @@ describe('routines: drawer rendering', function()
     d = make_drawer({ app = 'mysql://h/app' })
     d:open()
     local entry = entry_named(d, 'app')
-    d:set_expanded(ids.db(entry.key_name), true)
-    d:set_expanded(ids.section(entry.key_name, 'routines'), true)
+    entry.expanded = true
+    entry.routines.expanded = true
     entry.routines.flat = { { name = 'run', kind = 'procedure', content = 'z' } }
     d:render()
     local l = lines(d)
@@ -289,7 +286,7 @@ describe('routines: drawer rendering', function()
     d = make_drawer({ dev = 'postgres://h/dev' })
     d:open()
     local entry = entry_named(d, 'dev')
-    d:set_expanded(ids.db(entry.key_name), true)
+    entry.expanded = true
     d:render()
     for _, line in ipairs(lines(d)) do
       assert.is_nil(line:match('Procedures'))
@@ -301,7 +298,7 @@ describe('routines: drawer rendering', function()
     d:open()
     local entry = entry_named(d, 'qa')
     assert.is_false(entry.routine_support)
-    d:set_expanded(ids.db(entry.key_name), true)
+    entry.expanded = true
     -- even if some stray state existed, the section is gated on routine_support
     d:render()
     for _, line in ipairs(lines(d)) do

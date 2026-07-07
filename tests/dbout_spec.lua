@@ -3,7 +3,6 @@
 -- that runs real SQL through dadbod and renders the rows in a .dbout buffer.
 
 local drawer_mod = require('dadbod-ui.drawer')
-local ids = require('dadbod-ui.drawer.ids')
 local state = require('dadbod-ui.state')
 local config = require('dadbod-ui.config')
 local dbout = require('dadbod-ui.dbout')
@@ -55,7 +54,7 @@ describe('dbout: Query results section', function()
     d:open()
     dbout.save_dbout('/tmp/dbui_dbout/30.dbout')
     dbout.save_dbout('/tmp/dbui_dbout/2.dbout')
-    d:set_expanded(ids.DBOUT, true)
+    d.show_dbout_list = true
     d:render()
     local body = lines(d)
     local i2, i30

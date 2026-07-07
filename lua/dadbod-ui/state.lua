@@ -140,6 +140,7 @@ local function make_entry(record, save_path, config, old_buffers)
     save_path = save_path ~= '' and (save_path .. '/' .. save_name) or '',
     conn = nil, -- live connection handle, set when connected
     conn_tried = false,
+    expanded = false, -- drawer expand/collapse state
     schema_support = schemas.supports_schemes(scheme_info, parsed),
     -- Whether the adapter can list stored procedures/functions (a `procedures_query`
     -- is defined). Adapters without one -- notably sqlite, which has no stored
@@ -150,13 +151,11 @@ local function make_entry(record, save_path, config, old_buffers)
     filetype = resolve_filetype(record.url, scheme_info),
     extension = resolve_extension(record.url),
     table_helpers = table_helpers.get(scheme, config),
-    -- Pure domain containers: drawer expand/collapse state lives in the
-    -- drawer's `expand` map (see drawer/ids.lua), never on these.
-    tables = { list = {} },
-    schemas = { list = {}, items = {} },
-    routines = { list = {}, items = {}, flat = {} },
-    buffers = { list = buffers_for(old_buffers, save_name), tmp = {} },
-    saved_queries = { list = {} },
+    tables = { expanded = false, list = {}, items = {} },
+    schemas = { expanded = false, list = {}, items = {} },
+    routines = { expanded = false, list = {}, items = {}, flat = {} },
+    buffers = { expanded = false, list = buffers_for(old_buffers, save_name), tmp = {} },
+    saved_queries = { expanded = false, list = {} },
   }
 end
 
@@ -200,7 +199,7 @@ function Instance:populate(inputs)
   for _, record in ipairs(self.dbs_list) do
     -- An unchanged connection (same key_name and url) keeps its existing entry
     -- as-is: the static metadata is a pure function of (url, config) and the
-    -- interactive state (live handle, introspected schemas/tables)
+    -- interactive state (expanded, live handle, introspected schemas/tables)
     -- must survive an unrelated edit. Only new or url-changed connections are
     -- rebuilt -- which also avoids re-running make_entry's bridge calls for
     -- every connection on each repopulate.
