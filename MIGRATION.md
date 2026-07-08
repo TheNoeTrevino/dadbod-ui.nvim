@@ -32,13 +32,12 @@ vim.g.dbs = {
 ```
 
 - **`connections.json`.** The file dadbod-ui writes under `save_location` is the
-  same format - point `save_location` at your old directory and every saved
-  connection and query is right where you left it.
+  backwards compatible, so you can just copy the file right over.
 
-- **Environment / dotenv discovery.** `DBUI_URL`, `DBUI_NAME`, and `DB_UI_*`
-  `.env` keys work identically (and are still configurable - see the table).
+- Environment / dotenv discovery. `DBUI_URL`, `DBUI_NAME`, and `DB_UI_*`
+  `.env` keys work identically and are still configurable - see the table.
 
-- **Default keymaps.** Every default key is the same (plus a few new ones). See
+- Default keymaps. Every default key is the same (plus a few new ones). See
   [Mappings](#mappings).
 
 ## Globals -> opts
