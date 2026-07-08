@@ -36,11 +36,10 @@ local M = {}
 ---@field config DadbodUI.Config
 ---@field save_path string         resolved save dir ('' when unset)
 ---@field connections_path string|nil
----@field tmp_location string      resolved tmp-query dir ('' when unset)
----@field dbs_list DadbodUI.ConnectionRecord[]  discovered connection records
+---@field tmp_location string      resolved tmp-query dir (the session temp dir when unconfigured)
+---@field dbs_list DadbodUI.ConnectionEntry[]  the connections in discovery order -- the SAME entry objects as `dbs`, so there is one object per connection with a list view and a key view
 ---@field dbs table<string, DadbodUI.ConnectionEntry>  entries keyed by key_name
 ---@field dbout_list table<string, string>  executed result files -> preview content
----@field old_buffers string[]  tmp-location query files found at startup (restored per-entry)
 ---@field _inputs? DadbodUI.DiscoverInputs  inputs last populated with (for repopulate)
 local Instance = {}
 Instance.__index = Instance
@@ -90,22 +89,24 @@ local function resolve_filetype(url, scheme_info)
 end
 
 ---@private
---- Tmp-location query files belonging to `name`: a startup buffer is restored
---- under a connection when its basename (or extension, for `db_ui.<name>` style
---- names) starts with `<slug(name)>-`. The prefix must be the SLUG of the name
---- (as `query.generate_buffer_name` and `drawer:get_buffer_name` both use), so a
---- connection named e.g. "My DB" -- whose files are `mydb-...` -- still restores
---- its tmp buffers.
----@param old_buffers string[]
----@param name string
+--- The files in `dir` (a connection's tmp query folder), sorted. A plain
+--- directory listing -- NOT a glob, whose pattern magic would misread
+--- connection names containing `[`/`?`/`*`. Empty when the folder doesn't
+--- exist yet.
+---@param dir string
 ---@return string[]
-local function buffers_for(old_buffers, name)
-  local prefix = '^' .. vim.pesc(utils.slug(name)) .. '%-'
-  return vim.tbl_filter(function(path)
-    local tail = vim.fs.basename(path)
-    local ext = vim.fn.fnamemodify(path, ':e')
-    return tail:find(prefix) ~= nil or ext:find(prefix) ~= nil
-  end, old_buffers)
+local function list_dir(dir)
+  local files = vim
+    .iter(vim.fs.dir(dir))
+    :filter(function(_, kind)
+      return kind == 'file'
+    end)
+    :map(function(name)
+      return dir .. '/' .. name
+    end)
+    :totable()
+  table.sort(files)
+  return files
 end
 
 ---@private
@@ -117,17 +118,18 @@ end
 ---@param record DadbodUI.ConnectionRecord
 ---@param save_path string
 ---@param config DadbodUI.Config
----@param old_buffers string[]
+---@param tmp_location string
 ---@return DadbodUI.ConnectionEntry
-local function make_entry(record, save_path, config, old_buffers)
+local function make_entry(record, save_path, config, tmp_location)
   local parsed = bridge.parse_url(record.url)
   local scheme = parsed.scheme or ''
   local scheme_info = schemas.get(scheme, config)
   local db_name = (parsed.path or ''):gsub('^/', '')
-  -- The group-qualified identifier ties the save folder AND the tmp query-buffer
-  -- files to this specific connection, so a name reused across groups never
+  -- The group-qualified identifier names the save folder AND the tmp query
+  -- folder for this specific connection, so a name reused across groups never
   -- collides on disk or resolves back to the wrong db (see utils.qualified_name).
   local save_name = utils.qualified_name(record.name, record.group)
+  local tmp_path = tmp_location .. '/' .. save_name
   return {
     url = record.url,
     source = record.source,
@@ -138,6 +140,7 @@ local function make_entry(record, save_path, config, old_buffers)
     scheme = scheme,
     db_name = db_name ~= '' and db_name or record.name,
     save_path = save_path ~= '' and (save_path .. '/' .. save_name) or '',
+    tmp_path = tmp_path,
     conn = nil, -- live connection handle, set when connected
     conn_tried = false,
     schema_support = schemas.supports_schemes(scheme_info, parsed),
@@ -145,7 +148,7 @@ local function make_entry(record, save_path, config, old_buffers)
     -- is defined). Adapters without one -- notably sqlite, which has no stored
     -- routines -- introspect no routines and render no Procedures node.
     routine_support = scheme_info.procedures_query ~= nil and scheme_info.procedures_query ~= '',
-    quote = scheme_info.quote ~= nil and scheme_info.quote ~= 0,
+    quote = scheme_info.quote == true,
     default_scheme = scheme_info.default_scheme or '',
     filetype = resolve_filetype(record.url, scheme_info),
     extension = resolve_extension(record.url),
@@ -155,36 +158,33 @@ local function make_entry(record, save_path, config, old_buffers)
     tables = {},
     schemas = { list = {}, items = {} },
     routines = { list = {}, items = {}, flat = {} },
-    buffers = { list = buffers_for(old_buffers, save_name), tmp = {} },
+    -- Scratch buffers persist (and are restored from tmp_path) only when the
+    -- user configured a tmp-query location; the session-temp fallback dir is
+    -- never restored from.
+    buffers = config.tmp_query_location ~= '' and list_dir(tmp_path) or {},
     saved_queries = {},
   }
 end
 
---- Create a new instance from resolved config (does not populate yet). When a
---- tmp-query location is configured we ensure it exists and snapshot the query
---- files already in it, so connections can restore their open buffers on the
---- next populate.
+--- Create a new instance from resolved config (does not populate yet). An
+--- unset tmp-query location falls back to Neovim's session temp directory, so
+--- scratch buffers always use the same per-connection-folder mechanism -- the
+--- fallback is merely session-local (wiped with the session, never restored).
 ---@param config DadbodUI.Config
 ---@return DadbodUI.Instance
 function M.new(config)
-  local save_path = expand_dir(config.save_location)
   local tmp_location = expand_dir(config.tmp_query_location)
-  local old_buffers = {}
-  if tmp_location ~= '' then
-    if not utils.is_dir(tmp_location) then
-      vim.fn.mkdir(tmp_location, 'p')
-    end
-    old_buffers = vim.fn.glob(tmp_location .. '/*', true, true)
+  if tmp_location == '' then
+    tmp_location = vim.fs.dirname(vim.fn.tempname())
   end
   return setmetatable({
     config = config,
-    save_path = save_path,
+    save_path = expand_dir(config.save_location),
     connections_path = connections.connections_path(config.save_location),
     tmp_location = tmp_location,
     dbs_list = {},
     dbs = {},
     dbout_list = {},
-    old_buffers = old_buffers,
   }, Instance)
 end
 
@@ -195,9 +195,9 @@ end
 function Instance:populate(inputs)
   self._inputs = inputs
   local previous = self.dbs
-  self.dbs_list = connections.discover(self.config, inputs)
+  self.dbs_list = {}
   self.dbs = {}
-  for _, record in ipairs(self.dbs_list) do
+  for i, record in ipairs(connections.discover(self.config, inputs)) do
     -- An unchanged connection (same key_name and url) keeps its existing entry
     -- as-is: the static metadata is a pure function of (url, config) and the
     -- interactive state (live handle, introspected schemas/tables)
@@ -205,11 +205,10 @@ function Instance:populate(inputs)
     -- rebuilt -- which also avoids re-running make_entry's bridge calls for
     -- every connection on each repopulate.
     local prev = previous[record.key_name]
-    if prev ~= nil and prev.url == record.url then
-      self.dbs[record.key_name] = prev
-    else
-      self.dbs[record.key_name] = make_entry(record, self.save_path, self.config, self.old_buffers)
-    end
+    local entry = (prev ~= nil and prev.url == record.url) and prev
+      or make_entry(record, self.save_path, self.config, self.tmp_location)
+    self.dbs_list[i] = entry
+    self.dbs[record.key_name] = entry
   end
   return self
 end
@@ -227,17 +226,26 @@ function Instance:repopulate()
   return self:populate(inputs)
 end
 
---- Whether `buf` (a buffer file path) belongs to the tmp-query location for
---- `entry`: either it was generated into the entry's `buffers.tmp` list, or it
---- lives under the configured `tmp_location`.
----@param entry DadbodUI.ConnectionEntry
+--- Whether `buf` (a buffer file path) is a scratch query buffer: it lives
+--- under the tmp-query location (configured or the session-temp fallback).
 ---@param buf string
 ---@return boolean
-function Instance:is_tmp_location_buffer(entry, buf)
-  if vim.tbl_contains(entry.buffers.tmp, buf) then
-    return true
-  end
-  return self.tmp_location ~= '' and buf:find('^' .. vim.pesc(self.tmp_location)) ~= nil
+function Instance:is_tmp_location_buffer(buf)
+  return buf:find('^' .. vim.pesc(self.tmp_location) .. '/') ~= nil
+end
+
+--- The connection entry owning `dir`, or nil. Ownership is recorded by
+--- directory: a connection's scratch buffers live in `entry.tmp_path` and its
+--- saved queries in `entry.save_path`, so a buffer's parent directory resolves
+--- it to its connection (backs the drawer's find_buffer adoption).
+---@param dir string  absolute directory path
+---@return DadbodUI.ConnectionEntry|nil
+function Instance:entry_for_dir(dir)
+  -- Iterating a dict, so find yields (key_name, entry); keep the entry.
+  local _, entry = vim.iter(self.dbs):find(function(_, e)
+    return dir == e.tmp_path or (e.save_path ~= '' and dir == e.save_path)
+  end)
+  return entry
 end
 
 --- Whether an entry holds a live connection. The `conn` field is `nil` before
@@ -266,15 +274,14 @@ end
 --- List connections with their connection state.
 ---@return DadbodUI.ConnectionInfo[]
 function Instance:connections_list()
-  return vim.tbl_map(function(r)
-    local entry = self.dbs[r.key_name]
+  return vim.tbl_map(function(entry)
     return {
-      name = r.name,
-      group = r.group,
-      key_name = r.key_name,
-      url = r.url,
-      is_connected = entry ~= nil and M.is_connected(entry),
-      source = r.source,
+      name = entry.name,
+      group = entry.group,
+      key_name = entry.key_name,
+      url = entry.url,
+      is_connected = M.is_connected(entry),
+      source = entry.source,
     }
   end, self.dbs_list)
 end

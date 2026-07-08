@@ -137,12 +137,15 @@ function M.highlights_for(node, line_text, icons)
     end
   end
 
-  -- A trailing `(…)` suffix is the dimmed detail: the connection's
-  -- `(scheme - source)` line under `H`, a group's `(Group)` label, or a section's
-  -- `(count)`.
-  local ds, de = line_text:find('%([^()]*%)%s*$')
-  if ds ~= nil then
-    hls[#hls + 1] = { group = 'DadbodUIConnectionSource', col_start = ds - 1, col_end = de }
+  -- The trailing `(…)` detail suffix (a section's count, the `(scheme - source)`
+  -- line under `H`, a group's `(Group)` tag) is dimmed. `node.detail` is stamped
+  -- where the suffix is APPENDED (drawer/content.lua), so a node whose own name
+  -- merely ends in `(...)` is never restyled.
+  if node.detail then
+    local ds, de = line_text:find('%([^()]*%)%s*$')
+    if ds ~= nil then
+      hls[#hls + 1] = { group = 'DadbodUIConnectionSource', col_start = ds - 1, col_end = de }
+    end
   end
 
   return hls

@@ -182,7 +182,7 @@ SELECT /*csv*/ O.owner, O.object_name, LOWER(O.object_type)
       callable = 'filter',
       default_scheme = '',
       requires_stdin = true,
-      quote = 1,
+      quote = true,
       schemes_query = oracle_wrap(schemes_query),
       schemes_tables_query = oracle_wrap(schemes_tables_query),
       procedures_query = oracle_wrap(procedures_query),
@@ -204,9 +204,7 @@ SELECT /*csv*/ O.owner, O.object_name, LOWER(O.object_type)
       select_foreign_key_query = oracle_wrap('SELECT /*csv*/ * FROM "%s"."%s" WHERE "%s" = %s'),
       cell_line_number = 1,
       cell_line_pattern = '^-\\+\\( \\+-\\+\\)*',
-      has_virtual_results = true,
       parse_results = parse_output,
-      parse_virtual_results = parse_output,
       filetype = 'plsql',
     }
   end,

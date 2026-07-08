@@ -236,12 +236,11 @@ function Drawer:focus_conn(name, url)
   end
   local resolved = bridge.resolve(url):lower()
   local target_group = nil
-  for _, record in ipairs(self.instance.dbs_list) do
-    local entry = self.instance.dbs[record.key_name]
-    if entry ~= nil and entry.name:lower() == name:lower() and bridge.resolve(entry.url):lower() == resolved then
+  for _, entry in ipairs(self.instance.dbs_list) do
+    if entry.name:lower() == name:lower() and bridge.resolve(entry.url):lower() == resolved then
       target_group = entry.group or ''
       for idx, node in ipairs(self.content) do
-        if node.type == 'db' and node.key_name == record.key_name then
+        if node.type == 'db' and node.key_name == entry.key_name then
           pcall(vim.api.nvim_win_set_cursor, self.winid, { idx, 0 })
           return
         end
@@ -332,14 +331,14 @@ function Drawer:delete_buffer(item)
     end
     pcall(vim.fs.rm, file)
     entry.saved_queries = drop(entry.saved_queries)
-    entry.buffers.list = drop(entry.buffers.list)
+    entry.buffers = drop(entry.buffers)
     notify.info('Deleted.')
-  elseif self.instance:is_tmp_location_buffer(entry, file) then
+  elseif self.instance:is_tmp_location_buffer(file) then
     if not self.confirm('Are you sure you want to delete query?') then
       return
     end
     pcall(vim.fs.rm, file)
-    entry.buffers.list = drop(entry.buffers.list)
+    entry.buffers = drop(entry.buffers)
     notify.info('Deleted.')
   else
     return
@@ -368,7 +367,7 @@ function Drawer:rename_line()
     return
   end
   if item.type == 'buffer' or item.type == 'saved_query' then
-    return self:rename_buffer(item.file_path, item.key_name, item.saved or false)
+    return self:rename_buffer(item.file_path, item.key_name)
   end
   if item.type == 'db' then
     return self:connections():rename_connection(self.instance.dbs[item.key_name])
@@ -376,14 +375,13 @@ function Drawer:rename_line()
 end
 
 --- Rename a written query file on disk and move its buffer tracking to the new
---- name, transferring the buffer-local contract. Saved queries keep their bare
---- name; tmp buffers are re-prefixed with the connection slug. Callback-shaped
---- for our async prompt backend.
+--- name, transferring the buffer-local contract. The file stays in its directory
+--- (which records the owning connection), so the new name is used as-is.
+--- Callback-shaped for our async prompt backend.
 ---@param buffer string  the file being renamed
 ---@param key_name string  the owning connection's key
----@param is_saved_query boolean
 ---@return nil
-function Drawer:rename_buffer(buffer, key_name, is_saved_query)
+function Drawer:rename_buffer(buffer, key_name)
   local notify = require('dadbod-ui.notifications')
   if not utils.is_file(buffer) then
     return notify.error('Only written queries can be renamed.')
@@ -395,10 +393,7 @@ function Drawer:rename_buffer(buffer, key_name, is_saved_query)
   if entry == nil then
     return notify.error('Buffer not attached to any database')
   end
-  local db_slug = utils.slug(entry.name)
-  local is_saved = is_saved_query or not self.instance:is_tmp_location_buffer(entry, buffer)
-  local old_name = self:get_buffer_name(entry, buffer)
-  self.input({ prompt = 'Enter new name: ', default = old_name }, function(new_name)
+  self.input({ prompt = 'Enter new name: ', default = vim.fs.basename(buffer) }, function(new_name)
     if new_name == nil then
       return
     end
@@ -407,24 +402,16 @@ function Drawer:rename_buffer(buffer, key_name, is_saved_query)
       return notify.error('Valid name must be provided.')
     end
     local dir = vim.fn.fnamemodify(buffer, ':p:h')
-    local new
-    if is_saved then
-      new = string.format('%s/%s', dir, new_name)
-    else
-      new = string.format('%s/%s-%s', dir, db_slug, new_name)
-    end
+    local new = string.format('%s/%s', dir, new_name)
     -- Refuse to silently clobber an existing file at the target path.
     if utils.is_file(new) then
       return notify.error('A query already exists with that name.')
     end
     -- rename() returns 0 on success; on failure (read-only dir, invalid name) bail
     -- BEFORE mutating any tracking, or the file would vanish from the drawer while
-    -- still on disk. (tmp tracking is likewise only inserted after success.)
+    -- still on disk.
     if vim.fn.rename(buffer, new) ~= 0 then
       return notify.error('Could not rename the query file.')
-    end
-    if not is_saved then
-      table.insert(entry.buffers.tmp, new)
     end
 
     -- loaded_bufnr, not vim.fn.bufnr: the path is looked up exactly, never as a
@@ -444,16 +431,16 @@ function Drawer:rename_buffer(buffer, key_name, is_saved_query)
       -- needed), so we never round-trip through vim.fn.bufnr's pattern matching.
       new_bufnr = vim.fn.bufadd(new)
       vim.bo[new_bufnr].buflisted = true
-      table.insert(entry.buffers.list, new)
+      table.insert(entry.buffers, new)
     else
-      local idx = vim.fn.index(entry.buffers.list, buffer)
+      local idx = vim.fn.index(entry.buffers, buffer)
       if idx > -1 then
-        table.insert(entry.buffers.list, idx + 1, new)
+        table.insert(entry.buffers, idx + 1, new)
       end
     end
-    entry.buffers.list = vim.tbl_filter(function(v)
+    entry.buffers = vim.tbl_filter(function(v)
       return v ~= buffer
-    end, entry.buffers.list)
+    end, entry.buffers)
 
     if new_bufnr > -1 then
       -- Carry the contract onto the renamed buffer through the single writer,
@@ -477,45 +464,34 @@ function Drawer:rename_buffer(buffer, key_name, is_saved_query)
 end
 
 --- Resolve which connection to adopt for a buffer that has no `b:dbui_db_key_name`
---- yet, then hand it to `cb`. `saved_name` is the best-effort name inferred from
---- the buffer's path (`Query:get_saved_query_db_name`): non-empty picks that db by
---- name; otherwise a lone connection is taken automatically and several prompt the
---- (injectable) selector. `cb` receives the entry, or nil when nothing resolves or
---- the user cancels. Callback-shaped for the async selector.
----@param saved_name string
+--- yet, then hand it to `cb`. A buffer inside a connection's tmp or save folder
+--- already names its owner (the folder is the ownership record --
+--- `instance:entry_for_dir`); otherwise a lone connection is taken automatically
+--- and several prompt the (injectable) selector. `cb` receives the entry, or nil
+--- when nothing resolves or the user cancels. Callback-shaped for the async
+--- selector.
 ---@param cb fun(entry: DadbodUI.ConnectionEntry|nil)
 ---@return nil
-function Drawer:pick_db(saved_name, cb)
-  local list = self.instance.dbs_list
-  ---@param r DadbodUI.ConnectionRecord|nil
-  ---@return DadbodUI.ConnectionEntry|nil
-  local function entry_of(r)
-    return r and self.instance.dbs[r.key_name] or nil
+function Drawer:pick_db(cb)
+  local owner = self.instance:entry_for_dir(vim.fn.expand('%:p:h'))
+  if owner ~= nil then
+    return cb(owner)
   end
+  local list = self.instance.dbs_list
   if #list == 0 then
     return cb(nil)
   end
-  if saved_name ~= '' then
-    -- `saved_name` is the group-qualified id from get_saved_query_db_name, so match
-    -- on the same qualified id -- a bare-name match would resolve a name reused
-    -- across groups to whichever came first (wrong db).
-    return cb(entry_of(vim.iter(list):find(function(r)
-      return utils.qualified_name(r.name, r.group):lower() == saved_name:lower()
-    end)))
-  end
   if #list == 1 then
-    return cb(entry_of(list[1]))
+    return cb(list[1])
   end
   self:query().select(list, {
     prompt = 'Select db to assign this buffer to:',
-    ---@param r DadbodUI.ConnectionRecord
+    ---@param entry DadbodUI.ConnectionEntry
     ---@return string
-    format_item = function(r)
-      return r.name
+    format_item = function(entry)
+      return entry.name
     end,
-  }, function(choice)
-    cb(entry_of(choice))
-  end)
+  }, cb)
 end
 
 --- Jump to (or adopt) the query buffer for the current db context, backing
@@ -535,8 +511,7 @@ function Drawer:find_buffer()
   if entry ~= nil then
     return self:reveal_buffer(entry)
   end
-  local saved_name = self:query():get_saved_query_db_name()
-  self:pick_db(saved_name, function(chosen)
+  self:pick_db(function(chosen)
     if chosen == nil then
       return notify.error('No database entries selected or found.')
     end
@@ -553,7 +528,7 @@ end
 ---@return nil
 function Drawer:reveal_buffer(entry)
   local bufname = vim.api.nvim_buf_get_name(0)
-  -- Refuse an unnamed buffer: adopting it would insert '' into entry.buffers.list
+  -- Refuse an unnamed buffer: adopting it would insert '' into entry.buffers
   -- and render a phantom empty node in the drawer.
   if bufname == '' then
     return require('dadbod-ui.notifications').error('Cannot assign an unnamed buffer; save it to a file first.')
@@ -665,16 +640,13 @@ function Drawer:switch_buffer(target_name)
     return notify.info('No other connection to switch this buffer to.')
   end
 
-  -- The switch core: reassign the captured `bufnr` to the chosen record. Shared
-  -- by the picker callback and the direct (scripted) path. Returns `ok, err`.
-  ---@param choice DadbodUI.ConnectionRecord
+  -- The switch core: reassign the captured `bufnr` to the chosen connection --
+  -- always a member of `others`, so never `current` itself. Shared by the picker
+  -- callback and the direct (scripted) path. Returns `ok, err`.
+  ---@param target DadbodUI.ConnectionEntry
   ---@return boolean ok
   ---@return string|nil err
-  local function do_switch(choice)
-    local target = self.instance.dbs[choice.key_name]
-    if target == nil or target.key_name == current.key_name then
-      return false, 'invalid switch target'
-    end
+  local function do_switch(target)
     -- The async picker may resolve after focus moved (e.g. into the drawer);
     -- re-enter the buffer's window so setup_buffer acts on the right buffer.
     local win = vim.fn.bufwinid(bufnr)
@@ -701,8 +673,7 @@ function Drawer:switch_buffer(target_name)
     local function keep(path)
       return vim.fn.fnamemodify(path, ':p') ~= target_path
     end
-    current.buffers.list = vim.tbl_filter(keep, current.buffers.list)
-    current.buffers.tmp = vim.tbl_filter(keep, current.buffers.tmp)
+    current.buffers = vim.tbl_filter(keep, current.buffers)
 
     -- Connect so b:db is a live handle, then rewrite the contract, re-register,
     -- rewire autocmds and re-apply the winbar -- all through the open path's
@@ -735,7 +706,7 @@ function Drawer:switch_buffer(target_name)
     -- Label candidates (and the current db) as `group/name` so a name reused
     -- across groups is unambiguous in the picker -- see issue #58.
     prompt = string.format('Switch buffer from %s to db:', utils.display_name(current.name, current.group)),
-    ---@param r DadbodUI.ConnectionRecord
+    ---@param r DadbodUI.ConnectionEntry
     ---@return string
     format_item = function(r)
       return utils.display_name(r.name, r.group)

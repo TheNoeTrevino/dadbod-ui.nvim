@@ -246,7 +246,7 @@ end
 --- buffer under the cursor / in focus.
 ---@return nil
 function M.rename_buffer()
-  drawer():rename_buffer(vim.api.nvim_buf_get_name(0), vim.b.dbui_db_key_name, false)
+  drawer():rename_buffer(vim.api.nvim_buf_get_name(0), vim.b.dbui_db_key_name)
 end
 
 --- Echo the last executed query and its runtime. Exposed as `api.buf.last_query_info`.

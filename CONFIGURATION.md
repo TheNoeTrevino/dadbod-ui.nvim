@@ -40,6 +40,7 @@ opts = {
   use_postgres_views = true,
   hide_schemas = {},                       -- Vim regexes; matching schemas are hidden
   is_oracle_legacy = false,
+  bigquery_region = "region-us",           -- region whose INFORMATION_SCHEMA BigQuery introspection reads
   debug = false,
   picker = "auto",                         -- connection picker: 'auto'|'snacks'|'telescope'|'fzf'|'fallback'
 
@@ -148,8 +149,9 @@ opts = {
 
 - `save_location` - directory holding `connections.json` and your saved queries.
   `~` is expanded.
-- `tmp_query_location` - if set, scratch query buffers are persisted here and
-  restored per-connection on the next session. `''` keeps them in-memory only.
+- `tmp_query_location` - if set, scratch query buffers are persisted in a
+  per-connection subfolder here (`<tmp_query_location>/<connection>/query.sql`)
+  and restored on the next session. `''` keeps them session-local.
 - `env_variable_url` / `env_variable_name` - the environment variables read as a
   connection url and its name. Great for a `.envrc`/direnv-driven workflow.
 - `dotenv_variable_prefix` - `.env` keys starting with this prefix are turned
@@ -169,6 +171,8 @@ opts = {
   glyph.
 - `use_postgres_views` - include views alongside tables for Postgres.
 - `is_oracle_legacy` - use the legacy Oracle introspection queries.
+- `bigquery_region` - the BigQuery region whose `INFORMATION_SCHEMA` the
+  schema/table introspection queries read.
 
 ### Notifications
 

@@ -279,7 +279,7 @@ function M.jump_to_foreign_table()
     return field_name
   end))
   -- An adapter with a foreign_key_query always carries a parser + select template.
-  local parser = assert(scheme_info.parse_virtual_results or scheme_info.parse_results)
+  local parser = assert(scheme_info.parse_results)
   local template = assert(scheme_info.select_foreign_key_query)
   local config = ctx.current_config()
 

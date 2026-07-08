@@ -35,13 +35,8 @@ return {
   drawer_filetype = 'dbui',
   -- `autocmd User DBUIOpened` hooks, same event vim-dadbod-ui fires.
   drawer_opened_event = 'DBUIOpened',
-  -- Connection-discovery defaults (config can override each): identical to
-  -- vim-dadbod-ui's so existing env vars and .env files are picked up as-is.
   env_variable_url = 'DBUI_URL',
   env_variable_name = 'DBUI_NAME',
   dotenv_variable_prefix = 'DB_UI_',
-  -- Default `save_location`
-  -- vim-dadbod-ui's directory, so a migrating user's
-  -- connections.json and saved queries are found without any pointing.
-  save_location = '~/.local/share/db_ui',
+  save_location = vim.fn.stdpath('data') .. '/db_ui',
 }

@@ -8,11 +8,11 @@ describe('state: instance paths', function()
     assert.equals('/tmp/dbui_test/connections.json', inst.connections_path)
   end)
 
-  it('leaves paths empty when unset', function()
+  it('falls back to the session temp dir when tmp_query_location is unset', function()
     local inst = state.new(config.resolve({ save_location = '', tmp_query_location = '' }))
     assert.equals('', inst.save_path)
     assert.is_nil(inst.connections_path)
-    assert.equals('', inst.tmp_location)
+    assert.equals(vim.fs.dirname(vim.fn.tempname()), inst.tmp_location)
   end)
 end)
 
@@ -65,33 +65,33 @@ describe('state: populate', function()
     assert.equals('sql', inst.dbs['lite_g:dbs'].extension)
   end)
 
-  it('restores a tmp-location buffer whose name carries the .sql extension', function()
+  it('restores tmp buffers from the connection subdirectory only', function()
     local tmp = vim.fn.tempname()
-    vim.fn.mkdir(tmp, 'p')
-    -- A previously generated New query buffer, now carrying a real .sql extension.
-    local restored = tmp .. '/qa-query-2020-01-01-00-00-00.sql'
+    vim.fn.mkdir(tmp .. '/qa', 'p')
+    vim.fn.mkdir(tmp .. '/other', 'p')
+    local restored = tmp .. '/qa/query.sql'
     vim.fn.writefile({ 'select 1;' }, restored)
+    vim.fn.writefile({ 'select 2;' }, tmp .. '/other/query.sql')
     local inst = state.new(config.resolve({ save_location = '/tmp/dbui_test', tmp_query_location = tmp })):populate({
       env = {},
       g_dbs = { qa = 'sqlite:/tmp/qa.db' },
       file_entries = {},
     })
-    assert.is_true(vim.tbl_contains(inst.dbs['qa_g:dbs'].buffers.list, restored))
+    -- The directory is the ownership record: only qa's folder restores to qa.
+    assert.same({ restored }, inst.dbs['qa_g:dbs'].buffers)
   end)
 
-  it('restores a tmp-location buffer for a connection whose name slugs (spaces stripped)', function()
+  it('restores tmp buffers for a connection whose name carries spaces', function()
     local tmp = vim.fn.tempname()
-    vim.fn.mkdir(tmp, 'p')
-    -- "My DB" slugs to "MyDB"; generated buffers carry the SLUG prefix, so the
-    -- restore filter must match on the slug rather than the raw connection name.
-    local restored = tmp .. '/MyDB-query-2020-01-01-00-00-00.sql'
+    vim.fn.mkdir(tmp .. '/My DB', 'p')
+    local restored = tmp .. '/My DB/query.sql'
     vim.fn.writefile({ 'select 1;' }, restored)
     local inst = state.new(config.resolve({ save_location = '/tmp/dbui_test', tmp_query_location = tmp })):populate({
       env = {},
       g_dbs = { ['My DB'] = 'sqlite:/tmp/mydb.db' },
       file_entries = {},
     })
-    assert.is_true(vim.tbl_contains(inst.dbs['My DB_g:dbs'].buffers.list, restored))
+    assert.same({ restored }, inst.dbs['My DB_g:dbs'].buffers)
   end)
 
   it('connections_list reports name/url/source and not-connected', function()

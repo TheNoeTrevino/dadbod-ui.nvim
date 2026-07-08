@@ -77,7 +77,7 @@ describe('drawer: sibling navigation', function()
     local ids = require('dadbod-ui.drawer.ids')
     local record = d.instance.dbs_list[1] -- 'a'
     local entry = d.instance.dbs[record.key_name]
-    entry.buffers.list = { '/tmp/dbui_nav/buf.sql' }
+    entry.buffers = { '/tmp/dbui_nav/buf.sql' }
     d:set_expanded(ids.db(entry.key_name), true)
     d:set_expanded(ids.section(entry.key_name, 'buffers'), true)
     d:render()

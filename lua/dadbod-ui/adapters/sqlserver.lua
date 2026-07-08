@@ -133,7 +133,6 @@ return {
       parse_results = function(results, min_len)
         return parse.results_parser(parse.vslice(results, 0, -3), '|', min_len)
       end,
-      quote = 0,
       default_scheme = 'dbo',
     }
   end,

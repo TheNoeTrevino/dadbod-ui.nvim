@@ -70,10 +70,18 @@ local api = vim.api
 ---@diagnostic disable-next-line: missing-fields
 local M = {}
 
+---@private
+--- Memoized: globpath scans the whole rtp and this runs per resolve/parse call.
+--- A miss is NOT cached, so a lazily-added vim-dadbod is still picked up.
+local dadbod_found = false
+
 --- True when vim-dadbod is installed (its autoload is on the runtimepath).
 ---@return boolean
 function M.is_available()
-  return fn.globpath(vim.o.runtimepath, 'autoload/db.vim') ~= ''
+  if not dadbod_found then
+    dadbod_found = fn.globpath(vim.o.runtimepath, 'autoload/db.vim') ~= ''
+  end
+  return dadbod_found
 end
 
 ---@private
