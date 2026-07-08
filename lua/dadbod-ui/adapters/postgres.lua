@@ -109,7 +109,7 @@ return {
         return parse.results_parser(nonempty, '|', min_len)
       end,
       default_scheme = 'public',
-      quote = 1,
+      quote = true,
     }
   end,
 

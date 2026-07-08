@@ -236,12 +236,11 @@ function Drawer:focus_conn(name, url)
   end
   local resolved = bridge.resolve(url):lower()
   local target_group = nil
-  for _, record in ipairs(self.instance.dbs_list) do
-    local entry = self.instance.dbs[record.key_name]
-    if entry ~= nil and entry.name:lower() == name:lower() and bridge.resolve(entry.url):lower() == resolved then
+  for _, entry in ipairs(self.instance.dbs_list) do
+    if entry.name:lower() == name:lower() and bridge.resolve(entry.url):lower() == resolved then
       target_group = entry.group or ''
       for idx, node in ipairs(self.content) do
-        if node.type == 'db' and node.key_name == record.key_name then
+        if node.type == 'db' and node.key_name == entry.key_name then
           pcall(vim.api.nvim_win_set_cursor, self.winid, { idx, 0 })
           return
         end
@@ -479,27 +478,20 @@ function Drawer:pick_db(cb)
     return cb(owner)
   end
   local list = self.instance.dbs_list
-  ---@param r DadbodUI.ConnectionRecord|nil
-  ---@return DadbodUI.ConnectionEntry|nil
-  local function entry_of(r)
-    return r and self.instance.dbs[r.key_name] or nil
-  end
   if #list == 0 then
     return cb(nil)
   end
   if #list == 1 then
-    return cb(entry_of(list[1]))
+    return cb(list[1])
   end
   self:query().select(list, {
     prompt = 'Select db to assign this buffer to:',
-    ---@param r DadbodUI.ConnectionRecord
+    ---@param entry DadbodUI.ConnectionEntry
     ---@return string
-    format_item = function(r)
-      return r.name
+    format_item = function(entry)
+      return entry.name
     end,
-  }, function(choice)
-    cb(entry_of(choice))
-  end)
+  }, cb)
 end
 
 --- Jump to (or adopt) the query buffer for the current db context, backing
@@ -648,16 +640,13 @@ function Drawer:switch_buffer(target_name)
     return notify.info('No other connection to switch this buffer to.')
   end
 
-  -- The switch core: reassign the captured `bufnr` to the chosen record. Shared
-  -- by the picker callback and the direct (scripted) path. Returns `ok, err`.
-  ---@param choice DadbodUI.ConnectionRecord
+  -- The switch core: reassign the captured `bufnr` to the chosen connection --
+  -- always a member of `others`, so never `current` itself. Shared by the picker
+  -- callback and the direct (scripted) path. Returns `ok, err`.
+  ---@param target DadbodUI.ConnectionEntry
   ---@return boolean ok
   ---@return string|nil err
-  local function do_switch(choice)
-    local target = self.instance.dbs[choice.key_name]
-    if target == nil or target.key_name == current.key_name then
-      return false, 'invalid switch target'
-    end
+  local function do_switch(target)
     -- The async picker may resolve after focus moved (e.g. into the drawer);
     -- re-enter the buffer's window so setup_buffer acts on the right buffer.
     local win = vim.fn.bufwinid(bufnr)
@@ -717,7 +706,7 @@ function Drawer:switch_buffer(target_name)
     -- Label candidates (and the current db) as `group/name` so a name reused
     -- across groups is unambiguous in the picker -- see issue #58.
     prompt = string.format('Switch buffer from %s to db:', utils.display_name(current.name, current.group)),
-    ---@param r DadbodUI.ConnectionRecord
+    ---@param r DadbodUI.ConnectionEntry
     ---@return string
     format_item = function(r)
       return utils.display_name(r.name, r.group)

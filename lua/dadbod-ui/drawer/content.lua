@@ -55,6 +55,7 @@ end
 ---@field icon? string  fold-icon kind when it differs from `type`
 ---@field key_name? string
 ---@field default? boolean  expand state before the user ever touches the node
+---@field detail? boolean  the label ends in a `(…)` detail suffix (rendered dimmed)
 ---@field extra? table<string, any>  additional node fields (group, on_expand, ...)
 
 --- Common toggle-node constructor: computes the expand state from the drawer's
@@ -73,6 +74,7 @@ function Drawer:toggle_node(spec)
     id = spec.id,
     key_name = spec.key_name,
     expanded = expanded,
+    detail = spec.detail,
   }
   for key, value in pairs(spec.extra or {}) do
     node[key] = value
@@ -139,10 +141,10 @@ end
 function Drawer:build_dbs(roots)
   local dbs = self.instance.dbs_list
   local seen_groups = {}
-  for _, record in ipairs(dbs) do
-    local group = record.group or ''
+  for _, entry in ipairs(dbs) do
+    local group = entry.group or ''
     if group == '' then
-      roots[#roots + 1] = self:build_db(record)
+      roots[#roots + 1] = self:build_db(entry)
     elseif not seen_groups[group] then
       seen_groups[group] = true
       local node, expanded = self:toggle_node({
@@ -150,6 +152,7 @@ function Drawer:build_dbs(roots)
         type = 'group',
         label = self.show_details and (group .. ' (Group)') or group,
         default = self.config.drawer.expand_groups,
+        detail = self.show_details or nil,
         extra = { group = group },
       })
       if expanded then
@@ -184,6 +187,7 @@ function Drawer:build_dbout_section(roots)
     type = 'dbout_list',
     icon = 'saved_queries',
     label = string.format('Query results (%d)', #files),
+    detail = true,
   })
   roots[#roots + 1] = node
   if not expanded then
@@ -196,7 +200,8 @@ function Drawer:build_dbout_section(roots)
     :map(function(file)
       local content = self.instance.dbout_list[file]
       local label = vim.fs.basename(file)
-      if content ~= nil and content ~= '' then
+      local has_preview = content ~= nil and content ~= ''
+      if has_preview then
         label = label .. string.format(' (%s)', content)
       end
       return {
@@ -205,16 +210,16 @@ function Drawer:build_dbout_section(roots)
         type = 'dbout',
         action = 'open',
         file_path = file,
+        detail = has_preview or nil,
       }
     end)
     :totable()
 end
 
----@param record DadbodUI.ConnectionRecord
+---@param entry DadbodUI.ConnectionEntry
 ---@return DadbodUI.Node
-function Drawer:build_db(record)
-  local entry = self.instance.dbs[record.key_name]
-  local label = record.name
+function Drawer:build_db(entry)
+  local label = entry.name
   if entry.conn_error and entry.conn_error ~= '' then
     label = label .. ' ' .. self.icons.connection_error
   elseif is_connected(entry) then
@@ -238,12 +243,14 @@ function Drawer:build_db(record)
   -- only this line). The transient `loading` marker is cleared by the introspect
   -- controller on data-land/error, dropping the trailer on the next render.
   local node, expanded = self:toggle_node({
-    id = ids.db(record.key_name),
+    id = ids.db(entry.key_name),
     type = 'db',
     label = label,
-    key_name = record.key_name,
+    key_name = entry.key_name,
+    -- The `(scheme - source ...)` suffix above is only appended under `H`.
+    detail = self.show_details or nil,
     extra = {
-      loading_frame = entry.loading and (self.loading_frames[record.key_name] or spinners.dots[1]) or nil,
+      loading_frame = entry.loading and (self.loading_frames[entry.key_name] or spinners.dots[1]) or nil,
       -- on_expand runs the lazy introspection only on the opening flip;
       -- on_collapse stops a mid-load animation so no timer leaks and no stale
       -- spinner reappears.
@@ -309,6 +316,7 @@ function Drawer:build_buffers_section(entry)
     type = 'buffers',
     label = string.format('Buffers (%d)', #entry.buffers),
     key_name = entry.key_name,
+    detail = true,
   })
   if not expanded then
     return node
@@ -343,6 +351,7 @@ function Drawer:build_saved_queries_section(entry)
     type = 'saved_queries',
     label = string.format('Saved queries (%d)', #entry.saved_queries),
     key_name = entry.key_name,
+    detail = true,
   })
   if not expanded then
     return node
@@ -376,6 +385,7 @@ function Drawer:build_schemas_section(entry)
       type = 'tables',
       label = string.format('Tables (%d)', #entry.tables),
       key_name = entry.key_name,
+      detail = true,
     })
     if expanded then
       node.children = self:build_tables(entry.tables, entry, '')
@@ -387,6 +397,7 @@ function Drawer:build_schemas_section(entry)
     type = 'schemas',
     label = string.format('Schemas (%d)', #entry.schemas.list),
     key_name = entry.key_name,
+    detail = true,
   })
   if not expanded then
     return node
@@ -399,6 +410,7 @@ function Drawer:build_schemas_section(entry)
       type = 'schema',
       label = string.format('%s (%d)', schema, #tables),
       key_name = entry.key_name,
+      detail = true,
     })
     if schema_expanded then
       schema_node.children = self:build_tables(tables, entry, schema)
@@ -466,6 +478,7 @@ function Drawer:build_routines_section(entry)
     icon = 'procedures',
     label = string.format('Procedures (%d)', total),
     key_name = entry.key_name,
+    detail = true,
   })
   if not expanded then
     return node
@@ -479,6 +492,7 @@ function Drawer:build_routines_section(entry)
         type = 'routine_schema',
         label = string.format('%s (%d)', schema, #schema_routines),
         key_name = entry.key_name,
+        detail = true,
       })
       if schema_expanded then
         schema_node.children = vim

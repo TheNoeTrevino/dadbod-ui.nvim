@@ -161,7 +161,9 @@ end
 --- Read the connections store, apply `fn(connections, list)` (a pure transform
 --- returning `(new_list, err)`), persist the result and re-discover so the change
 --- is immediately resolvable. The shared spine of every store mutation; mirrors
---- `add`. Returns `false, err` when no store path is configured or `fn` rejects.
+--- `add`. Returns `false, err` when no store path is configured or `fn` rejects;
+--- a `(nil, nil)` transform result is a successful no-op (e.g. a move clamped at
+--- the very top/bottom) -- nothing changed, so nothing is written.
 ---@private
 ---@param fn fun(connections: DadbodUI.ConnectionsModule, list: DadbodUI.FileConnection[]): DadbodUI.FileConnection[]|nil, string|nil
 ---@return boolean ok
@@ -174,11 +176,13 @@ local function apply_store(fn)
   end
   local connections = require('dadbod-ui.connections')
   local new_list, err = fn(connections, connections.read_file(path))
-  if new_list == nil then
+  if err ~= nil then
     return false, err
   end
-  connections.write_file(path, new_list)
-  instance:repopulate()
+  if new_list ~= nil then
+    connections.write_file(path, new_list)
+    instance:repopulate()
+  end
   return true
 end
 
@@ -787,7 +791,7 @@ function M.export(spec)
     path = spec.path,
     source = spec.name,
     prefer_native = spec.prefer_native ~= false,
-    format_opts = export.format_opts(cfg, spec.format, entry.scheme),
+    format_opts = export.format_opts(cfg, spec.format, entry.quote),
   })
   return true
 end

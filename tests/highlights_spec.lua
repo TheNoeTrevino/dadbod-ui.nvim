@@ -68,11 +68,28 @@ describe('highlights.highlights_for', function()
   end)
 
   it('dims the (scheme - source) detail suffix as Comment', function()
-    local node = { type = 'db', level = 0, icon = icons.collapsed.db, label = 'dev (postgres - g:dbs)' }
+    local node = { type = 'db', level = 0, icon = icons.collapsed.db, label = 'dev (postgres - g:dbs)', detail = true }
     local line = line_of(node)
     local hl = by_group(hls_of(node), 'DadbodUIConnectionSource')
     assert.is_not_nil(hl)
     assert.equals('(postgres - g:dbs)', line:sub(hl.col_start + 1, hl.col_end))
+  end)
+
+  it('does not dim a node whose own name ends in (...) (no detail marker)', function()
+    -- regression: the detail style is gated on `node.detail` (stamped where the
+    -- suffix is appended), so a NAME that merely looks like a detail suffix --
+    -- including a db shown WITHOUT details -- keeps its normal color.
+    for _, node in ipairs({
+      { type = 'table', level = 3, icon = icons.collapsed.table, label = 'orders (archived)' },
+      { type = 'buffer', level = 2, icon = icons.buffers, label = 'report (draft).sql' },
+      { type = 'db', level = 0, icon = icons.collapsed.db, label = 'local (dev)' },
+    }) do
+      assert.is_nil(by_group(hls_of(node), 'DadbodUIConnectionSource'), node.type .. ' was restyled')
+    end
+    -- while a section count keeps the dimmed detail
+    local section =
+      { type = 'schemas', level = 1, icon = icons.collapsed.schemas, label = 'Schemas (3)', detail = true }
+    assert.is_not_nil(by_group(hls_of(section), 'DadbodUIConnectionSource'))
   end)
 
   it('highlights a help line and its key token', function()

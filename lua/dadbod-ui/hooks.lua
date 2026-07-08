@@ -38,8 +38,13 @@ local M = {}
 ---@param event DadbodUI.HookEvent
 ---@return any  the config hook's return value, or nil (no hook / error)
 function M.run(config, name, event)
+  local events = require('dadbod-ui.events')
+  -- Fail loudly on a typo'd name instead of a hook + bus that silently never fire.
+  if not events.valid(name) then
+    error('unknown lifecycle event: ' .. tostring(name), 2)
+  end
   local result = M.call(config, name, event)
-  require('dadbod-ui.events').emit(name, event)
+  events.emit(name, event)
   return result
 end
 

@@ -40,6 +40,7 @@ opts = {
   use_postgres_views = true,
   hide_schemas = {},                       -- Vim regexes; matching schemas are hidden
   is_oracle_legacy = false,
+  bigquery_region = "region-us",           -- region whose INFORMATION_SCHEMA BigQuery introspection reads
   debug = false,
   picker = "auto",                         -- connection picker: 'auto'|'snacks'|'telescope'|'fzf'|'fallback'
 
@@ -170,6 +171,8 @@ opts = {
   glyph.
 - `use_postgres_views` - include views alongside tables for Postgres.
 - `is_oracle_legacy` - use the legacy Oracle introspection queries.
+- `bigquery_region` - the BigQuery region whose `INFORMATION_SCHEMA` the
+  schema/table introspection queries read.
 
 ### Notifications
 

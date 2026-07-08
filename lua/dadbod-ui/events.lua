@@ -39,8 +39,9 @@
 ---@diagnostic disable-next-line: missing-fields
 local M = {}
 
---- The events a listener may subscribe to -- the same names as the config
---- `hooks`, so `emit(name)` maps 1:1 with `hooks.run(config, name, ...)`.
+--- The single runtime enumeration of lifecycle event names -- the same names as
+--- the config `hooks`, so `emit(name)` maps 1:1 with `hooks.run(config, name, ...)`;
+--- both `on` and `hooks.run` validate against this set.
 M.EVENTS = {
   on_connect = true,
   on_connect_post = true,

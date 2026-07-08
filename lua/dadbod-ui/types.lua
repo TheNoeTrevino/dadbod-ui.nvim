@@ -116,7 +116,7 @@
 ---@field routine_definition? fun(schema: string, name: string, kind: string): string  SQL that renders one routine's DDL/source (identifiers escaped)
 ---@field parse_results? fun(results: string[], min_len: integer): any[]
 ---@field default_scheme? string
----@field quote? integer
+---@field quote? boolean  whether the adapter quotes identifiers (postgres/oracle/clickhouse do; mysql/sqlserver do not)
 ---@field filetype? string
 ---@field requires_stdin? boolean
 ---@field callable? string            'interactive' (default) | 'filter'
@@ -127,8 +127,6 @@
 ---@field select_foreign_key_query? string  string.format template (schema, table, column, value) for the jump SELECT
 ---@field cell_line_number? integer   first possible separator (column-underline) line
 ---@field cell_line_pattern? string   Vim regex matching a separator line
----@field has_virtual_results? boolean  result columns span screen lines (oracle)
----@field parse_virtual_results? fun(results: string[], min_len: integer): any[]
 ---@field layout_flag? string         CLI flag toggling expanded/vertical result layout
 
 --- One highlight range to apply over a painted drawer line: a highlight group
@@ -157,7 +155,7 @@
 ---@field conn_tried boolean  whether a connection was attempted
 ---@field loading? boolean  transient: connecting/introspecting (drawer shows the loading icon); cleared on data-land/error
 ---@field schema_support boolean  does the adapter expose schemas
----@field quote boolean  whether the adapter quotes identifiers (used by M8)
+---@field quote boolean  whether the adapter quotes identifiers
 ---@field default_scheme string  the adapter's default schema name
 ---@field filetype string  query-buffer filetype for this adapter
 ---@field extension string  adapter's query-input file extension (names generated buffers so external tooling attaches)
@@ -215,6 +213,7 @@
 ---@field content? string  helper SQL template (table_helper nodes)
 ---@field file_path? string  on-disk path (buffer / saved_query / dbout nodes)
 ---@field saved? boolean  true for saved-query nodes (vs tmp/open buffers)
+---@field detail? boolean  the label ends in a `(…)` detail suffix (stamped where the suffix is appended; renders dimmed)
 ---@field loading_frame? string  trailing spinner frame for a connecting db node (appended after the label; animated in place by repaint_db_node)
 
 --- A command spec for the bridge concurrency helpers.
@@ -314,6 +313,7 @@
 ---@field use_postgres_views? boolean
 ---@field hide_schemas? string[]
 ---@field is_oracle_legacy? boolean
+---@field bigquery_region? string  the BigQuery region whose INFORMATION_SCHEMA introspection reads (default 'region-us')
 ---@field debug? boolean
 ---@field picker? 'auto'|'snacks'|'telescope'|'fzf'|'fallback'  connection picker backend (api.pick)
 ---@field notifications? DadbodUI.NotificationsConfig
