@@ -85,9 +85,9 @@ function M.text(lines)
 end
 
 --- The default `build`: hand back the fetched (and parsed) data unchanged. Used
---- by actions whose statement was built entirely by their `query` (e.g. sqlserver
---- `CREATE To`), so they need no `build` -- the symmetric counterpart of `M.text`
---- being the default `parse`.
+--- by actions whose statement was built entirely by their `query` (e.g. every
+--- postgres action, or sqlserver `CREATE To`), so they need no `build` -- the
+--- symmetric counterpart of `M.text` being the default `parse`.
 ---@param ctx DadbodUI.RoutineScriptCtx
 ---@return any
 function M.fetched(ctx)

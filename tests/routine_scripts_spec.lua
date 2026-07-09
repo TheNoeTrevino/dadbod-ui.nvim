@@ -1,8 +1,8 @@
 -- Specs for the "Script As" feature (issue #86): the per-action `routine_scripts`
--- capability on the sqlserver adapter (its fetch queries and DDL builders), the
--- generic orchestrator's default text parser and dispatch, the drawer's
--- routine -> "Script As" subtree, and the query controller's write destinations.
--- All pure or mock-driven -- no live database.
+-- capability on the sqlserver + postgres adapters (their fetch queries and DDL
+-- builders), the generic orchestrator's default text parser and dispatch, the
+-- drawer's routine -> "Script As" subtree, and the query controller's write
+-- destinations. All pure or mock-driven -- no live database.
 
 local schemas = require('dadbod-ui.schemas')
 local drawer_mod = require('dadbod-ui.drawer')
@@ -66,14 +66,15 @@ local function has_line(d, text)
 end
 
 describe('routine_scripts: capability presence + action set', function()
-  it('sqlserver exposes routine_scripts; other adapters do not', function()
+  it('sqlserver and postgres expose routine_scripts; other adapters do not', function()
     assert.is_table(caps('sqlserver'))
-    for _, scheme in ipairs({ 'postgres', 'oracle', 'mysql', 'sqlite' }) do
+    assert.is_table(caps('postgres'))
+    for _, scheme in ipairs({ 'oracle', 'mysql', 'sqlite' }) do
       assert.is_nil(caps(scheme), scheme .. ' has no routine_scripts')
     end
   end)
 
-  it('offers the SSMS action set', function()
+  it('offers the SSMS set for sqlserver and the postgres-native set for postgres', function()
     local function labels(scheme)
       return vim.tbl_map(function(a)
         return a.label
@@ -83,6 +84,8 @@ describe('routine_scripts: capability presence + action set', function()
       { 'CREATE To', 'ALTER To', 'CREATE OR ALTER To', 'DROP To', 'DROP And CREATE To', 'EXECUTE To' },
       labels('sqlserver')
     )
+    -- postgres folds CREATE/ALTER into CREATE OR REPLACE and has no ALTER-body
+    assert.same({ 'CREATE OR REPLACE To', 'DROP To', 'DROP And CREATE To', 'EXECUTE To' }, labels('postgres'))
   end)
 end)
 
@@ -116,6 +119,36 @@ describe('routine_scripts: sqlserver queries', function()
 
   it('DROP To needs no query (built from name/kind alone)', function()
     assert.is_nil(action('sqlserver', 'DROP To').query)
+  end)
+end)
+
+describe('routine_scripts: postgres queries (built server-side)', function()
+  local function pg_query(label)
+    return action('postgres', label).query('public', 'fn')
+  end
+
+  it('CREATE OR REPLACE To reads pg_get_functiondef', function()
+    assert.is_truthy(pg_query('CREATE OR REPLACE To'):find('pg_get_functiondef', 1, true))
+  end)
+
+  it('DROP To builds a signature-qualified DROP (disambiguates overloads)', function()
+    local sql = pg_query('DROP To')
+    assert.is_truthy(sql:find('pg_get_function_identity_arguments', 1, true))
+    assert.is_truthy(sql:find('quote_ident', 1, true))
+    assert.is_truthy(sql:find("n.nspname = 'public'", 1, true))
+  end)
+
+  it('DROP And CREATE To joins the DROP and the definition', function()
+    local sql = pg_query('DROP And CREATE To')
+    assert.is_truthy(sql:find('pg_get_function_identity_arguments', 1, true))
+    assert.is_truthy(sql:find('pg_get_functiondef', 1, true))
+  end)
+
+  it('EXECUTE To builds a CALL/SELECT stub with bind placeholders, mode-aware', function()
+    local sql = pg_query('EXECUTE To')
+    assert.is_truthy(sql:find('proargmodes', 1, true)) -- filters to IN/INOUT/VARIADIC
+    assert.is_truthy(sql:find('CALL ', 1, true)) -- CALL for procedures
+    assert.is_truthy(sql:find(' => ', 1, true)) -- named bind notation
   end)
 end)
 
@@ -205,6 +238,17 @@ describe('routine_scripts: sqlserver builders', function()
   end)
 end)
 
+describe('routine_scripts: postgres builders', function()
+  it('every action hands back the server-built text (build is identity)', function()
+    for _, label in ipairs({ 'CREATE OR REPLACE To', 'DROP To', 'DROP And CREATE To', 'EXECUTE To' }) do
+      assert.equals(
+        'server-built text',
+        build('postgres', label, { schema = 'public', name = 'fn', kind = 'function', data = 'server-built text' })
+      )
+    end
+  end)
+end)
+
 describe('routine_scripts: produce orchestration', function()
   local bridge = require('dadbod-ui.bridge')
   local real_run_many = bridge.run_many
@@ -270,6 +314,17 @@ describe('routine_scripts: produce orchestration', function()
     assert.is_truthy(vim.tbl_contains(seen.cmd, '-y'))
     assert.is_falsy(vim.tbl_contains(seen.cmd, '-h-1'))
   end)
+
+  it('postgres actions fetch server-built text and pass it through', function()
+    d = make_drawer({ dev = 'postgres://h/dev' })
+    local entry = entry_named(d, 'dev')
+    entry.conn = entry.url
+    stub_stdout('DROP FUNCTION public.fn(integer);\n')
+    assert.equals(
+      'DROP FUNCTION public.fn(integer);',
+      produced(entry, 'public', 'fn', 'function', action('postgres', 'DROP To'))
+    )
+  end)
 end)
 
 describe('routine_scripts: drawer rendering', function()
@@ -310,6 +365,17 @@ describe('routine_scripts: drawer rendering', function()
     }) do
       assert.is_truthy(has_line(d, label), 'missing drawer line: ' .. label)
     end
+  end)
+
+  it('postgres: a routine expands to Script As -> the four postgres actions (no ALTER)', function()
+    local entry = render_routine('dev', 'postgres://h/dev', 'public')
+    d:set_expanded(ids.routine(entry.key_name, 'public', 'do_thing'), true)
+    d:set_expanded(ids.routine_script_as(entry.key_name, 'public', 'do_thing'), true)
+    d:render()
+    for _, label in ipairs({ 'Script As', 'CREATE OR REPLACE To', 'DROP To', 'DROP And CREATE To', 'EXECUTE To' }) do
+      assert.is_truthy(has_line(d, label), 'missing drawer line: ' .. label)
+    end
+    assert.is_falsy(has_line(d, 'ALTER To')) -- postgres has no ALTER-body action
   end)
 
   it('an adapter without routine_scripts (oracle) keeps a plain open leaf', function()
