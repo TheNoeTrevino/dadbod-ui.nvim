@@ -50,6 +50,21 @@ local function subst(s, key, val)
   end))
 end
 
+---@private
+-- The dbui connection key of the buffer shown in `win`, or nil when the window
+-- doesn't hold a query buffer (no `b:dbui_db_key_name` contract). The single
+-- predicate for "is this a dbui query window", shared by `focus_window` (which
+-- reuses one) and `active_query_buf` (which writes into one).
+---@param win integer
+---@return string|nil
+local function query_win_key(win)
+  local key = vim.b[vim.api.nvim_win_get_buf(win)].dbui_db_key_name
+  if key == nil or key == '' then
+    return nil
+  end
+  return key
+end
+
 --- The right-aligned connection winbar for a query buffer: `group/name` (or just
 --- `name` when the connection is ungrouped) in a padded, highlighted block pushed
 --- to the right edge with `%=`. `%` in the group/name is doubled so a name can't
@@ -176,10 +191,7 @@ function Query:focus_window()
     return
   end
   -- (a) reuse a window already holding a dbui query buffer.
-  local reuse = vim.iter(wins):find(function(win)
-    local key = vim.b[vim.api.nvim_win_get_buf(win)].dbui_db_key_name
-    return key and key ~= ''
-  end)
+  local reuse = vim.iter(wins):find(query_win_key)
   if reuse then
     vim.api.nvim_set_current_win(reuse)
     return
@@ -205,7 +217,7 @@ end
 ---@param entry DadbodUI.ConnectionEntry
 ---@param name string
 ---@param edit_action string
----@param opts? { table?: string, schema?: string, content?: string, existing_buffer?: boolean }
+---@param opts? { table?: string, schema?: string, content?: string, raw?: boolean, existing_buffer?: boolean }
 ---@return nil
 function Query:open_buffer(entry, name, edit_action, opts)
   opts = opts or {}
@@ -244,6 +256,17 @@ function Query:open_buffer(entry, name, edit_action, opts)
   end
   self:setup_buffer(entry, vim.tbl_extend('force', opts, { existing_buffer = is_existing }), name)
 
+  -- `raw` fills a fresh buffer with `content` verbatim: no `{placeholder}`
+  -- substitution and no auto-execute (the "Script As" flow writes finished DDL,
+  -- e.g. a DROP, that must never run just from being opened). An already-open
+  -- buffer is shown untouched, exactly like the templated path.
+  if opts.raw then
+    if not is_existing then
+      vim.api.nvim_buf_set_lines(0, 0, -1, false, vim.split(opts.content or '', '\n'))
+    end
+    return
+  end
+
   if table_name == '' or is_existing then
     return
   end
@@ -273,6 +296,70 @@ function Query:open_buffer(entry, name, edit_action, opts)
       self:execute_query()
     end
   end
+end
+
+--- Focus and return the bufnr of the current tabpage's active query buffer for
+--- `entry` (a window whose buffer carries the `b:dbui_db_key_name` contract),
+--- preferring this connection's own buffer but accepting any dbui query buffer.
+--- Returns nil when none is visible -- the "Script As" replace/append
+--- destinations fall back to a new buffer in that case.
+---@param entry DadbodUI.ConnectionEntry
+---@return integer|nil
+function Query:active_query_buf(entry)
+  -- One pass: an exact connection match wins outright; otherwise fall back to the
+  -- first query window of any connection.
+  local win
+  for _, w in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
+    local key = query_win_key(w)
+    if key ~= nil then
+      if key == entry.key_name then
+        win = w
+        break
+      end
+      win = win or w
+    end
+  end
+  if win == nil then
+    return nil
+  end
+  vim.api.nvim_set_current_win(win)
+  return vim.api.nvim_win_get_buf(win)
+end
+
+--- Write scripted routine DDL (`text`) to a "Script As" destination:
+---  `new`     -- a fresh query buffer for `entry`, filled verbatim (no execute);
+---  `replace` -- overwrite the active query buffer's contents;
+---  `append`  -- add it below the active query buffer's contents (blank-separated).
+--- `replace`/`append` fall back to a new buffer when no query buffer is visible.
+---@param entry DadbodUI.ConnectionEntry
+---@param dest 'new'|'replace'|'append'
+---@param text string
+---@param opts? { table?: string, schema?: string }
+---@return nil
+function Query:write_script(entry, dest, text, opts)
+  opts = opts or {}
+  if dest ~= 'new' then
+    local buf = self:active_query_buf(entry)
+    if buf ~= nil then
+      local script_lines = vim.split(text, '\n')
+      local count = vim.api.nvim_buf_line_count(buf)
+      local is_empty = count == 1 and (vim.api.nvim_buf_get_lines(buf, 0, 1, false)[1] or '') == ''
+      if dest == 'replace' or is_empty then
+        vim.api.nvim_buf_set_lines(buf, 0, -1, false, script_lines)
+      else
+        vim.api.nvim_buf_set_lines(buf, count, count, false, vim.list_extend({ '' }, script_lines))
+      end
+      return
+    end
+    -- no visible query buffer: fall through and open a fresh one
+  end
+  local name = self:generate_buffer_name(entry, {
+    label = 'script',
+    table = opts.table,
+    schema = opts.schema,
+    filetype = entry.filetype,
+  })
+  self:open_buffer(entry, name, 'edit', { content = text, raw = true, table = opts.table, schema = opts.schema })
 end
 
 --- Write the buffer-local interop contract (`b:dbui_db_key_name`, `b:db`,
