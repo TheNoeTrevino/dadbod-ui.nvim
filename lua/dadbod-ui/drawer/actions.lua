@@ -669,9 +669,8 @@ function Drawer:switch_buffer(target_name)
 
     -- Drop the buffer from the OLD connection's tracking (setup_buffer re-adds it
     -- to the new one). Filter by resolved path, as remove_buffer does.
-    local target_path = vim.fn.fnamemodify(bufname, ':p')
     local function keep(path)
-      return vim.fn.fnamemodify(path, ':p') ~= target_path
+      return not utils.same_path(path, bufname)
     end
     current.buffers = vim.tbl_filter(keep, current.buffers)
 

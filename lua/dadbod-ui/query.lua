@@ -221,23 +221,24 @@ function Query:open_buffer(entry, name, edit_action, opts)
   if edit_action == 'edit' then
     self:focus_window()
   end
-  -- An already-open buffer is shown as-is (don't clobber its contents). When the
-  -- window can't be reused -- e.g. 'nohidden' with a modified buffer in it -- the
-  -- switch is a no-op, so we fall through to the split fallback below.
+  -- Show an already-open buffer as-is (don't clobber its contents). If the window
+  -- won't take it (an unrelated modified buffer under 'nohidden' -- query buffers
+  -- themselves never block, see setup_buffer's 'bufhidden=hide'), the switch is a
+  -- no-op and we fall through to the split below.
   local is_existing = utils.loaded_bufnr(full) > -1
   if is_existing then
     pcall(vim.cmd, 'silent! buffer ' .. vim.fn.fnameescape(full))
-    if vim.api.nvim_buf_get_name(0) == full then
+    if utils.same_path(vim.api.nvim_buf_get_name(0), full) then
       self:setup_buffer(entry, vim.tbl_extend('force', opts, { existing_buffer = true }), name)
       return
     end
   end
 
   vim.cmd('silent! ' .. edit_action .. ' ' .. vim.fn.fnameescape(name))
-  if vim.api.nvim_buf_get_name(0) ~= full then
-    -- The window could not take the buffer (modified buffer + 'nohidden'). Open
-    -- in a fresh split so the query buffer still appears -- a split keeps the
-    -- modified buffer visible in its original window, so it is never abandoned.
+  if not utils.same_path(vim.api.nvim_buf_get_name(0), full) then
+    -- The window could not take the buffer (an unrelated modified buffer under
+    -- 'nohidden'). Open in a fresh split so the query buffer still appears and
+    -- that modified buffer is never abandoned.
     local pos = utils.opposite_position(self.config.drawer.position)
     vim.cmd('silent! vertical ' .. pos .. ' split ' .. vim.fn.fnameescape(name))
   end
@@ -320,7 +321,11 @@ function Query:setup_buffer(entry, opts, name)
     -- (e.g. a completion plugin) must not abort opening the buffer. The option
     -- is applied before any autocmd runs, so an error leaves the filetype set
     -- and we still fall through to fill/return the buffer.
-    local ok, err = pcall(vim.cmd, 'setlocal noswapfile nowrap nospell modifiable filetype=' .. entry.filetype)
+    -- `bufhidden=hide` keeps query buffers swappable out of their window even
+    -- under 'nohidden', so open_buffer can reuse the one query window instead of
+    -- splitting (the old buffer hides -- still loaded, still in the drawer).
+    local ok, err =
+      pcall(vim.cmd, 'setlocal noswapfile nowrap nospell modifiable bufhidden=hide filetype=' .. entry.filetype)
     if not ok and self.config.debug then
       require('dadbod-ui.notifications').warn('Error in FileType autocmd: ' .. tostring(err))
     end
@@ -938,9 +943,9 @@ function Query:remove_buffer(bufnr)
   if entry == nil then
     return
   end
-  local target = vim.fn.fnamemodify(vim.fn.bufname(bufnr), ':p')
+  local target = vim.fn.bufname(bufnr)
   local function keep(path)
-    return vim.fn.fnamemodify(path, ':p') ~= target
+    return not utils.same_path(path, target)
   end
   entry.buffers = vim.tbl_filter(keep, entry.buffers)
   self.drawer:render()
