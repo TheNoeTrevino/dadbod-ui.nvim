@@ -95,6 +95,188 @@ local constraints_query = table.concat({
   " where TABLE_NAME = '{table}' and u.TABLE_SCHEMA = '{schema}'",
 }, '\n')
 
+-- "Script As" (SSMS-style DDL scripting) ------------------------------------
+--
+-- The drawer turns each stored procedure/function into a "Script As" submenu
+-- (CREATE / ALTER / CREATE OR ALTER / DROP / DROP And CREATE / EXECUTE). The
+-- generic flow lives in `dadbod-ui.routine_script`; everything SQL-Server
+-- specific -- the source + parameter queries, their output parsers, and the
+-- text transforms -- lives here so the capability is one file per adapter.
+
+---@private
+-- Bracket-quote `[schema].[name]` so a dotted/spaced identifier still resolves,
+-- doubling any `]` inside a part (`parse.sql_bracket`). The result is meant to be
+-- embedded inside a single-quoted string literal, so callers wrap it with
+-- `parse.sql_squote`.
+---@param schema string
+---@param name string
+---@return string
+local function qualify(schema, name)
+  return string.format('[%s].[%s]', parse.sql_bracket(schema), parse.sql_bracket(name))
+end
+
+---@private
+-- Replace the first whole-word (case-insensitive) `CREATE` with `replacement`,
+-- leaving everything after it untouched -- this is what turns a fetched
+-- `CREATE PROCEDURE ...` definition into an `ALTER` / `CREATE OR ALTER` one.
+-- Returns the string unchanged when no `CREATE` keyword is present (e.g. an
+-- encrypted module returns no readable header).
+---@param definition string
+---@param replacement string
+---@return string
+local function swap_create(definition, replacement)
+  local out, n = definition:gsub('%f[%a][Cc][Rr][Ee][Aa][Tt][Ee]%f[%A]', replacement, 1)
+  return n > 0 and out or definition
+end
+
+---@private
+-- `DROP PROCEDURE`/`DROP FUNCTION [schema].[name]` for the routine in `ctx`.
+---@param ctx DadbodUI.RoutineScriptCtx
+---@return string
+local function drop_statement(ctx)
+  return string.format('DROP %s %s', parse.routine_verb(ctx.kind), qualify(ctx.schema, ctx.name))
+end
+
+---@private
+-- The routine's stored source, byte-for-byte, from `sys.sql_modules.definition`
+-- (fetched with `definition_args` below). The alternatives corrupt the text in
+-- transit: `sp_helptext` re-chops it into ~255-char rows, splitting a longer
+-- source line mid-token, and any (max) column read under the adapter's default
+-- args is cut at sqlcmd's 256-char display width. `definition IS NOT NULL`
+-- drops encrypted modules, so they surface as "could not script" rather than a
+-- literal `NULL` script; `SET NOCOUNT ON` drops the "(N rows affected)" tail.
+---@param schema string
+---@param name string
+---@return string
+local function definition_query(schema, name)
+  return string.format(
+    "SET NOCOUNT ON; SELECT definition FROM sys.sql_modules WHERE object_id = OBJECT_ID('%s') AND definition IS NOT NULL",
+    parse.sql_squote(qualify(schema, name))
+  )
+end
+
+---@private
+-- sqlcmd args for the definition fetch, replacing the adapter's defaults: `-y 0`
+-- lifts the 256-char truncation of (max) columns by switching sqlcmd into a raw
+-- streaming mode. That mode rejects the default formatting flags outright (`-y`
+-- is mutually exclusive with both `-W` and `-h-1`) and needs neither: it prints
+-- the bare value -- no header, no padding -- which is exactly right for this
+-- single-column text fetch. Replacement is whole-list, so the trailing `-Q`
+-- (how the query is handed to sqlcmd) restates the adapter `args` below and
+-- must stay in sync with any non-formatting flag added there.
+local definition_args = { '-y', '0', '-Q' }
+
+---@private
+-- (name, type) for each input parameter, ordered as declared. Skips
+-- `parameter_id = 0` (a function's return value).
+---@param schema string
+---@param name string
+---@return string
+local function params_query(schema, name)
+  return table.concat({
+    'SET NOCOUNT ON;',
+    'SELECT p.name, t.name',
+    'FROM sys.parameters p',
+    'JOIN sys.types t ON p.user_type_id = t.user_type_id',
+    string.format(
+      "WHERE p.object_id = OBJECT_ID('%s') AND p.parameter_id > 0",
+      parse.sql_squote(qualify(schema, name))
+    ),
+    'ORDER BY p.parameter_id',
+  }, ' ')
+end
+
+---@private
+-- Parse the `params_query` rows into `{ name, type }` (pipe-separated columns).
+---@param lines string[]
+---@return DadbodUI.RoutineParam[]
+local function parse_params(lines)
+  local out = {}
+  for _, line in ipairs(lines) do
+    if not parse.blank(line) then
+      local parts = vim.split(line, '|', { plain = true })
+      local pname = vim.trim(parts[1] or '')
+      if pname ~= '' then
+        out[#out + 1] = { name = pname, type = vim.trim(parts[2] or '') }
+      end
+    end
+  end
+  return out
+end
+
+---@private
+-- The dadbod-ui bind placeholder for a parameter: `@Id` -> `:Id`, so running the
+-- stub prompts for `Id` (dadbod-ui's bind-param flow quotes + substitutes it).
+---@param param_name string
+---@return string
+local function bind_name(param_name)
+  return (param_name:gsub('^@', ''))
+end
+
+---@private
+-- A runnable call stub for the routine: an `EXEC` with one `@param = :param` line
+-- per parameter (procedures) or a scalar `SELECT name(:arg, ...)` (functions).
+-- The `:param` placeholders drive dadbod-ui's bind-param prompt on execute; each
+-- parameter's type rides along as a comment. `ctx.data` is the parsed parameters.
+---@param ctx DadbodUI.RoutineScriptCtx
+---@return string
+local function execute_statement(ctx)
+  local qualified = qualify(ctx.schema, ctx.name)
+  local params = ctx.data or {}
+  if ctx.kind == 'function' then
+    local args = {}
+    for _, p in ipairs(params) do
+      args[#args + 1] = string.format(':%s /* %s */', bind_name(p.name), p.type)
+    end
+    return string.format('SELECT %s(%s)', qualified, table.concat(args, ', '))
+  end
+  -- A bare `EXEC` falls out naturally when there are no parameters.
+  local lines = { 'EXEC ' .. qualified }
+  for i, p in ipairs(params) do
+    lines[#lines + 1] =
+      string.format('    %s = :%s%s -- %s', p.name, bind_name(p.name), i < #params and ',' or '', p.type)
+  end
+  return table.concat(lines, '\n')
+end
+
+---@private
+---@type DadbodUI.RoutineScripts
+local routine_scripts = {
+  actions = {
+    -- CREATE To needs no `build`: the fetched definition is the script (the
+    -- generic default returns `ctx.data`).
+    { label = 'CREATE To', query = definition_query, args = definition_args },
+    {
+      label = 'ALTER To',
+      query = definition_query,
+      args = definition_args,
+      build = function(ctx)
+        return swap_create(ctx.data, 'ALTER')
+      end,
+    },
+    {
+      label = 'CREATE OR ALTER To',
+      query = definition_query,
+      args = definition_args,
+      build = function(ctx)
+        return swap_create(ctx.data, 'CREATE OR ALTER')
+      end,
+    },
+    { label = 'DROP To', build = drop_statement },
+    {
+      label = 'DROP And CREATE To',
+      query = definition_query,
+      args = definition_args,
+      build = function(ctx)
+        return drop_statement(ctx) .. '\nGO\n' .. ctx.data
+      end,
+    },
+    -- EXECUTE To keeps the adapter args: `parse_params` needs their
+    -- pipe-separated, whitespace-trimmed row formatting.
+    { label = 'EXECUTE To', query = params_query, parse = parse_params, build = execute_statement },
+  },
+}
+
 ---@type DadbodUI.Adapter
 return {
   name = 'sqlserver',
@@ -110,7 +292,9 @@ return {
       -- source in `OBJECT_DEFINITION(object_id)` / `sys.sql_modules`. We use the
       -- portable INFORMATION_SCHEMA.ROUTINES for the listing (consistent with the
       -- other sqlserver queries here) and `OBJECT_DEFINITION(OBJECT_ID(...))` for the
-      -- DDL.
+      -- DDL. Known caveat: this query runs through vim-dadbod's own argv (a plain
+      -- query buffer), where `definition_args` cannot apply, so its output is cut
+      -- at sqlcmd's 256-char display width -- "Script As" is the full-fidelity path.
       procedures_query = 'SELECT routine_schema, routine_name, LOWER(routine_type) FROM INFORMATION_SCHEMA.ROUTINES '
         .. "WHERE routine_type IN ('PROCEDURE', 'FUNCTION') ORDER BY routine_schema, routine_name",
       ---@param schema string
@@ -118,14 +302,14 @@ return {
       ---@param _kind string
       ---@return string
       routine_definition = function(schema, name, _kind)
-        -- Bracket-quote each part (`[schema].[name]`) so a schema/routine name
-        -- containing a space or a dot still resolves -- unquoted, `OBJECT_ID`
+        -- `qualify` bracket-quotes each part (`[schema].[name]`) so a schema/routine
+        -- name containing a space or a dot still resolves -- unquoted, `OBJECT_ID`
         -- would parse the dot as the schema separator and return NULL, silently
         -- yielding an empty definition. `sql_squote` then escapes the whole
         -- bracket-quoted literal for the outer single-quoted string.
-        local qualified = string.format('[%s].[%s]', parse.sql_bracket(schema), parse.sql_bracket(name))
-        return string.format("SELECT OBJECT_DEFINITION(OBJECT_ID('%s'))", parse.sql_squote(qualified))
+        return string.format("SELECT OBJECT_DEFINITION(OBJECT_ID('%s'))", parse.sql_squote(qualify(schema, name)))
       end,
+      routine_scripts = routine_scripts,
       foreign_key_query = foreign_key_query,
       select_foreign_key_query = 'select * from %s.%s where %s = %s',
       cell_line_number = 2,

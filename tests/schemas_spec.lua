@@ -97,6 +97,15 @@ describe('schemas: command_spec', function()
     assert.equals(my.schemes_query, spec.stdin)
     assert.is_false(vim.tbl_contains(spec.cmd, my.schemes_query))
   end)
+
+  it('an args override replaces the adapter args for one command', function()
+    local ss = schemas.get('sqlserver')
+    local spec = schemas.command_spec('sqlserver://h/db', ss, 'SELECT 1', { '-y', '0', '-Q' })
+    assert.equals('SELECT 1', spec.cmd[#spec.cmd])
+    -- the tail is the override args + the query, not the adapter's -h-1/-W/-s set
+    assert.same({ '-y', '0', '-Q' }, vim.list_slice(spec.cmd, #spec.cmd - 3, #spec.cmd - 1))
+    assert.is_false(vim.tbl_contains(spec.cmd, '-W'))
+  end)
 end)
 
 describe('schemas: normalize_table_list', function()

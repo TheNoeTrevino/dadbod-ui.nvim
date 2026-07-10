@@ -247,7 +247,10 @@ describe('routines: drawer rendering', function()
   end)
 
   it('renders Procedures -> schema -> routine for a schema adapter', function()
-    d = make_drawer({ dev = 'postgres://h/dev' })
+    -- oracle: a schema adapter with routines but NO "Script As" capability, so its
+    -- routine nodes stay plain `open` leaves (postgres/sqlserver now render a
+    -- Script As toggle instead -- covered in routine_scripts_spec).
+    d = make_drawer({ dev = 'oracle://h/dev' })
     d:open()
     local entry = entry_named(d, 'dev')
     d:set_expanded(ids.db(entry.key_name), true)

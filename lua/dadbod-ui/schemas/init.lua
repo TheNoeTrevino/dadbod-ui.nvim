@@ -17,7 +17,7 @@
 ---@field results_parser fun(results: string[], delimiter: string, min_len: integer): any[]
 ---@field get fun(scheme: string, config?: DadbodUI.Config): DadbodUI.SchemaAdapter
 ---@field supports_schemes fun(scheme_info: DadbodUI.SchemaAdapter, parsed_url: DadbodUI.ParsedUrl): boolean
----@field command_spec fun(conn: string, scheme_info: DadbodUI.SchemaAdapter, query: string): DadbodUI.CommandSpec
+---@field command_spec fun(conn: string, scheme_info: DadbodUI.SchemaAdapter, query: string, args?: string[]): DadbodUI.CommandSpec
 ---@field result_lines fun(result: { code: integer, stdout: string, stderr: string }): string[]
 ---@field normalize_table_list fun(scheme: string, raw: string[]): string[]
 
@@ -70,17 +70,20 @@ end
 
 --- Build the command spec for running `query` against `conn` with this adapter.
 --- dadbod constructs the base argv for the adapter's `callable` (interactive by
---- default), the adapter's extra `args` are appended, and the query is either fed
---- on stdin (`requires_stdin`) or appended as the final argument.
+--- default), the extra args are appended (`args` replaces the adapter's own when
+--- given), and the query is either fed on stdin (`requires_stdin`) or appended as
+--- the final argument.
 ---@param conn string  resolved connection url
 ---@param scheme_info DadbodUI.SchemaAdapter
 ---@param query string
+---@param args? string[]  replaces `scheme_info.args` for this command (a fetch needing different CLI output formatting)
 ---@return DadbodUI.CommandSpec
-function M.command_spec(conn, scheme_info, query)
+function M.command_spec(conn, scheme_info, query, args)
   local callable = scheme_info.callable or 'interactive'
   local cmd = bridge.command(conn, callable)
-  if scheme_info.args then
-    vim.list_extend(cmd, scheme_info.args)
+  args = args or scheme_info.args
+  if args then
+    vim.list_extend(cmd, args)
   end
   if scheme_info.requires_stdin then
     return { cmd = cmd, stdin = query }
