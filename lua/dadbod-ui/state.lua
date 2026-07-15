@@ -110,6 +110,16 @@ local function list_dir(dir)
 end
 
 ---@private
+--- Whether scratch query buffers outlive the session -- see
+--- `Instance:persists_scratch`, which is the public read of this. Kept as a plain
+--- function so `make_entry` (which has the config but no instance) shares it.
+---@param config DadbodUI.Config
+---@return boolean
+local function persists_scratch(config)
+  return config.tmp_query_location ~= ''
+end
+
+---@private
 --- Build a data entry for a discovered connection. Captures identity, scheme,
 --- db name, save path and the adapter's schema metadata (schema support, quote
 --- rules, default scheme, filetype, table helpers). The schema/table *contents*
@@ -165,7 +175,7 @@ local function make_entry(record, save_path, config, tmp_location)
     -- Scratch buffers persist (and are restored from tmp_path) only when the
     -- user configured a tmp-query location; the session-temp fallback dir is
     -- never restored from.
-    buffers = config.tmp_query_location ~= '' and list_dir(tmp_path) or {},
+    buffers = persists_scratch(config) and list_dir(tmp_path) or {},
     saved_queries = {},
   }
 end
@@ -236,6 +246,19 @@ end
 ---@return boolean
 function Instance:is_tmp_location_buffer(buf)
   return buf:find('^' .. vim.pesc(self.tmp_location) .. '/') ~= nil
+end
+
+--- Whether scratch query buffers outlive the session. True only when the user
+--- configured a tmp-query location: the session-temp fallback (see `M.new`) is
+--- wiped on exit, so nothing written there can come back.
+---
+--- The single source of this policy -- both halves must agree or the feature is
+--- incoherent: `make_entry` restores an entry's `buffers` from `tmp_path` on
+--- startup, and the query controller's quit sweep decides whether to write them
+--- on the way out (see `config.query.save_on_exit`).
+---@return boolean
+function Instance:persists_scratch()
+  return persists_scratch(self.config)
 end
 
 --- The connection entry owning `dir`, or nil. Ownership is recorded by

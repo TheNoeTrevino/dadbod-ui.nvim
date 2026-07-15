@@ -88,6 +88,34 @@ end
 local Query = {}
 Query.__index = Query
 
+---@private
+--- Arm the session-wide quit sweep for `query`.
+---
+--- `QuitPre` is the hook, not `VimLeavePre`: Vim raises `E37`/the save prompt
+--- while DECIDING to quit, which is before `VimLeavePre` runs -- by then the
+--- prompt has already been shown. `QuitPre` fires before that check, so clearing
+--- `modified` (or writing) there settles the question silently.
+---
+--- The autocmd is global rather than buffer-local (`setup_buffer`'s per-buffer
+--- group) because a buffer-local `QuitPre` only fires when that buffer is
+--- current, and the buffers being prompted about are precisely the hidden ones.
+---
+--- Re-arming is safe and intended: `clear = true` drops the previous autocmd, so
+--- the sweep always runs against the newest controller -- a re-`setup()` rebuilds
+--- the drawer (and this `Query`) with the new config, and the old one is dropped
+--- rather than pinned alive by a stale closure.
+---@param query DadbodUI.Query
+---@return nil
+local function arm_exit_sweep(query)
+  local group = vim.api.nvim_create_augroup('dadbod_ui_query_exit', { clear = true })
+  vim.api.nvim_create_autocmd('QuitPre', {
+    group = group,
+    callback = function()
+      query:sweep_on_exit()
+    end,
+  })
+end
+
 --- Create a query controller bound to `drawer`. Connecting and saved-query
 --- refresh go through a dedicated introspection controller (built from the
 --- drawer's config + injectable connect backend) rather than back through the
@@ -96,7 +124,7 @@ Query.__index = Query
 ---@param drawer DadbodUI.Drawer
 ---@return DadbodUI.Query
 function M.new(drawer)
-  return setmetatable({
+  local self = setmetatable({
     drawer = drawer,
     instance = drawer.instance,
     config = drawer.config,
@@ -112,6 +140,8 @@ function M.new(drawer)
     last_query = {},
     last_query_time = '',
   }, Query)
+  arm_exit_sweep(self)
+  return self
 end
 
 --- Open the buffer a drawer `item` points at. `buffer`/`saved_query` items open
@@ -1019,6 +1049,64 @@ function Query:edit_bind_parameters()
       edit_one(choice)
     end
   end)
+end
+
+---@private
+--- Is `bufnr` a modified SCRATCH query buffer -- the only thing the quit sweep
+--- may touch? Requires the `b:dbui_db_key_name` contract (so it is a tracked dbui
+--- buffer, not some unrelated SQL file), a real file buffer, and a name under the
+--- tmp location. Saved queries live under `save_path`, so they fail the last test
+--- and keep Vim's normal prompt -- they are real files the user deliberately named.
+---@param instance DadbodUI.Instance
+---@param bufnr integer
+---@return boolean
+local function is_scratch_buf(instance, bufnr)
+  if not vim.api.nvim_buf_is_loaded(bufnr) or not vim.bo[bufnr].modified then
+    return false
+  end
+  if vim.bo[bufnr].buftype ~= '' then
+    return false
+  end
+  local key = vim.b[bufnr].dbui_db_key_name
+  if type(key) ~= 'string' or key == '' then
+    return false
+  end
+  return instance:is_tmp_location_buffer(vim.api.nvim_buf_get_name(bufnr))
+end
+
+--- Resolve every modified scratch query buffer so quitting doesn't raise Vim's
+--- "No write since last change" prompt once per buffer (`setup_buffer`'s
+--- `bufhidden=hide` keeps the whole session's scratch buffers loaded, so the
+--- prompts pile up -- see issue #74). Driven by `config.query.save_on_exit`;
+--- `'ask'` is a no-op that leaves Vim's prompt alone.
+---
+--- `'auto'` defers to `Instance:persists_scratch` -- the same predicate that
+--- decides whether `state` restores a connection's scratch `buffers` on startup,
+--- so the two halves cannot drift apart. With a tmp location the buffers are
+--- written, because they come back next session; without one their folder is the
+--- session temp dir, which Neovim wipes on exit, so the prompt asks about a file
+--- that cannot outlive the answer. Saved queries are never swept.
+---@return nil
+function Query:sweep_on_exit()
+  local mode = self.config.query.save_on_exit
+  if mode == 'ask' then
+    return -- leave Vim's own prompt alone
+  end
+  -- 'discard' never writes; 'auto' writes only what state will restore.
+  local persist = mode == 'auto' and self.instance:persists_scratch()
+  for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
+    if is_scratch_buf(self.instance, bufnr) then
+      if persist then
+        -- `noautocmd`: a plain write fires BufWritePost, which under
+        -- `execute_on_save` would run every scratch query on the way out.
+        vim.api.nvim_buf_call(bufnr, function()
+          pcall(vim.cmd, 'silent! noautocmd write')
+        end)
+      else
+        vim.bo[bufnr].modified = false
+      end
+    end
+  end
 end
 
 --- Drop a wiped/deleted buffer from its connection's buffer lists and re-render.

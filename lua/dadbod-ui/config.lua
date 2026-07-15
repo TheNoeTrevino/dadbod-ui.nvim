@@ -118,6 +118,19 @@ M.defaults = {
     execute_on_save = false,
     auto_execute_table_helpers = false,
     bind_param_pattern = ':\\w\\+',
+    -- What to do with MODIFIED SCRATCH query buffers when you quit, instead of
+    -- letting Vim raise its "No write since last change" prompt once per buffer
+    -- (`bufhidden=hide` keeps every scratch buffer of the session loaded, so the
+    -- prompts pile up). Saved queries are never touched by this -- they are real
+    -- files you named, so they keep prompting exactly like any other file.
+    --   'auto'    -- follow `tmp_query_location`: write the scratch buffers when
+    --                it is set (they are restored next session), discard them
+    --                when it is not (their folder is the session temp dir, which
+    --                is wiped on exit -- so there is nothing to lose).
+    --   'ask'     -- leave Vim's prompt alone.
+    --   'discard' -- never write scratch buffers, even with a tmp location set.
+    ---@type 'auto'|'ask'|'discard'
+    save_on_exit = 'auto',
     -- Show the connection a query buffer targets in a right-aligned `winbar` at
     -- the top of the buffer's window, formatted `group/name` (or just `name` when
     -- the connection is ungrouped). Follows the buffer into new splits; the
