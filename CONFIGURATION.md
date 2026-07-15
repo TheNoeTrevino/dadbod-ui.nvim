@@ -8,6 +8,7 @@ Annotate your `opts` with `---@type DadbodUI.Config` for completion and hover
 docs. Every field is optional, so you only ever declare what you want to change.
 
 <!--toc:start-->
+
 - [The default configuration](#the-default-configuration)
 - [Option reference](#option-reference)
   - [Paths & discovery](#paths--discovery)
@@ -18,6 +19,7 @@ docs. Every field is optional, so you only ever declare what you want to change.
   - [Result buffers](#result-buffers)
 - [Keymaps & actions](#keymaps--actions)
 - [Hooks](#hooks)
+
 <!--toc:end-->
 
 ## The default configuration
@@ -91,6 +93,7 @@ opts = {
     execute_on_save = false,               -- run the query buffer on :w
     auto_execute_table_helpers = false,
     bind_param_pattern = ":\\w\\+",        -- Vim regex matching bind parameters
+    save_on_exit = "auto",                 -- modified scratch buffers on quit: 'auto'|'ask'|'discard'
     show_buffer_connection = true,         -- winbar showing the query buffer's connection
     keys = {
       ["<Leader>S"] = { "execute", mode = { "n", "v" } }, -- Execute query (buffer / visual selection)
@@ -152,6 +155,19 @@ opts = {
 - `tmp_query_location` - if set, scratch query buffers are persisted in a
   per-connection subfolder here (`<tmp_query_location>/<connection>/query.sql`)
   and restored on the next session. `''` keeps them session-local.
+
+  > [!NOTE]
+  > Setting this changes what happens on quit. Under the default
+  > `query.save_on_exit = 'auto'`, an unset `tmp_query_location` means a modified
+  > scratch buffer is silently **discarded** when you quit (its folder is the
+  > session temp dir, which Neovim wipes anyway). Once you point this at a real
+  > directory, the same buffer is silently **written** there instead - that is
+  > what makes it reappear next session. So opting in means unrun, half-typed
+  > scratch SQL now lands on disk and comes back in the drawer. If you want the
+  > persistence but not the automatic write, set
+  > [`query.save_on_exit`](#query-buffers) to `'discard'` (or `'ask'` to be
+  > prompted per buffer).
+
 - `env_variable_url` / `env_variable_name` - the environment variables read as a
   connection url and its name. Great for a `.envrc`/direnv-driven workflow.
 - `dotenv_variable_prefix` - `.env` keys starting with this prefix are turned
@@ -208,6 +224,27 @@ opts = {
   instead of just dropping its SQL into a buffer.
 - `bind_param_pattern` - the Vim regex that recognises bind parameters (so
   `edit_bind_params` can prompt for them).
+- `save_on_exit` - what happens to **modified scratch buffers** when you quit,
+  instead of Vim asking "No write since last change" once per buffer. Scratch
+  buffers stay loaded for the whole session, so those prompts otherwise pile up.
+
+  | Value              | Behaviour                                                                                   |
+  | ------------------ | ------------------------------------------------------------------------------------------- |
+  | `'auto'` (default) | Follow `tmp_query_location`: write the buffers when it is set, discard them when it is not. |
+  | `'ask'`            | Leave Vim's prompt alone.                                                                   |
+  | `'discard'`        | Never write scratch buffers, even with `tmp_query_location` set.                            |
+
+  `'auto'` just answers the question the way your other settings already imply.
+  Without a `tmp_query_location`, scratch buffers live in Neovim's session temp
+  directory, which is wiped on exit - so the prompt asks about a file that cannot
+  survive either answer. With one set, you have asked for those buffers back next
+  session, so they are written.
+
+  **Saved queries are never affected by this option.** They are real files you
+  deliberately named with `save_query`, so they keep prompting like any other
+  file. Writes are done with `noautocmd`, so quitting never triggers
+  `execute_on_save`.
+
 - `show_buffer_connection` - a right-aligned `group/name` winbar showing which
   connection the buffer targets.
 - `keys` - see [Keymaps & actions](#keymaps--actions).

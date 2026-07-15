@@ -381,6 +381,7 @@
 ---@field execute_on_save? boolean
 ---@field auto_execute_table_helpers? boolean
 ---@field bind_param_pattern? string
+---@field save_on_exit? 'auto'|'ask'|'discard'  modified SCRATCH buffers on quit; saved queries always prompt
 ---@field show_buffer_connection? boolean  right-aligned `group/name` winbar on query buffers
 ---@field keys? DadbodUI.Keymaps  `lhs -> action`, or `false` to disable the context
 
