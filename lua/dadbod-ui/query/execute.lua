@@ -112,6 +112,40 @@ end
 ---@class DadbodUI.Query
 local Query = {}
 
+--- Resolve the bind parameters in `lines` and hand the runnable SQL to
+--- `on_ready`: the shared front half of `execute_query` and its explain/export
+--- duals. Placeholders are detected against `bind_param_pattern`; with none,
+--- `on_ready(lines, false)` runs synchronously. Otherwise values are resolved
+--- (config hook first, then prompting -- see `resolve_params`), the full set is
+--- persisted in `b:dbui_bind_params`, and `on_ready(substituted, true)` runs.
+--- Cancelling any prompt aborts with a "Query not <verb>." notification and
+--- never calls `on_ready`. The buffer is captured up front and the persist is
+--- guarded on it still existing -- the async prompt may resolve after it was
+--- wiped -- but `on_ready` runs regardless: the callers target their captured
+--- connection, not the current buffer.
+---@param lines string[]
+---@param verb string  'executed'|'explained'|'exported', for the cancel notice
+---@param on_ready fun(final_lines: string[], substituted: boolean)
+---@return nil
+function Query:with_resolved_sql(lines, verb, on_ready)
+  local pattern = self.config.query.bind_param_pattern
+  local names = bind_params.detect(lines, pattern)
+  if #names == 0 then
+    return on_ready(lines, false)
+  end
+  -- Capture the buffer now: an async prompt may resolve after focus has moved.
+  local bufnr = vim.api.nvim_get_current_buf()
+  resolve_params(self.config, self.input, names, stored_params(bufnr), function(values)
+    if values == nil then
+      return notify.info(string.format('Bind parameters cancelled. Query not %s.', verb))
+    end
+    if vim.api.nvim_buf_is_valid(bufnr) then
+      vim.b[bufnr].dbui_bind_params = values
+    end
+    on_ready(bind_params.substitute(lines, values, pattern), true)
+  end)
+end
+
 --- The buffer (or, in visual mode, the selection) as a line list. Reads the
 --- selection with `getregion` instead of `gvy`, so it never runs a normal-mode
 --- yank or touches the unnamed register. `exclusive = false` reproduces the
@@ -217,8 +251,6 @@ end
 ---@return nil
 function Query:execute_query(is_visual, transform)
   local lines = self:get_lines(is_visual)
-  local pattern = self.config.query.bind_param_pattern
-  local names = bind_params.detect(lines, pattern)
 
   -- Inline post-execute feedback (time + row count) replaces dadbod's command-
   -- line echoes when enabled: run quietly, and remember WHERE we executed from so
@@ -285,54 +317,32 @@ function Query:execute_query(is_visual, transform)
     return vim.split(new_sql, '\n'), true
   end
 
-  if #names == 0 then
-    -- No placeholders. Whole-buffer and visual both flow through `dispatch`, which
-    -- auto-paginates a plain SELECT (page 1) and otherwise runs unmodified -- the
-    -- whole-buffer non-paginated, non-transformed case still uses the fast `%DB` path.
-    local entry = self.instance.dbs[vim.b.dbui_db_key_name]
-    if entry == nil then
-      -- Not a tracked dbui query buffer (`transform` is a dbui-query-buffer
-      -- feature, so it does not apply here): a visual run needs the connection, but
-      -- a whole-buffer run can still go straight through `%DB` on the buffer's b:db,
-      -- preserving the public execute_query contract for plain buffers.
-      if is_visual then
-        return notify.error('Buffer not attached to any database')
-      end
-      return run(function()
-        bridge.execute_buffer(quiet, self.config.results.layout == 'vertical')
-      end)
+  -- The connection is captured before any async prompt so execution targets it
+  -- even if focus moves while a prompt is open.
+  local entry = self.instance.dbs[vim.b.dbui_db_key_name]
+  if entry == nil then
+    -- Not a tracked dbui query buffer (bind params and `transform` are dbui-
+    -- query-buffer features, so neither applies here): a visual run needs the
+    -- connection, but a whole-buffer run without placeholders can still go
+    -- straight through `%DB` on the buffer's b:db, preserving the public
+    -- execute_query contract for plain buffers.
+    if is_visual or #bind_params.detect(lines, self.config.query.bind_param_pattern) > 0 then
+      return notify.error('Buffer not attached to any database')
     end
-    local final, mutated = transformed(lines)
     return run(function()
-      self:dispatch(final, entry, (not is_visual) and not mutated, quiet)
+      bridge.execute_buffer(quiet, self.config.results.layout == 'vertical')
     end)
   end
 
-  -- Capture buffer and connection now: an async prompt backend may resolve after
-  -- focus has moved, so we must not read the current buffer in the callback.
-  local bufnr = vim.api.nvim_get_current_buf()
-  local entry = self.instance.dbs[vim.b.dbui_db_key_name]
-  if entry == nil then
-    return notify.error('Buffer not attached to any database')
-  end
-  resolve_params(self.config, self.input, names, stored_params(bufnr), function(values)
-    if values == nil then
-      return notify.info('Bind parameters cancelled. Query not executed.')
-    end
-    -- The async prompt may resolve after the origin buffer was wiped (see the
-    -- focus-change note above); persist the answers only when it still exists,
-    -- but run the query regardless -- execution targets the captured `entry`, not
-    -- the current buffer.
-    if vim.api.nvim_buf_is_valid(bufnr) then
-      vim.b[bufnr].dbui_bind_params = values
-    end
+  self:with_resolved_sql(lines, 'executed', function(resolved, substituted)
     -- Substitute bind params first, THEN transform -- the hook sees the runnable
-    -- SQL, not raw `:placeholder` tokens. This is already a substituted (non-whole-
-    -- buffer) run, so the transform's `mutated` flag is moot: either way it
-    -- dispatches from a temp file.
-    local final = transformed(bind_params.substitute(lines, values, pattern))
+    -- SQL, not raw `:placeholder` tokens. A substituted or transformed run no
+    -- longer matches the buffer text, so it drops the whole-buffer `%DB` fast
+    -- path and dispatches from a temp file; the whole-buffer non-paginated,
+    -- untouched case still goes through `dispatch`'s `%DB` path.
+    local final, mutated = transformed(resolved)
     run(function()
-      self:dispatch(final, entry, false, quiet)
+      self:dispatch(final, entry, (not is_visual) and not substituted and not mutated, quiet)
     end)
   end)
 end
@@ -355,13 +365,10 @@ function Query:explain_query(is_visual, opts)
   if entry == nil then
     return notify.error('Buffer not attached to any database')
   end
-  local pattern = self.config.query.bind_param_pattern
-  local names = bind_params.detect(lines, pattern)
-
   -- Wrap the (already param-substituted) SQL in the adapter's EXPLAIN syntax and
   -- run it from a temp file. `explain.wrap` returns the user-facing error for an
   -- unsupported adapter / analyze form -- surface it and run nothing.
-  local function explain_and_run(final_lines)
+  self:with_resolved_sql(lines, 'explained', function(final_lines)
     local wrapped, err = explain.wrap(entry.scheme, table.concat(final_lines, '\n'), opts)
     if wrapped == nil then
       return notify.error(err)
@@ -373,20 +380,6 @@ function Query:explain_query(is_visual, opts)
       return notify.error(clean_execute_error(run_err))
     end
     self.last_query = final_lines
-  end
-
-  if #names == 0 then
-    return explain_and_run(lines)
-  end
-
-  -- Capture the buffer now: an async prompt may resolve after focus has moved.
-  local bufnr = vim.api.nvim_get_current_buf()
-  resolve_params(self.config, self.input, names, stored_params(bufnr), function(values)
-    if values == nil then
-      return notify.info('Bind parameters cancelled. Query not explained.')
-    end
-    vim.b[bufnr].dbui_bind_params = values
-    explain_and_run(bind_params.substitute(lines, values, pattern))
   end)
 end
 
@@ -411,31 +404,15 @@ function Query:export_query(is_visual)
   -- has moved off this buffer. Empty (a scratch query) => let export derive one.
   local raw_table = vim.b.dbui_table_name
   local source = (type(raw_table) == 'string' and raw_table ~= '') and raw_table or nil
-  local pattern = self.config.query.bind_param_pattern
-  local names = bind_params.detect(lines, pattern)
 
   -- Hand the (already param-substituted) SQL to the shared interactive export core.
-  local function export_lines(final_lines)
+  self:with_resolved_sql(lines, 'exported', function(final_lines)
     export.export_prompt({
       url = entry.conn,
       scheme = entry.scheme,
       query = table.concat(final_lines, '\n'),
       source = source,
     })
-  end
-
-  if #names == 0 then
-    return export_lines(lines)
-  end
-
-  -- Capture the buffer now: an async prompt may resolve after focus has moved.
-  local bufnr = vim.api.nvim_get_current_buf()
-  resolve_params(self.config, self.input, names, stored_params(bufnr), function(values)
-    if values == nil then
-      return notify.info('Bind parameters cancelled. Query not exported.')
-    end
-    vim.b[bufnr].dbui_bind_params = values
-    export_lines(bind_params.substitute(lines, values, pattern))
   end)
 end
 
