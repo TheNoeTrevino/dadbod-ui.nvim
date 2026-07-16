@@ -5,6 +5,8 @@
 -- own file so `winbar` / `pagination` / `cells` can read the effective config
 -- without requiring `init` (which requires them -- that would be circular).
 
+local state = require('dadbod-ui.state')
+
 ---@class DadbodUI.DboutCtx
 --- The drawer the dbout module re-renders through; set by `init` on attach, read
 --- live by the submodules (nil until the drawer opens).
@@ -22,7 +24,7 @@ function M.current_config()
   if M.attached ~= nil then
     return M.attached.config
   end
-  return require('dadbod-ui.state').get().config
+  return state.get().config
 end
 
 return M

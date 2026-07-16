@@ -29,6 +29,14 @@ local highlights = require('dadbod-ui.highlights')
 local painter = require('dadbod-ui.drawer.paint')
 local spinner = require('dadbod-ui.spinner')
 local utils = require('dadbod-ui.utils')
+local notifications = require('dadbod-ui.notifications')
+local state = require('dadbod-ui.state')
+local query = require('dadbod-ui.query')
+local mappings = require('dadbod-ui.mappings')
+local introspect = require('dadbod-ui.introspect')
+local ids = require('dadbod-ui.drawer.ids')
+local dbout = require('dadbod-ui.dbout')
+local connections_controller = require('dadbod-ui.connections_controller')
 
 ---@class DadbodUI.DrawerModule
 ---@field new fun(instance?: DadbodUI.Instance): DadbodUI.Drawer
@@ -79,7 +87,7 @@ end
 ---@param instance? DadbodUI.Instance
 ---@return DadbodUI.Drawer
 function M.new(instance)
-  instance = instance or require('dadbod-ui.state').get()
+  instance = instance or state.get()
   return setmetatable({
     instance = instance,
     icons = icons_mod.resolve(instance.config),
@@ -92,7 +100,7 @@ function M.new(instance)
     show_details = false,
     input = vim.ui.input,
     confirm = function(msg)
-      return require('dadbod-ui.notifications').confirm(msg)
+      return notifications.confirm(msg)
     end,
     connector = bridge.connect,
     async_connector = bridge.connect_async,
@@ -110,7 +118,7 @@ end
 ---@return DadbodUI.Query
 function Drawer:query()
   if self._query == nil then
-    self._query = require('dadbod-ui.query').new(self)
+    self._query = query.new(self)
   end
   return self._query
 end
@@ -122,7 +130,7 @@ end
 ---@return DadbodUI.Introspect
 function Drawer:introspect()
   if self._introspect == nil then
-    self._introspect = require('dadbod-ui.introspect').new({
+    self._introspect = introspect.new({
       config = self.config,
       connector = self.connector,
       async_connector = self.async_connector,
@@ -144,7 +152,7 @@ end
 ---@return DadbodUI.ConnectionsController
 function Drawer:connections()
   if self._connections == nil then
-    self._connections = require('dadbod-ui.connections_controller').new({
+    self._connections = connections_controller.new({
       instance = self.instance,
       input = self.input,
       confirm = self.confirm,
@@ -185,7 +193,7 @@ end
 ---@param section string  'buffers' | 'saved_queries' | 'schemas' | 'tables' | 'routines'
 ---@return nil
 function Drawer:expand_section(key_name, section)
-  self:set_expanded(require('dadbod-ui.drawer.ids').section(key_name, section), true)
+  self:set_expanded(ids.section(key_name, section), true)
 end
 
 ---@return boolean
@@ -213,9 +221,7 @@ function Drawer:open(mods)
   local ok = pcall(vim.cmd, string.format('%s vertical %s %dnew', mods or '', side, self.config.drawer.width))
   local win = vim.api.nvim_get_current_win()
   if not ok or win == prev_win or vim.api.nvim_get_current_buf() == prev_buf then
-    require('dadbod-ui.notifications').error(
-      'Could not open the ' .. constants.name .. ' drawer window (no room to split).'
-    )
+    notifications.error('Could not open the ' .. constants.name .. ' drawer window (no room to split).')
     return self
   end
   self.winid = win
@@ -241,7 +247,7 @@ function Drawer:open(mods)
   highlights.define()
   -- Register the dbout filetype / result-recording autocmds and the loading
   -- spinner on dadbod's async execute events (idempotent across opens).
-  require('dadbod-ui.dbout').attach(self)
+  dbout.attach(self)
   vim.api.nvim_create_autocmd('BufEnter', {
     buffer = self.bufnr,
     callback = function()
@@ -426,7 +432,6 @@ end
 
 ---@return nil
 function Drawer:setup_mappings()
-  local mappings = require('dadbod-ui.mappings')
   local opts = { buffer = self.bufnr, nowait = true, silent = true }
   -- User actions get the node under the cursor + its connection (resolved lazily
   -- at trigger time, not bind time).

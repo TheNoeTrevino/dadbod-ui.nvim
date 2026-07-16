@@ -9,6 +9,7 @@
 -- an adjusted offset.
 
 local bridge = require('dadbod-ui.bridge')
+local notify = require('dadbod-ui.notifications')
 local paginator = require('dadbod-ui.paginator')
 local ctx = require('dadbod-ui.dbout.ctx')
 
@@ -44,7 +45,6 @@ end
 ---@param delta integer
 ---@return nil
 function M._step_page(delta)
-  local notify = require('dadbod-ui.notifications')
   local state = vim.b.dbui_page
   if type(state) ~= 'table' then
     local db = vim.b.db

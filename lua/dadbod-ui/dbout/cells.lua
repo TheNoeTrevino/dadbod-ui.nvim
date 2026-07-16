@@ -9,6 +9,7 @@
 
 local bridge = require('dadbod-ui.bridge')
 local bind_params = require('dadbod-ui.bind_params')
+local notify = require('dadbod-ui.notifications')
 local schemas = require('dadbod-ui.schemas')
 local ctx = require('dadbod-ui.dbout.ctx')
 
@@ -214,7 +215,6 @@ end
 ---@param action string  user-facing verb for the error message
 ---@return string?, DadbodUI.SchemaAdapter?
 local function resolve_scheme(action)
-  local notify = require('dadbod-ui.notifications')
   local db = vim.b.db
   if type(db) ~= 'table' or type(db.db_url) ~= 'string' then
     return notify.error('Not a query result buffer.')
@@ -254,7 +254,6 @@ local fk_jump_pending = false
 --- before dispatch, so a focus change during the round-trip cannot misread it.
 ---@return nil
 function M.jump_to_foreign_table()
-  local notify = require('dadbod-ui.notifications')
   local url, scheme_info = resolve_scheme('Foreign key jump')
   if url == nil or scheme_info == nil then
     return
@@ -360,7 +359,6 @@ end
 --- input, expanding appends the adapter's `layout_flag` to a temp copy.
 ---@return nil
 function M.toggle_layout()
-  local notify = require('dadbod-ui.notifications')
   local db = vim.b.db
   if type(db) ~= 'table' or type(db.db_url) ~= 'string' then
     return notify.error('Not a query result buffer.')

@@ -50,6 +50,10 @@
 ---@field statusline fun(opts?: DadbodUI.StatuslineOpts): string
 ---@field reset fun()
 
+local bridge = require('dadbod-ui.bridge')
+local drawer_mod = require('dadbod-ui.drawer')
+local events = require('dadbod-ui.events')
+local notify = require('dadbod-ui.notifications')
 local state = require('dadbod-ui.state')
 
 ---@private
@@ -58,7 +62,7 @@ local state = require('dadbod-ui.state')
 local M = {}
 
 --- The vim-dadbod boundary (see `lua/dadbod-ui/bridge.lua`).
-M.bridge = require('dadbod-ui.bridge')
+M.bridge = bridge
 
 ---@type DadbodUI.Config  resolved config, exposed for inspection (SSOT is dadbod-ui.state)
 M.config = state.config()
@@ -70,7 +74,7 @@ local _drawer = nil
 ---@return DadbodUI.Drawer
 local function drawer()
   if _drawer == nil then
-    _drawer = require('dadbod-ui.drawer').new(state.get())
+    _drawer = drawer_mod.new(state.get())
   end
   return _drawer
 end
@@ -252,7 +256,6 @@ end
 --- Echo the last executed query and its runtime. Exposed as `api.buf.last_query_info`.
 ---@return nil
 function M.print_last_query_info()
-  local notify = require('dadbod-ui.notifications')
   local info = drawer():query():get_last_query_info()
   if #info.last_query == 0 then
     return notify.info('No queries ran.')
@@ -280,7 +283,7 @@ end
 --- listeners). For tests/cleanup.
 function M.reset()
   state.reset()
-  require('dadbod-ui.events').clear()
+  events.clear()
   _drawer = nil
 end
 

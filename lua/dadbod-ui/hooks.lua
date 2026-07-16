@@ -23,6 +23,9 @@
 ---@field transform fun(config: DadbodUI.Config, name: string, event: DadbodUI.HookEvent): string|nil
 ---@field has fun(config: DadbodUI.Config, name: string): boolean
 
+local events = require('dadbod-ui.events')
+local notify = require('dadbod-ui.notifications')
+
 ---@type DadbodUI.HooksModule
 ---@diagnostic disable-next-line: missing-fields
 local M = {}
@@ -38,7 +41,6 @@ local M = {}
 ---@param event DadbodUI.HookEvent
 ---@return any  the config hook's return value, or nil (no hook / error)
 function M.run(config, name, event)
-  local events = require('dadbod-ui.events')
   -- Fail loudly on a typo'd name instead of a hook + bus that silently never fire.
   if not events.valid(name) then
     error('unknown lifecycle event: ' .. tostring(name), 2)
@@ -65,7 +67,7 @@ function M.call(config, name, ...)
   end
   local ok, ret = pcall(hooks[name], ...)
   if not ok then
-    require('dadbod-ui.notifications').error(string.format('Error in %s hook: %s', name, tostring(ret)))
+    notify.error(string.format('Error in %s hook: %s', name, tostring(ret)))
     return nil
   end
   return ret
@@ -97,7 +99,7 @@ function M.has(config, name)
   if type(config.hooks) == 'table' and type(config.hooks[name]) == 'function' then
     return true
   end
-  return require('dadbod-ui.events').has(name)
+  return events.has(name)
 end
 
 return M

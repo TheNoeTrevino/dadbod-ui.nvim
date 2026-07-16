@@ -19,6 +19,8 @@
 local connections = require('dadbod-ui.connections')
 ---@private
 local bridge = require('dadbod-ui.bridge')
+---@private
+local notify = require('dadbod-ui.notifications')
 
 ---@type DadbodUI.ConnectionsControllerModule
 ---@diagnostic disable-next-line: missing-fields
@@ -55,7 +57,7 @@ local function require_file_source(entry, verb)
   if entry.source == 'file' then
     return true
   end
-  require('dadbod-ui.notifications').error(string.format('Cannot %s connections added via variables.', verb))
+  notify.error(string.format('Cannot %s connections added via variables.', verb))
   return false
 end
 
@@ -69,7 +71,7 @@ local function require_store(controller)
   if controller.instance.connections_path ~= nil then
     return true
   end
-  require('dadbod-ui.notifications').error('Please set up a valid save location via setup({ save_location = ... })')
+  notify.error('Please set up a valid save location via setup({ save_location = ... })')
   return false
 end
 
@@ -103,7 +105,7 @@ function Controller:read_store()
     corrupt = true
   end)
   if corrupt then
-    require('dadbod-ui.notifications').error(
+    notify.error(
       'Could not read connections file; refusing to overwrite it. Fix or remove: '
         .. (self.instance.connections_path or '')
     )
@@ -135,7 +137,6 @@ function Controller:add_connection()
   if not require_store(self) then
     return
   end
-  local notify = require('dadbod-ui.notifications')
   self.input({ prompt = 'Enter connection url: ' }, function(url)
     if url == nil then
       return
@@ -178,7 +179,6 @@ function Controller:rename_connection(entry)
   if not require_file_source(entry, 'edit') then
     return
   end
-  local notify = require('dadbod-ui.notifications')
   self.input(
     { prompt = string.format('Edit connection url for "%s": ', entry.name), default = entry.url },
     function(url)
@@ -225,7 +225,6 @@ function Controller:duplicate_connection(entry)
   if not require_store(self) then
     return
   end
-  local notify = require('dadbod-ui.notifications')
   self.input({ prompt = 'Enter name for the duplicate: ', default = entry.name }, function(name)
     if name == nil then
       return
@@ -272,7 +271,6 @@ function Controller:set_group(entry)
   if not require_file_source(entry, 'edit') then
     return
   end
-  local notify = require('dadbod-ui.notifications')
   self.input({ prompt = 'Enter group name: ', default = entry.group }, function(group)
     if group == nil then
       return
@@ -311,7 +309,7 @@ function Controller:move_connection(entry, direction)
   -- exists in two groups.
   local list, err = connections.move_connection(store, entry.name, entry.url, direction, entry.group)
   if err ~= nil then
-    return require('dadbod-ui.notifications').error(err)
+    return notify.error(err)
   end
   -- (nil, nil) is a no-op (clamped at an edge / nothing matched): don't rewrite
   -- the store just to normalize its order.

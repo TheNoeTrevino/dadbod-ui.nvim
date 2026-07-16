@@ -6,6 +6,7 @@
 -- global export overlay, the pagination + nav segments, and the ghost text
 -- trailing the executed query line. `init` drives these from `_on_pre`/`_on_post`.
 
+local mappings = require('dadbod-ui.mappings')
 local spinner = require('dadbod-ui.spinner')
 local spinners = require('dadbod-ui.spinners')
 
@@ -390,7 +391,7 @@ end
 ---@param config DadbodUI.Config
 ---@return { prev: string, next: string }
 function M._nav_keys(config)
-  local keys_for = require('dadbod-ui.mappings').keys_for_action
+  local keys_for = mappings.keys_for_action
   local keys = config.results.keys
   return { prev = keys_for(keys, 'prev_page'), next = keys_for(keys, 'next_page') }
 end

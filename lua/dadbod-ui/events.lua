@@ -35,6 +35,8 @@
 ---@field emit fun(event: string, payload: DadbodUI.HookEvent)
 ---@field clear fun()
 
+local notify = require('dadbod-ui.notifications')
+
 ---@type DadbodUI.EventsModule
 ---@diagnostic disable-next-line: missing-fields
 local M = {}
@@ -124,7 +126,7 @@ function M.emit(event, payload)
   for _, cb in pairs(bucket) do
     local ok, err = pcall(cb, payload)
     if not ok then
-      require('dadbod-ui.notifications').error(string.format('Error in %s listener: %s', event, tostring(err)))
+      notify.error(string.format('Error in %s listener: %s', event, tostring(err)))
     end
   end
 end

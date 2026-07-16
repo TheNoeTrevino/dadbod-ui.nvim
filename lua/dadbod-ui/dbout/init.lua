@@ -18,8 +18,12 @@
 -- `require('dadbod-ui.dbout').<name>` stays the single public entry point.
 
 local bridge = require('dadbod-ui.bridge')
+local export = require('dadbod-ui.export')
+local hooks = require('dadbod-ui.hooks')
+local mappings = require('dadbod-ui.mappings')
 local spinner = require('dadbod-ui.spinner')
 local spinners = require('dadbod-ui.spinners')
+local state = require('dadbod-ui.state')
 local utils = require('dadbod-ui.utils')
 
 local ctx = require('dadbod-ui.dbout.ctx')
@@ -332,10 +336,10 @@ function M._on_post(output_file)
   -- Guarded on the hook's presence: `hooks.run` no-ops when nobody is listening
   -- (the default), but only after the `query` input-file read below -- so skip that
   -- I/O entirely unless a config hook OR a runtime `api.on` listener is registered.
-  if require('dadbod-ui.hooks').has(config, 'on_execute_query_post') then
+  if hooks.has(config, 'on_execute_query_post') then
     local status = type(db) == 'table' and tonumber(db.exit_status) or 0
     local input = bridge.dbout_input(output_file)
-    require('dadbod-ui.hooks').run(config, 'on_execute_query_post', {
+    hooks.run(config, 'on_execute_query_post', {
       output_file = output_file,
       rows = function()
         if buf >= 0 then
@@ -405,7 +409,6 @@ function M.setup_buffer(bufnr)
   pcall(vim.cmd, 'silent! normal! zo') -- open the first fold on load
 
   local config = ctx.current_config()
-  local mappings = require('dadbod-ui.mappings')
   -- Keyed by the ids in `config.builtin_actions.results`; the same ids drive the
   -- help window. `cell_value` is named by two keys (`vic` in normal, `ic` in
   -- operator-pending), so the handler ignores the mode argument.
@@ -417,12 +420,12 @@ function M.setup_buffer(bufnr)
     next_page = M.next_page,
     prev_page = M.prev_page,
     export = function()
-      require('dadbod-ui.export').export_interactive(bufnr)
+      export.export_interactive(bufnr)
     end,
   }
   local function make_ctx(mode)
     local key = vim.b[bufnr].dbui_db_key_name
-    return { mode = mode, bufnr = bufnr, connection = key and require('dadbod-ui.state').get().dbs[key] or nil }
+    return { mode = mode, bufnr = bufnr, connection = key and state.get().dbs[key] or nil }
   end
   mappings.apply(
     config.results.keys,

@@ -20,6 +20,13 @@ local bridge = require('dadbod-ui.bridge')
 local bind_params = require('dadbod-ui.bind_params')
 local introspect = require('dadbod-ui.introspect')
 local utils = require('dadbod-ui.utils')
+local notify = require('dadbod-ui.notifications')
+local hooks = require('dadbod-ui.hooks')
+local dbout = require('dadbod-ui.dbout')
+local paginator = require('dadbod-ui.paginator')
+local mappings = require('dadbod-ui.mappings')
+local export = require('dadbod-ui.export')
+local explain = require('dadbod-ui.explain')
 
 --- A last-mile SQL rewrite hook for `execute_query`/`execute_selection`. Receives
 --- the runnable SQL (a single string, after bind-param substitution) and returns
@@ -444,7 +451,7 @@ function Query:setup_buffer(entry, opts, name)
     local ok, err =
       pcall(vim.cmd, 'setlocal noswapfile nowrap nospell modifiable bufhidden=hide filetype=' .. entry.filetype)
     if not ok and self.config.debug then
-      require('dadbod-ui.notifications').warn('Error in FileType autocmd: ' .. tostring(err))
+      notify.warn('Error in FileType autocmd: ' .. tostring(err))
     end
   end
   local is_sql = vim.bo.filetype == entry.filetype
@@ -452,7 +459,6 @@ function Query:setup_buffer(entry, opts, name)
   local bufnr = vim.api.nvim_get_current_buf()
 
   do
-    local mappings = require('dadbod-ui.mappings')
     -- Keyed by the ids in `config.builtin_actions.query`; the same ids drive the
     -- help window. `execute` is mode-aware (visual runs the selection).
     -- `save_query` is offered only for writable tmp SQL buffers, so it is omitted
@@ -646,7 +652,7 @@ end
 ---@param on_done fun(values: DadbodUI.BindParams|nil)
 ---@return nil
 local function resolve_params(config, input, names, known, on_done)
-  local resolved = require('dadbod-ui.hooks').call(config, 'resolve_bind_params', names, known)
+  local resolved = hooks.call(config, 'resolve_bind_params', names, known)
   if type(resolved) == 'table' then
     -- Copy so we never mutate the buffer's stored `b:dbui_bind_params` table, and
     -- only pull string values for the actual placeholders (ignore stray keys).
@@ -684,8 +690,6 @@ end
 ---@param quiet? boolean
 ---@return nil
 function Query:dispatch(lines, entry, whole_buffer, quiet)
-  local paginator = require('dadbod-ui.paginator')
-  local dbout = require('dadbod-ui.dbout')
   local sql = table.concat(lines, '\n')
   local page_size = self.config.results.page_size
   local paginated = paginator.paginate(entry.scheme, sql, 1, page_size)
@@ -732,8 +736,6 @@ end
 ---@param transform? DadbodUI.SqlTransform
 ---@return nil
 function Query:execute_query(is_visual, transform)
-  local notify = require('dadbod-ui.notifications')
-  local dbout = require('dadbod-ui.dbout')
   local lines = self:get_lines(is_visual)
   local pattern = self.config.query.bind_param_pattern
   local names = bind_params.detect(lines, pattern)
@@ -759,7 +761,7 @@ function Query:execute_query(is_visual, transform)
   elseif type(raw_db) == 'string' then
     pre_url = raw_db
   end
-  require('dadbod-ui.hooks').run(self.config, 'on_execute_query', {
+  hooks.run(self.config, 'on_execute_query', {
     sql = lines,
     url = pre_url,
     name = pre_entry ~= nil and pre_entry.name or '',
@@ -868,8 +870,6 @@ end
 ---@param opts? DadbodUI.ExplainOpts
 ---@return nil
 function Query:explain_query(is_visual, opts)
-  local notify = require('dadbod-ui.notifications')
-  local explain = require('dadbod-ui.explain')
   local lines = self:get_lines(is_visual)
   local entry = self.instance.dbs[vim.b.dbui_db_key_name]
   if entry == nil then
@@ -922,8 +922,6 @@ end
 ---@param is_visual? boolean
 ---@return nil
 function Query:export_query(is_visual)
-  local notify = require('dadbod-ui.notifications')
-  local export = require('dadbod-ui.export')
   local lines = self:get_lines(is_visual)
   local entry = self.instance.dbs[vim.b.dbui_db_key_name]
   if entry == nil then
@@ -970,8 +968,6 @@ end
 --- each isolated so a throwing hook never breaks the cancel.
 ---@return nil
 function Query:cancel_query()
-  local notify = require('dadbod-ui.notifications')
-  local hooks = require('dadbod-ui.hooks')
   local bufnr = vim.api.nvim_get_current_buf()
   if not bridge.can_cancel() then
     return notify.info('No cancellable query is running.')
@@ -993,7 +989,6 @@ end
 --- offered.
 ---@return nil
 function Query:edit_bind_parameters()
-  local notify = require('dadbod-ui.notifications')
   local bufnr = vim.api.nvim_get_current_buf()
   local params = stored_params(bufnr)
 
@@ -1131,7 +1126,6 @@ end
 --- existing file. Callback-shaped for the async prompt backend.
 ---@return nil
 function Query:save_query()
-  local notify = require('dadbod-ui.notifications')
   local entry = self.instance.dbs[vim.b.dbui_db_key_name]
   if entry == nil then
     return notify.error('Buffer not attached to any database')
