@@ -179,6 +179,26 @@ describe('bind params: execute flow', function()
     assert.is_true(stored == nil or type(stored) ~= 'table' or vim.tbl_isempty(stored))
   end)
 
+  it('explains without throwing when the buffer is wiped while the prompt is open', function()
+    d = make_drawer()
+    open_query({ 'SELECT * FROM t WHERE id = :id' })
+
+    local pending
+    d:query().input = function(_, on_confirm)
+      pending = on_confirm -- resolve later, after the buffer is gone
+    end
+    d:query():explain_query()
+
+    -- The prompt is async: the buffer can be wiped before the answer lands. The
+    -- persist must be skipped (nowhere to store it), but the explain still runs
+    -- against the connection captured at call time.
+    vim.api.nvim_buf_delete(query_buf, { force = true })
+    query_buf = nil
+    pending('5')
+
+    assert.same({ { 'EXPLAIN QUERY PLAN SELECT * FROM t WHERE id = 5' } }, calls.files)
+  end)
+
   it('honors a custom bind_param_pattern', function()
     d = make_drawer({ query = { bind_param_pattern = '\\$\\d\\+' } })
     open_query({ 'WHERE a = $1' })
