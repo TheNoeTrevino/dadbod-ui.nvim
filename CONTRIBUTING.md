@@ -2,6 +2,19 @@
 
 First of all, thank you for considering contributing to this project!
 
+## Before you start
+
+Run `make install-hooks` to install our precommit hooks. This is just `stylua` formatting.
+
+Make sure that the changes you are making correlate to an issue on github. We want to make sure we are on the same page on what will be in the project, and don't want to waste each other's time.
+
+You must run the instructions in [testing](#testing) before opening a PR. Please save my github minutes 🙏
+
+## Common Commands
+
+Please use `make help` to see what commands we have available. Common commands to the workflow are all here, so you don't have to spend time trying to figure out
+and remember what commands to run. Please use it, and run format and test before every commit/often.
+
 ## Git Workflow
 
 1. Fork the repository
@@ -15,20 +28,41 @@ First of all, thank you for considering contributing to this project!
 4. Open a PR to `nightly` (not `main`!) and reference the issue you are working on
    a. e.g. `Fixes #123`
 
-FYI, docs are auto generated from the codebase. So DONT write in the `./doc/` folder. You will be wasting your time!!
+FYI, docs are auto generated from the codebase. So DONT write in the `./doc/` folder. You will be wasting your time and the PR will be rejected!!!
 
-## Config for Local Development
+### Commit Content
 
-Point to your local clone, this is with lazy.nvim:
+The style is a conventional commit. But the content of the commit needs to be atomic, always.
 
-```lua
-return {
-  dir = "~/haunt.nvim",
-  ---@class HauntConfig
-  opts = {
-  ....
-}
+Commits should also be split into logical changes.
+
+For example, a commit should NOT contain a new feature AND a bug fix.
+
+Each commit should be able to be described in one sentence in the description:
+
+> Fix buffer splitting when opening buffers from the same connection by using canonical buffer names
+
+And should also include the motivation behind the commit:
+
+> This was specifically broken on windows
+
+And the title should just introduce the change. This would be a good commit:
+
+```gitcommit
+fix(query-buf): splitting when opening query buffers
+
+Fix query buffer splitting when opening buffers from the same connection by using canonical buffer names.
+
+This was specifically broken on windows.
+Probably wasn't caught due to most development taking place on linux platforms
+
+Fixes: #123
 ```
+
+> [!NOTE]
+> Parenthesis is the scope
+
+Tests should be in the commit that introduces the production code change. This is so the commit is bisectable, and we can just run `make test` during the bisect as we see fit.
 
 ## Module Structure and Their Responsibilities
 
@@ -95,17 +129,26 @@ Please adhere to these separations as much as possible.
 
 `export.lua` - native CLI result export orchestration, with `export_formats.lua` (pure formatters), `export_extract.lua` (output parsing) and `export_adapters.lua` (capability access over the adapter specs).
 
+### Requires
+
+Requires go at the top of the file. An inline `require` inside a function means
+there is a require cycle or an optional dependency, and gets a comment saying
+which (see `picker/utils.lua` for the one real cycle: api -> picker ->
+picker.utils -> api).
+
 ## Testing
 
 If you are making significant changes, please consider adding tests.
-We use [busted](https://github.com/lunarmodules/busted) for testing.
 
-To run tests locally, you can use:
+Specs are written busted-style (`describe` / `it` / `assert`), but they run under
+[mini.test](https://github.com/echasnovski/mini.test) - there is no busted to
+install. `make test` bootstraps everything it needs into `.tests/` on the first
+run, so there is no setup step:
 
 ```bash
-make deps   # clone plenary + vim-dadbod into .deps/ (first run only)
 make test   # run the spec suite
 make fmt    # format with stylua
-
-You must run this script before opening a PR. It will save everyone time
 ```
+
+`make help` lists the rest, including `make test-integration` (which exercises
+the export goldens against real databases, and does need `make deps` + docker).
