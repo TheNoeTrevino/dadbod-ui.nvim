@@ -5,7 +5,10 @@
 - [ ] Formatted with Stylua
 - [ ] Added tests if necessary
 - [ ] Updated documentation (inline to source code) if applicable
+- [ ] Updated support matrix (../CURRENT_SUPPORT.md) if adding new features for/or adapters
 
 ## Summary
 
 <!-- What does this PR change and/or fix? -->
+
+<!-- Closes: #x (in footer, plz) -->
