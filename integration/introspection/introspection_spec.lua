@@ -45,12 +45,17 @@ for _, adapter in ipairs(h.adapters) do
           end),
           'schema list never populated'
         )
-        assert.is_true(contains(entry.schemas.list, 'app'), 'second schema (app) not listed')
         local tables = entry.schemas.items[adapter.default_schema]
         for _, t in ipairs({ 'people', 'orders', 'numbers' }) do
           assert.is_true(contains(tables, t), t .. ' missing from ' .. adapter.default_schema)
         end
-        assert.is_true(contains(entry.schemas.items.app, 'orders_archive'), 'app.orders_archive not listed')
+        if adapter.extra_schema then
+          assert.is_true(contains(entry.schemas.list, adapter.extra_schema), 'second schema not listed')
+          assert.is_true(
+            contains(entry.schemas.items[adapter.extra_schema], adapter.extra_schema_table),
+            adapter.extra_schema .. '.' .. adapter.extra_schema_table .. ' not listed'
+          )
+        end
       else
         assert.is_true(
           h.wait(function()

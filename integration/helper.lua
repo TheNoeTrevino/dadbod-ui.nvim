@@ -30,6 +30,8 @@ M.adapters = {
     routines = true,
     plan_marker = 'Seq Scan',
     error_markers = { 'ERROR:' },
+    extra_schema = 'app',
+    extra_schema_table = 'orders_archive',
   },
   {
     name = 'mysql',
@@ -54,6 +56,27 @@ M.adapters = {
     routines = false,
     plan_marker = 'SCAN',
     error_markers = { 'Parse error', 'Runtime error', 'Error:' },
+  },
+  -- Opt-in extras (run.sh exports these urls only under DBUI_IT_EXTRA=1 with
+  -- the matching host client installed). mongodb is not SQL and has its own
+  -- spec (integration/mongodb/) instead of an entry here.
+  {
+    name = 'clickhouse',
+    url = vim.env.DBUI_IT_CH_URL or '',
+    schemas = true,
+    default_schema = 'dbui', -- clickhouse lists databases as schemas
+    routines = false,
+    plan_marker = 'people', -- ReadFromMergeTree (dbui.people)
+    error_markers = { 'DB::Exception' },
+  },
+  {
+    name = 'sqlserver',
+    url = vim.env.DBUI_IT_MSSQL_URL or '',
+    schemas = true,
+    default_schema = 'dbo',
+    routines = true,
+    plan_marker = 'people', -- unused: sqlserver declares no explain template
+    error_markers = { 'Msg ' },
   },
 }
 

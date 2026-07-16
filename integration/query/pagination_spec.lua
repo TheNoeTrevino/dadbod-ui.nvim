@@ -24,6 +24,10 @@ for _, adapter in ipairs(h.adapters) do
       pending(adapter.name .. ' url not configured (run via integration/run.sh)')
       return
     end
+    if not require('dadbod-ui.paginator').supports(adapter.name) then
+      pending(adapter.name .. ' does not support pagination')
+      return
+    end
 
     local d, cap
     before_each(function()

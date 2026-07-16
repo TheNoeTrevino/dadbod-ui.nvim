@@ -49,3 +49,50 @@ services:
       interval: 2s
       timeout: 3s
       retries: 30
+
+  # ---- opt-in extras (profile `extra`, DBUI_IT_EXTRA=1) ----------------------
+  # Heavier or less-common servers. Seeding runs INSIDE these containers (their
+  # images ship the client), but the specs still need the matching host CLI --
+  # run.sh only exports a DBUI_IT_*_URL when that client is on the PATH.
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.8
+    profiles: [extra]
+    environment:
+      CLICKHOUSE_USER: dbui
+      CLICKHOUSE_PASSWORD: dbui
+      CLICKHOUSE_DB: dbui
+    ports:
+      - "127.0.0.1:59000:9000"
+    healthcheck:
+      test: ["CMD-SHELL", "clickhouse-client --user dbui --password dbui --query 'SELECT 1'"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  mongodb:
+    image: mongo:7
+    profiles: [extra]
+    ports:
+      - "127.0.0.1:57017:27017"
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --quiet --eval 'db.runCommand({ping: 1}).ok'"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    profiles: [extra]
+    environment:
+      ACCEPT_EULA: "Y"
+      # Complexity rules want 3 character classes; keep it url-safe (no
+      # specials) so the connection url needs no percent-encoding.
+      MSSQL_SA_PASSWORD: "DbuiPass1"
+    ports:
+      - "127.0.0.1:51433:1433"
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P DbuiPass1 -Q 'SELECT 1' || /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P DbuiPass1 -Q 'SELECT 1'"]
+      interval: 3s
+      timeout: 5s
+      retries: 40

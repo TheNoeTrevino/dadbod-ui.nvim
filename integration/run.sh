@@ -12,6 +12,11 @@
 # Point the DBUI_IT_*_HOST/_PORT overrides at servers you already run:
 #   DBUI_IT_{PG,MYSQL,MARIADB}_HOST / _PORT
 #   DBUI_IT_KEEP=1   leave the containers running on exit (faster re-runs).
+#   DBUI_IT_EXTRA=1  also stand up the `extra` compose profile (clickhouse,
+#                    mongodb, sqlserver). Seeding runs inside those containers;
+#                    each adapter's specs run only when the matching HOST
+#                    client CLI (clickhouse-client / mongosh / sqlcmd) exists,
+#                    because dadbod drives the host CLI.
 set -euo pipefail
 
 MODE="${1:-check}"
@@ -23,6 +28,9 @@ fi
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HERE/.." && pwd)"
 COMPOSE=(docker compose -f "$HERE/docker-compose.yml")
+if [[ "${DBUI_IT_EXTRA:-0}" == "1" ]]; then
+  COMPOSE+=(--profile extra)
+fi
 
 # Connection details (defaults match docker-compose.yml's published ports).
 PG_HOST="${DBUI_IT_PG_HOST:-127.0.0.1}"; PG_PORT="${DBUI_IT_PG_PORT:-55433}"
@@ -59,6 +67,25 @@ PGPASSWORD=dbui psql -h "$PG_HOST" -p "$PG_PORT" -U dbui -d dbui -v ON_ERROR_STO
 "$MYSQL_BIN" --host="$MY_HOST" --port="$MY_PORT" -u dbui -pdbui dbui <"$HERE/seed/mysql.sql"
 "$MYSQL_BIN" --host="$MA_HOST" --port="$MA_PORT" -u dbui -pdbui dbui <"$HERE/seed/mysql.sql"
 sqlite3 "${SQLITE_TMP}/dbui.db" <"$HERE/seed/sqlite.sql"
+
+if [[ "${DBUI_IT_EXTRA:-0}" == "1" ]]; then
+  echo "==> seeding extras (inside the containers)"
+  "${COMPOSE[@]}" exec -T clickhouse clickhouse-client --user dbui --password dbui --database dbui -n <"$HERE/seed/clickhouse.sql"
+  "${COMPOSE[@]}" exec -T mongodb mongosh --quiet dbui <"$HERE/seed/mongodb.js"
+  "${COMPOSE[@]}" exec -T sqlserver /opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P DbuiPass1 -b <"$HERE/seed/sqlserver.sql"
+
+  # The specs drive the HOST client through dadbod: export an url only when
+  # that client exists, otherwise the adapter's specs report pending.
+  if command -v clickhouse-client >/dev/null || command -v clickhouse >/dev/null; then
+    export DBUI_IT_CH_URL="clickhouse://dbui:dbui@127.0.0.1:59000/dbui"
+  fi
+  if command -v mongosh >/dev/null || command -v mongo >/dev/null; then
+    export DBUI_IT_MONGO_URL="mongodb://127.0.0.1:57017/dbui"
+  fi
+  if command -v sqlcmd >/dev/null; then
+    export DBUI_IT_MSSQL_URL="sqlserver://sa:DbuiPass1@127.0.0.1:51433/dbui"
+  fi
+fi
 
 echo "==> running integration specs ($MODE)"
 cd "$ROOT"

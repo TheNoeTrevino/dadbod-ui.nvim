@@ -14,12 +14,26 @@ the same harness; each spec family documents itself.)
 
 The servers under test:
 
-| Adapter  | Server (Docker)     | Client CLI        |
-|----------|---------------------|-------------------|
-| postgres | `postgres:16`       | `psql`            |
-| mysql    | `mysql:8.4`         | `mysql`/`mariadb` |
-| mariadb  | `mariadb:11`        | `mysql`/`mariadb` |
-| sqlite   | *(none - a file)*   | `sqlite3`         |
+| Adapter    | Server (Docker)                          | Client CLI          | Tier |
+|------------|------------------------------------------|---------------------|------|
+| postgres   | `postgres:16`                            | `psql`              | default |
+| mysql      | `mysql:8.4`                              | `mysql`/`mariadb`   | default |
+| mariadb    | `mariadb:11`                             | `mysql`/`mariadb`   | default |
+| sqlite     | *(none - a file)*                        | `sqlite3`           | default |
+| clickhouse | `clickhouse/clickhouse-server:24.8`      | `clickhouse-client` | extra |
+| mongodb    | `mongo:7`                                | `mongosh`           | extra |
+| sqlserver  | `mcr.microsoft.com/mssql/server:2022`    | `sqlcmd`            | extra |
+
+The **extra tier** is the compose profile `extra`, opted into with
+`DBUI_IT_EXTRA=1 make test-integration`. Their seeding runs *inside* the
+containers (the images ship their client), but the specs drive the **host**
+CLI through dadbod, so an extra adapter's specs run only when that client is
+on your PATH -- otherwise they report `pending`, never failed.
+
+Not in the suite: **oracle** (the free container image is multi-GB with a
+minutes-long first start, and `sqlplus` host installs are rare -- revisit if
+oracle regressions actually bite) and **bigquery** (a cloud service; there is
+no container to test against).
 
 ## One stack definition, one entry point
 
