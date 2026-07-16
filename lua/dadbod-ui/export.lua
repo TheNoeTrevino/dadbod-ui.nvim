@@ -16,6 +16,15 @@
 -- without a database -- the default seams call `bridge` / `vim.system` /
 -- `writefile` / `notifications`.
 
+local bridge = require('dadbod-ui.bridge')
+local utils = require('dadbod-ui.utils')
+local state = require('dadbod-ui.state')
+local schemas = require('dadbod-ui.schemas')
+local notify = require('dadbod-ui.notifications')
+local adapters = require('dadbod-ui.export_adapters')
+local export_formats = require('dadbod-ui.export_formats')
+local export_extract = require('dadbod-ui.export_extract')
+
 ---@alias DadbodUI.ExportRunOnDone fun(result: DadbodUI.SystemCompleted)
 ---@alias DadbodUI.ExportTransformCallback fun(ok: boolean, content: string?, rows: integer?, err: string?)
 ---@alias DadbodUI.ExportTransform fun(scheme: string, stdout: string, fmt: string, opts: table, source: string, cb: DadbodUI.ExportTransformCallback)
@@ -105,7 +114,7 @@ end
 ---@param opts? table  per-format options
 ---@return string
 function M.format(data, fmt, opts)
-  return require('dadbod-ui.export_formats')[fmt](data, opts)
+  return export_formats[fmt](data, opts)
 end
 
 ---@private
@@ -152,11 +161,11 @@ end
 ---@param source string
 ---@return string content, integer rows
 function M._transform_sync(scheme, stdout, fmt, opts, source)
-  local data = require('dadbod-ui.export_extract').parse(scheme, stdout or '')
+  local data = export_extract.parse(scheme, stdout or '')
   -- Normalize '' to nil: an empty string is truthy in Lua, so `data.source` would
   -- otherwise defeat the `opts.table or data.source or 'exported_table'` fallback
   -- chain in the SQL formatter (and wrap the JSON export under an empty key).
-  data.source = require('dadbod-ui.export_formats').nonempty(source)
+  data.source = export_formats.nonempty(source)
   return M.format(data, fmt, opts), #data.rows
 end
 
@@ -261,8 +270,6 @@ end
 ---@param bufnr integer
 ---@return DadbodUI.ExportBufferInfo|nil, string?
 function M.resolve_buffer(bufnr)
-  local bridge = require('dadbod-ui.bridge')
-  local utils = require('dadbod-ui.utils')
   local db = vim.b[bufnr].db
   if type(db) ~= 'table' or type(db.db_url) ~= 'string' or db.db_url == '' then
     return nil, 'Not a query result buffer.'
@@ -311,7 +318,6 @@ end
 ---@param bridge table  the engine bridge (injectable)
 ---@return { cmd: string[], stdin: string|nil, native: boolean }
 local function build_command(params, bridge)
-  local adapters = require('dadbod-ui.export_adapters')
   local native = adapters.is_native(params.scheme, params.format, params.prefer_native)
   local args = native and adapters.native_args(params.scheme, params.format) or adapters.extract_args(params.scheme)
   local cmd = bridge.command(params.url)
@@ -336,14 +342,13 @@ end
 ---@return nil
 function M.export(params, deps)
   deps = deps or {}
-  local bridge = deps.bridge or require('dadbod-ui.bridge')
+  local bridge = deps.bridge or bridge
   local run = deps.run or M._run
   local write = deps.write or M._write
-  local notify = deps.notify or require('dadbod-ui.notifications')
+  local notify = deps.notify or notify
   -- The parse+format step, injectable; defaults to the worker-thread transform
   -- (off the main loop for large results). Small results run inline inside it.
   local transform = deps.transform or M._transform_async
-  local adapters = require('dadbod-ui.export_adapters')
 
   local scheme, fmt = params.scheme, params.format
   if not adapters.supports(scheme) then
@@ -454,7 +459,7 @@ local EXTENSIONS = { csv = 'csv', tsv = 'tsv', json = 'json', markdown = 'md', h
 ---@param dir? string  configured default directory ('' / nil => cwd)
 ---@return string
 function M.default_path(source, fmt, dir)
-  local base = require('dadbod-ui.export_formats').nonempty(source) or 'export'
+  local base = export_formats.nonempty(source) or 'export'
   local base_dir = (dir ~= nil and dir ~= '') and vim.fs.normalize(dir) or vim.fn.getcwd()
   return string.format('%s/%s.%s', base_dir, base, EXTENSIONS[fmt] or fmt)
 end
@@ -487,7 +492,7 @@ local function export_config(deps)
   if deps.config ~= nil then
     return deps.config
   end
-  local cfg = require('dadbod-ui.state').config()
+  local cfg = state.config()
   return type(cfg.results.export) == 'table' and cfg.results.export or {}
 end
 
@@ -509,13 +514,12 @@ function M.export_prompt(info, deps)
   deps = deps or {}
   local select = deps.select or vim.ui.select
   local input = deps.input or vim.ui.input
-  local notify = deps.notify or require('dadbod-ui.notifications')
+  local notify = deps.notify or notify
   -- Overwrite guard (injectable): default to a blocking yes/no so an existing file
   -- is never clobbered silently. Returns true to proceed.
   local confirm = deps.confirm or function(msg)
     return vim.fn.confirm(msg, '&Yes\n&No', 2) == 1
   end
-  local adapters = require('dadbod-ui.export_adapters')
   if not adapters.supports(info.scheme) then
     return notify.error(string.format('Export is not supported for the %s adapter.', info.scheme))
   end
@@ -539,10 +543,7 @@ function M.export_prompt(info, deps)
         return
       end
       path = vim.trim(path)
-      if
-        require('dadbod-ui.utils').is_file(vim.fs.normalize(path))
-        and not confirm(string.format('%s exists. Overwrite?', path))
-      then
+      if utils.is_file(vim.fs.normalize(path)) and not confirm(string.format('%s exists. Overwrite?', path)) then
         return notify.info('Export cancelled.')
       end
       M.export({
@@ -555,11 +556,7 @@ function M.export_prompt(info, deps)
         prefer_native = prefer_native,
         -- The dbout path has no connection entry, only the scheme: resolve the
         -- quote flag with the session config (never a config-less schema build).
-        format_opts = M.format_opts(
-          cfg,
-          fmt,
-          require('dadbod-ui.schemas').get(info.scheme, require('dadbod-ui.state').config()).quote == true
-        ),
+        format_opts = M.format_opts(cfg, fmt, schemas.get(info.scheme, state.config()).quote == true),
       }, deps)
     end)
   end)
@@ -575,7 +572,7 @@ end
 ---@return nil
 function M.export_interactive(bufnr, deps, page_choice)
   deps = deps or {}
-  local notify = deps.notify or require('dadbod-ui.notifications')
+  local notify = deps.notify or notify
   local info, err = M.resolve_buffer(bufnr)
   if info == nil then
     return notify.error(err)

@@ -17,6 +17,7 @@
 ---@field explain fun(sql: string, opts?: DadbodUI.ExplainOpts, picker_opts?: table)
 
 local notifications = require('dadbod-ui.notifications')
+local state = require('dadbod-ui.state')
 
 ---@type DadbodUI.PickerRouter
 ---@diagnostic disable-next-line: missing-fields
@@ -49,6 +50,7 @@ end
 ---@param opts? table
 ---@param on_select? DadbodUI.PickerSelect
 function M.show(opts, on_select)
+  -- inline: require cycle (picker.utils calls back into api)
   local utils = require('dadbod-ui.picker.utils')
   local items = utils.build_items()
   if #items == 0 then
@@ -56,7 +58,7 @@ function M.show(opts, on_select)
   end
   on_select = on_select or utils.connect
 
-  local picker_type = require('dadbod-ui.state').config().picker or 'auto'
+  local picker_type = state.config().picker or 'auto'
   if picker_type == 'auto' then
     return show_auto(items, opts, on_select)
   end

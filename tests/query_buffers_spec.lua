@@ -133,6 +133,54 @@ describe('query buffers: open', function()
   end)
 end)
 
+describe('query buffers: window reuse', function()
+  local d
+  local saved_hidden
+
+  local function query_wins()
+    local n = 0
+    for _, win in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
+      local key = vim.b[vim.api.nvim_win_get_buf(win)].dbui_db_key_name
+      if key and key ~= '' then
+        n = n + 1
+      end
+    end
+    return n
+  end
+
+  before_each(function()
+    saved_hidden = vim.o.hidden
+  end)
+
+  after_each(function()
+    vim.o.hidden = saved_hidden
+    if d then
+      d:close()
+      d = nil
+    end
+    vim.cmd('silent! %bwipeout!')
+  end)
+
+  -- Regression: under 'nohidden' a modified query buffer must not block the window
+  -- swap and split off a duplicate window ('bufhidden=hide' lets it just hide).
+  it('reuses the one query window for a second query on the same connection (nohidden)', function()
+    vim.o.hidden = false
+    d = make_drawer({ qa = 'sqlite:/tmp/qa.db' })
+    d:open()
+    local entry = entry_named(d, 'qa')
+
+    d:query():open({ type = 'query', key_name = entry.key_name }, 'edit')
+    -- Dirty the buffer so it is modified + unsaved (the case that used to split).
+    vim.api.nvim_buf_set_lines(0, 0, -1, false, { 'select 1;' })
+    assert.equals(1, query_wins())
+
+    -- Open a second query from the drawer window.
+    vim.api.nvim_set_current_win(d.winid)
+    d:query():open({ type = 'query', key_name = entry.key_name }, 'edit')
+    assert.equals(1, query_wins())
+  end)
+end)
+
 describe('query buffers: filename extension', function()
   local d
 

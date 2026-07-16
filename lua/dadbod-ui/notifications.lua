@@ -21,6 +21,9 @@
 local M = {}
 
 ---@private
+local state = require('dadbod-ui.state')
+
+---@private
 local TITLE = require('dadbod-ui.constants').notify_title
 
 ---@private
@@ -93,7 +96,7 @@ local function emit(msg, kind, opts)
     return
   end
   opts = opts or {}
-  local config = require('dadbod-ui.state').config()
+  local config = state.config()
   if kind == 'info' and config.notifications.disable_info then
     return
   end

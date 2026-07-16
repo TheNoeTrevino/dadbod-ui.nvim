@@ -21,6 +21,7 @@
 ---@field export_selection fun()
 
 local resolve = require('dadbod-ui.api.resolve')
+local dbui = require('dadbod-ui')
 
 ---@private
 ---@type DadbodUI.ApiBufModule
@@ -39,7 +40,7 @@ local M = {}
 ---@return string|nil err
 function M.switch(name)
   if name == nil then
-    require('dadbod-ui').switch_buffer()
+    dbui.switch_buffer()
     return true
   end
   -- Resolve through the api's own addressing (key_name / group/name / bare) and
@@ -49,18 +50,18 @@ function M.switch(name)
   if entry == nil then
     return false, 'no connection named ' .. tostring(name)
   end
-  local ok, err = require('dadbod-ui').switch_buffer(entry.key_name)
+  local ok, err = dbui.switch_buffer(entry.key_name)
   return ok == true, err
 end
 
 --- Find/adopt the query buffer for the current db context.
 function M.find()
-  require('dadbod-ui').find_buffer()
+  dbui.find_buffer()
 end
 
 --- Rename the current query buffer's on-disk file.
 function M.rename()
-  require('dadbod-ui').rename_buffer()
+  dbui.rename_buffer()
 end
 
 --- Execute the whole current query buffer through dadbod, opening the `.dbout`
@@ -79,7 +80,7 @@ end
 --- <
 ---@param transform? DadbodUI.SqlTransform
 function M.execute(transform)
-  require('dadbod-ui').execute_query(transform)
+  dbui.execute_query(transform)
 end
 
 --- Execute the current visual selection through dadbod -- the Lua equivalent of
@@ -87,17 +88,17 @@ end
 --- `execute`, applied to the selected SQL.
 ---@param transform? DadbodUI.SqlTransform
 function M.execute_selection(transform)
-  require('dadbod-ui').execute_selection(transform)
+  dbui.execute_selection(transform)
 end
 
 --- Cancel the running async query for the current query buffer.
 function M.cancel()
-  require('dadbod-ui').cancel_query()
+  dbui.cancel_query()
 end
 
 --- Echo the last executed query and its runtime.
 function M.last_query_info()
-  require('dadbod-ui').print_last_query_info()
+  dbui.print_last_query_info()
 end
 
 --- Explain the current query buffer's SQL and open the plan in the `.dbout`
@@ -110,7 +111,7 @@ end
 --- explain-query mapping.
 ---@param opts? DadbodUI.ExplainOpts
 function M.explain(opts)
-  require('dadbod-ui').explain_query(opts)
+  dbui.explain_query(opts)
 end
 
 --- Explain the current visual selection and open the plan in the `.dbout` window
@@ -118,7 +119,7 @@ end
 --- and `opts.analyze` behavior as `explain`.
 ---@param opts? DadbodUI.ExplainOpts
 function M.explain_selection(opts)
-  require('dadbod-ui').explain_selection(opts)
+  dbui.explain_selection(opts)
 end
 
 --- Export the current query buffer's results to a file: run its SQL and write the
@@ -127,13 +128,13 @@ end
 --- counterpart to `dbout.export` (which works on the `.dbout` result buffer).
 --- Reuses the buffer's connection + bind-param context.
 function M.export()
-  require('dadbod-ui').export_query()
+  dbui.export_query()
 end
 
 --- Export the current visual selection's results to a file -- the export dual of
 --- `execute_selection`. Same prompt + connection/bind-param reuse as `export`.
 function M.export_selection()
-  require('dadbod-ui').export_selection()
+  dbui.export_selection()
 end
 
 return M

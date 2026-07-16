@@ -57,4 +57,23 @@ function M.routine_schema(key_name, schema)
   return M.section(key_name, 'routines') .. '/' .. schema
 end
 
+--- One routine leaf (`schema` is '' for non-schema adapters). Togglable only for
+--- adapters exposing "Script As"; the id is stable either way.
+---@param key_name string
+---@param schema string
+---@param name string
+---@return string
+function M.routine(key_name, schema, name)
+  return M.section(key_name, 'routines') .. '/' .. schema .. '/' .. name
+end
+
+--- The "Script As" node under a routine (SSMS-style DDL scripting submenu).
+---@param key_name string
+---@param schema string
+---@param name string
+---@return string
+function M.routine_script_as(key_name, schema, name)
+  return M.routine(key_name, schema, name) .. '/script_as'
+end
+
 return M

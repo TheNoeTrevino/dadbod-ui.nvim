@@ -26,6 +26,8 @@
 ---@field help_lines fun(config: DadbodUI.Config): string[]
 ---@field keys_for_action fun(keys: DadbodUI.Keymaps, action: string): string
 
+local cfg_mod = require('dadbod-ui.config')
+
 ---@type DadbodUI.MappingsModule
 ---@diagnostic disable-next-line: missing-fields
 local M = {}
@@ -132,7 +134,7 @@ end
 ---@param config DadbodUI.Config
 ---@return string
 local function describe(ctx, action, config)
-  local builtin = require('dadbod-ui.config').builtin_actions[ctx]
+  local builtin = cfg_mod.builtin_actions[ctx]
   if builtin and builtin[action] then
     return builtin[action]
   end
@@ -150,11 +152,10 @@ end
 ---@param config DadbodUI.Config
 ---@return string[]
 function M.help_lines(config)
-  local cfg = require('dadbod-ui.config')
   local sections = {}
   local key_width = 0
 
-  for _, sec in ipairs(cfg.contexts) do
+  for _, sec in ipairs(cfg_mod.contexts) do
     local keys = config[sec.group] and config[sec.group].keys
     local bound = by_action(keys)
 
@@ -162,7 +163,7 @@ function M.help_lines(config)
     -- not covered by the built-in order) alphabetically.
     local order = {}
     local seen = {}
-    for _, id in ipairs(cfg.action_order[sec.group] or {}) do
+    for _, id in ipairs(cfg_mod.action_order[sec.group] or {}) do
       if bound[id] then
         order[#order + 1] = id
         seen[id] = true

@@ -32,6 +32,7 @@
 ---@field explain_action fun(sql: string, opts?: DadbodUI.ExplainOpts): DadbodUI.PickerSelect
 
 local notifications = require('dadbod-ui.notifications')
+local utils = require('dadbod-ui.utils')
 
 ---@type DadbodUI.PickerUtils
 ---@diagnostic disable-next-line: missing-fields
@@ -41,8 +42,9 @@ local M = {}
 ---@return DadbodUI.PickerItem[]
 function M.build_items()
   local items = {}
+  -- inline: require cycle (api launches the picker)
   for i, info in ipairs(require('dadbod-ui.api').list()) do
-    local label = require('dadbod-ui.utils').display_name(info.name, info.group)
+    local label = utils.display_name(info.name, info.group)
     table.insert(items, {
       score = i,
       label = label,

@@ -8,6 +8,8 @@
 ---@class DadbodUI.ApiDboutModule
 ---@field export fun(page_choice?: 'full'|'current')
 
+local export = require('dadbod-ui.export')
+
 ---@private
 ---@type DadbodUI.ApiDboutModule
 ---@diagnostic disable-next-line: missing-fields
@@ -20,7 +22,7 @@ local M = {}
 --- prompt-free export driven by a connection name + SQL.
 ---@param page_choice? 'full'|'current'
 function M.export(page_choice)
-  require('dadbod-ui.export').export_interactive(vim.api.nvim_get_current_buf(), nil, page_choice)
+  export.export_interactive(vim.api.nvim_get_current_buf(), nil, page_choice)
 end
 
 return M

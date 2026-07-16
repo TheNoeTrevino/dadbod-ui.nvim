@@ -18,6 +18,9 @@ local ids = require('dadbod-ui.drawer.ids')
 local spinner = require('dadbod-ui.spinner')
 local spinners = require('dadbod-ui.spinners')
 local table_helpers = require('dadbod-ui.table_helpers')
+local state = require('dadbod-ui.state')
+local routine_script = require('dadbod-ui.routine_script')
+local dbout = require('dadbod-ui.dbout')
 
 ---@private
 -- The connected predicate lives in state (the SSOT); required lazily here to
@@ -25,7 +28,7 @@ local table_helpers = require('dadbod-ui.table_helpers')
 ---@param entry DadbodUI.ConnectionEntry
 ---@return boolean
 local function is_connected(entry)
-  return require('dadbod-ui.state').is_connected(entry)
+  return state.is_connected(entry)
 end
 
 ---@private
@@ -193,7 +196,6 @@ function Drawer:build_dbout_section(roots)
   if not expanded then
     return
   end
-  local dbout = require('dadbod-ui.dbout')
   table.sort(files, dbout.sort_dbout)
   node.children = vim
     .iter(files)
@@ -434,26 +436,83 @@ function Drawer:routine_count(entry)
   return #entry.routines.flat
 end
 
---- Build one procedure/function leaf node. Its `content` (the adapter's
---- pre-built DDL/source query) rides along so the `open` action reuses the
---- table-helper open path verbatim -- opening it fills a query buffer with the
---- definition SQL, which the user runs to view the source. A `[P]`/`[F]` suffix
---- distinguishes a procedure from a function without depending on an extra icon.
+--- Build one procedure/function node. A `[P]`/`[F]` suffix distinguishes a
+--- procedure from a function without depending on an extra icon.
+---
+--- Adapters exposing a "Script As" capability (`entry.routine_scripts`, SSMS-
+--- style) render the routine as a toggle expanding to a `Script As` node whose
+--- leaves each script the routine (CREATE / ALTER / DROP / ...) into a chosen
+--- destination -- see `dadbod-ui.routine_script`. Adapters without it keep the
+--- plain leaf: its `content` (the adapter's pre-built DDL/source query) rides
+--- along so the `open` action reuses the table-helper open path verbatim --
+--- opening it fills a query buffer with the definition SQL to run.
 ---@param entry DadbodUI.ConnectionEntry
 ---@param routine DadbodUI.RoutineItem
 ---@param schema string
 ---@return DadbodUI.Node
 function Drawer:build_routine(entry, routine, schema)
-  return {
-    label = string.format('%s [%s]', routine.name, routine.kind == 'procedure' and 'P' or 'F'),
-    icon = self.icons.procedures,
+  local label = string.format('%s [%s]', routine.name, routine.kind == 'procedure' and 'P' or 'F')
+  if entry.routine_scripts == nil then
+    return {
+      label = label,
+      icon = self.icons.procedures,
+      type = 'routine',
+      action = 'open',
+      key_name = entry.key_name,
+      table = routine.name,
+      schema = schema,
+      content = routine.content,
+    }
+  end
+
+  local node, expanded = self:toggle_node({
+    id = ids.routine(entry.key_name, schema, routine.name),
     type = 'routine',
-    action = 'open',
+    icon = 'procedures',
+    label = label,
     key_name = entry.key_name,
-    table = routine.name,
-    schema = schema,
-    content = routine.content,
-  }
+    extra = { table = routine.name, schema = schema },
+  })
+  if not expanded then
+    return node
+  end
+  local script_node, script_expanded = self:toggle_node({
+    id = ids.routine_script_as(entry.key_name, schema, routine.name),
+    type = 'routine_script_as',
+    icon = 'procedures',
+    label = 'Script As',
+    key_name = entry.key_name,
+  })
+  node.children = { script_node }
+  if script_expanded then
+    script_node.children = vim
+      .iter(entry.routine_scripts.actions)
+      :map(function(action)
+        -- An `activate` leaf: `on_activate` carries the whole behavior (and closes
+        -- over the routine's schema/name), so -- unlike the `open`-node routine
+        -- leaf -- it needs no `table`/`schema` payload; `key_name` stays as the
+        -- generic node->connection link the drawer's action context reads.
+        return {
+          label = action.label,
+          icon = self.icons.procedures,
+          type = 'routine_script',
+          action = 'activate',
+          key_name = entry.key_name,
+          on_activate = function()
+            routine_script.run({
+              entry = entry,
+              schema = schema,
+              name = routine.name,
+              kind = routine.kind,
+              action = action,
+              query = self:query(),
+            })
+          end,
+        }
+      end)
+      :totable()
+  end
+  return node
 end
 
 --- Build the Procedures section: stored procedures + functions. Returns nil

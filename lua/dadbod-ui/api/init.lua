@@ -120,6 +120,13 @@
 
 local state = require('dadbod-ui.state')
 local bridge = require('dadbod-ui.bridge')
+local dbui = require('dadbod-ui')
+local events = require('dadbod-ui.events')
+local connections = require('dadbod-ui.connections')
+local introspect = require('dadbod-ui.introspect')
+local export = require('dadbod-ui.export')
+local explain = require('dadbod-ui.explain')
+local adapters = require('dadbod-ui.adapters')
 
 ---@private
 ---@type DadbodUI.ApiModule
@@ -174,7 +181,6 @@ local function apply_store(fn)
   if path == nil then
     return false, 'no connections.json path is configured (set save_location)'
   end
-  local connections = require('dadbod-ui.connections')
   local new_list, err = fn(connections, connections.read_file(path))
   if err ~= nil then
     return false, err
@@ -191,7 +197,7 @@ end
 ---@private
 ---@return DadbodUI.Introspect
 local function controller()
-  return require('dadbod-ui.introspect').new({
+  return introspect.new({
     config = state.config(),
     connector = bridge.connect,
     render = function() end,
@@ -263,7 +269,7 @@ local function explain_sql(name, sql, opts)
   if entry == nil then
     return nil, 'no connection named ' .. tostring(name)
   end
-  return require('dadbod-ui.explain').wrap(entry.scheme, sql, opts)
+  return explain.wrap(entry.scheme, sql, opts)
 end
 
 -- Drawer ---------------------------------------------------------------------
@@ -271,17 +277,17 @@ end
 --- Open the drawer (accepts command modifiers, e.g. `:tab`).
 ---@param mods? string
 function M.open(mods)
-  require('dadbod-ui').open(mods)
+  dbui.open(mods)
 end
 
 --- Toggle the drawer open/closed.
 function M.toggle()
-  require('dadbod-ui').toggle()
+  dbui.toggle()
 end
 
 --- Close the drawer.
 function M.close()
-  require('dadbod-ui').close()
+  dbui.close()
 end
 
 --- Open the drawer, expand `name` (introspecting it lazily, as clicking its node
@@ -294,7 +300,7 @@ function M.reveal(name)
   if entry == nil then
     return false, 'no connection named ' .. tostring(name)
   end
-  require('dadbod-ui').reveal(entry.key_name)
+  dbui.reveal(entry.key_name)
   return true
 end
 
@@ -310,7 +316,7 @@ function M.refresh(name)
   if entry == nil then
     return false, 'no connection named ' .. tostring(name)
   end
-  require('dadbod-ui').refresh(entry.key_name)
+  dbui.refresh(entry.key_name)
   return true
 end
 
@@ -354,6 +360,7 @@ end
 --- depends on the configured backend (e.g. a `snacks.picker.Config` for snacks).
 ---@param opts? table
 function M.pick(opts)
+  -- inline: require cycle (picker.utils calls back into api)
   require('dadbod-ui.picker').show(opts)
 end
 
@@ -422,7 +429,6 @@ function M.add(spec)
   if path == nil then
     return false, 'no connections.json path is configured (set save_location)'
   end
-  local connections = require('dadbod-ui.connections')
   local list = connections.read_file(path)
   local new_list, err = connections.add_connection(list, spec.name, spec.url, spec.group)
   if new_list == nil then
@@ -557,7 +563,7 @@ end
 --- Add a connection interactively (prompts for url + name). Use `add` to add one
 --- programmatically instead.
 function M.add_connection()
-  require('dadbod-ui').add_connection()
+  dbui.add_connection()
 end
 
 -- Introspection --------------------------------------------------------------
@@ -630,7 +636,7 @@ function M.open_query(name, edit_action)
   if entry == nil then
     return false, 'no connection named ' .. tostring(name)
   end
-  require('dadbod-ui').open_query(entry.key_name, edit_action)
+  dbui.open_query(entry.key_name, edit_action)
   return true
 end
 
@@ -781,7 +787,6 @@ function M.export(spec)
       return false, entry.conn_error ~= nil and entry.conn_error ~= '' and entry.conn_error or 'connection failed'
     end
   end
-  local export = require('dadbod-ui.export')
   local cfg = state.config().results.export or {}
   export.export({
     url = entry.conn,
@@ -819,7 +824,7 @@ end
 ---@return DadbodUI.EventHandle|nil handle
 ---@return string|nil err
 function M.on(event, cb)
-  return require('dadbod-ui.events').on(event, cb)
+  return events.on(event, cb)
 end
 
 --- Remove the listener a `handle` (from `on`) refers to. Returns whether one was
@@ -827,7 +832,7 @@ end
 ---@param handle DadbodUI.EventHandle
 ---@return boolean
 function M.off(handle)
-  return require('dadbod-ui.events').off(handle)
+  return events.off(handle)
 end
 
 -- Adapters -------------------------------------------------------------------
@@ -847,7 +852,7 @@ end
 ---@param spec DadbodUI.Adapter
 ---@return DadbodUI.Adapter
 function M.register_adapter(spec)
-  return require('dadbod-ui.adapters').register(spec)
+  return adapters.register(spec)
 end
 
 -- Statusline -----------------------------------------------------------------
@@ -859,7 +864,7 @@ end
 ---@param opts? DadbodUI.StatuslineOpts
 ---@return string
 function M.statusline(opts)
-  return require('dadbod-ui').statusline(opts)
+  return dbui.statusline(opts)
 end
 
 return M

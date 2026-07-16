@@ -20,6 +20,13 @@ local bridge = require('dadbod-ui.bridge')
 local bind_params = require('dadbod-ui.bind_params')
 local introspect = require('dadbod-ui.introspect')
 local utils = require('dadbod-ui.utils')
+local notify = require('dadbod-ui.notifications')
+local hooks = require('dadbod-ui.hooks')
+local dbout = require('dadbod-ui.dbout')
+local paginator = require('dadbod-ui.paginator')
+local mappings = require('dadbod-ui.mappings')
+local export = require('dadbod-ui.export')
+local explain = require('dadbod-ui.explain')
 
 --- A last-mile SQL rewrite hook for `execute_query`/`execute_selection`. Receives
 --- the runnable SQL (a single string, after bind-param substitution) and returns
@@ -50,6 +57,21 @@ local function subst(s, key, val)
   end))
 end
 
+---@private
+-- The dbui connection key of the buffer shown in `win`, or nil when the window
+-- doesn't hold a query buffer (no `b:dbui_db_key_name` contract). The single
+-- predicate for "is this a dbui query window", shared by `focus_window` (which
+-- reuses one) and `active_query_buf` (which writes into one).
+---@param win integer
+---@return string|nil
+local function query_win_key(win)
+  local key = vim.b[vim.api.nvim_win_get_buf(win)].dbui_db_key_name
+  if key == nil or key == '' then
+    return nil
+  end
+  return key
+end
+
 --- The right-aligned connection winbar for a query buffer: `group/name` (or just
 --- `name` when the connection is ungrouped) in a padded, highlighted block pushed
 --- to the right edge with `%=`. `%` in the group/name is doubled so a name can't
@@ -73,6 +95,34 @@ end
 local Query = {}
 Query.__index = Query
 
+---@private
+--- Arm the session-wide quit sweep for `query`.
+---
+--- `QuitPre` is the hook, not `VimLeavePre`: Vim raises `E37`/the save prompt
+--- while DECIDING to quit, which is before `VimLeavePre` runs -- by then the
+--- prompt has already been shown. `QuitPre` fires before that check, so clearing
+--- `modified` (or writing) there settles the question silently.
+---
+--- The autocmd is global rather than buffer-local (`setup_buffer`'s per-buffer
+--- group) because a buffer-local `QuitPre` only fires when that buffer is
+--- current, and the buffers being prompted about are precisely the hidden ones.
+---
+--- Re-arming is safe and intended: `clear = true` drops the previous autocmd, so
+--- the sweep always runs against the newest controller -- a re-`setup()` rebuilds
+--- the drawer (and this `Query`) with the new config, and the old one is dropped
+--- rather than pinned alive by a stale closure.
+---@param query DadbodUI.Query
+---@return nil
+local function arm_exit_sweep(query)
+  local group = vim.api.nvim_create_augroup('dadbod_ui_query_exit', { clear = true })
+  vim.api.nvim_create_autocmd('QuitPre', {
+    group = group,
+    callback = function()
+      query:sweep_on_exit()
+    end,
+  })
+end
+
 --- Create a query controller bound to `drawer`. Connecting and saved-query
 --- refresh go through a dedicated introspection controller (built from the
 --- drawer's config + injectable connect backend) rather than back through the
@@ -81,7 +131,7 @@ Query.__index = Query
 ---@param drawer DadbodUI.Drawer
 ---@return DadbodUI.Query
 function M.new(drawer)
-  return setmetatable({
+  local self = setmetatable({
     drawer = drawer,
     instance = drawer.instance,
     config = drawer.config,
@@ -97,6 +147,8 @@ function M.new(drawer)
     last_query = {},
     last_query_time = '',
   }, Query)
+  arm_exit_sweep(self)
+  return self
 end
 
 --- Open the buffer a drawer `item` points at. `buffer`/`saved_query` items open
@@ -176,10 +228,7 @@ function Query:focus_window()
     return
   end
   -- (a) reuse a window already holding a dbui query buffer.
-  local reuse = vim.iter(wins):find(function(win)
-    local key = vim.b[vim.api.nvim_win_get_buf(win)].dbui_db_key_name
-    return key and key ~= ''
-  end)
+  local reuse = vim.iter(wins):find(query_win_key)
   if reuse then
     vim.api.nvim_set_current_win(reuse)
     return
@@ -205,7 +254,7 @@ end
 ---@param entry DadbodUI.ConnectionEntry
 ---@param name string
 ---@param edit_action string
----@param opts? { table?: string, schema?: string, content?: string, existing_buffer?: boolean }
+---@param opts? { table?: string, schema?: string, content?: string, raw?: boolean, existing_buffer?: boolean }
 ---@return nil
 function Query:open_buffer(entry, name, edit_action, opts)
   opts = opts or {}
@@ -221,27 +270,39 @@ function Query:open_buffer(entry, name, edit_action, opts)
   if edit_action == 'edit' then
     self:focus_window()
   end
-  -- An already-open buffer is shown as-is (don't clobber its contents). When the
-  -- window can't be reused -- e.g. 'nohidden' with a modified buffer in it -- the
-  -- switch is a no-op, so we fall through to the split fallback below.
+  -- Show an already-open buffer as-is (don't clobber its contents). If the window
+  -- won't take it (an unrelated modified buffer under 'nohidden' -- query buffers
+  -- themselves never block, see setup_buffer's 'bufhidden=hide'), the switch is a
+  -- no-op and we fall through to the split below.
   local is_existing = utils.loaded_bufnr(full) > -1
   if is_existing then
     pcall(vim.cmd, 'silent! buffer ' .. vim.fn.fnameescape(full))
-    if vim.api.nvim_buf_get_name(0) == full then
+    if utils.same_path(vim.api.nvim_buf_get_name(0), full) then
       self:setup_buffer(entry, vim.tbl_extend('force', opts, { existing_buffer = true }), name)
       return
     end
   end
 
   vim.cmd('silent! ' .. edit_action .. ' ' .. vim.fn.fnameescape(name))
-  if vim.api.nvim_buf_get_name(0) ~= full then
-    -- The window could not take the buffer (modified buffer + 'nohidden'). Open
-    -- in a fresh split so the query buffer still appears -- a split keeps the
-    -- modified buffer visible in its original window, so it is never abandoned.
+  if not utils.same_path(vim.api.nvim_buf_get_name(0), full) then
+    -- The window could not take the buffer (an unrelated modified buffer under
+    -- 'nohidden'). Open in a fresh split so the query buffer still appears and
+    -- that modified buffer is never abandoned.
     local pos = utils.opposite_position(self.config.drawer.position)
     vim.cmd('silent! vertical ' .. pos .. ' split ' .. vim.fn.fnameescape(name))
   end
   self:setup_buffer(entry, vim.tbl_extend('force', opts, { existing_buffer = is_existing }), name)
+
+  -- `raw` fills a fresh buffer with `content` verbatim: no `{placeholder}`
+  -- substitution and no auto-execute (the "Script As" flow writes finished DDL,
+  -- e.g. a DROP, that must never run just from being opened). An already-open
+  -- buffer is shown untouched, exactly like the templated path.
+  if opts.raw then
+    if not is_existing then
+      vim.api.nvim_buf_set_lines(0, 0, -1, false, vim.split(opts.content or '', '\n'))
+    end
+    return
+  end
 
   if table_name == '' or is_existing then
     return
@@ -272,6 +333,70 @@ function Query:open_buffer(entry, name, edit_action, opts)
       self:execute_query()
     end
   end
+end
+
+--- Focus and return the bufnr of the current tabpage's active query buffer for
+--- `entry` (a window whose buffer carries the `b:dbui_db_key_name` contract),
+--- preferring this connection's own buffer but accepting any dbui query buffer.
+--- Returns nil when none is visible -- the "Script As" replace/append
+--- destinations fall back to a new buffer in that case.
+---@param entry DadbodUI.ConnectionEntry
+---@return integer|nil
+function Query:active_query_buf(entry)
+  -- One pass: an exact connection match wins outright; otherwise fall back to the
+  -- first query window of any connection.
+  local win
+  for _, w in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
+    local key = query_win_key(w)
+    if key ~= nil then
+      if key == entry.key_name then
+        win = w
+        break
+      end
+      win = win or w
+    end
+  end
+  if win == nil then
+    return nil
+  end
+  vim.api.nvim_set_current_win(win)
+  return vim.api.nvim_win_get_buf(win)
+end
+
+--- Write scripted routine DDL (`text`) to a "Script As" destination:
+---  `new`     -- a fresh query buffer for `entry`, filled verbatim (no execute);
+---  `replace` -- overwrite the active query buffer's contents;
+---  `append`  -- add it below the active query buffer's contents (blank-separated).
+--- `replace`/`append` fall back to a new buffer when no query buffer is visible.
+---@param entry DadbodUI.ConnectionEntry
+---@param dest 'new'|'replace'|'append'
+---@param text string
+---@param opts? { table?: string, schema?: string }
+---@return nil
+function Query:write_script(entry, dest, text, opts)
+  opts = opts or {}
+  if dest ~= 'new' then
+    local buf = self:active_query_buf(entry)
+    if buf ~= nil then
+      local script_lines = vim.split(text, '\n')
+      local count = vim.api.nvim_buf_line_count(buf)
+      local is_empty = count == 1 and (vim.api.nvim_buf_get_lines(buf, 0, 1, false)[1] or '') == ''
+      if dest == 'replace' or is_empty then
+        vim.api.nvim_buf_set_lines(buf, 0, -1, false, script_lines)
+      else
+        vim.api.nvim_buf_set_lines(buf, count, count, false, vim.list_extend({ '' }, script_lines))
+      end
+      return
+    end
+    -- no visible query buffer: fall through and open a fresh one
+  end
+  local name = self:generate_buffer_name(entry, {
+    label = 'script',
+    table = opts.table,
+    schema = opts.schema,
+    filetype = entry.filetype,
+  })
+  self:open_buffer(entry, name, 'edit', { content = text, raw = true, table = opts.table, schema = opts.schema })
 end
 
 --- Write the buffer-local interop contract (`b:dbui_db_key_name`, `b:db`,
@@ -320,9 +445,13 @@ function Query:setup_buffer(entry, opts, name)
     -- (e.g. a completion plugin) must not abort opening the buffer. The option
     -- is applied before any autocmd runs, so an error leaves the filetype set
     -- and we still fall through to fill/return the buffer.
-    local ok, err = pcall(vim.cmd, 'setlocal noswapfile nowrap nospell modifiable filetype=' .. entry.filetype)
+    -- `bufhidden=hide` keeps query buffers swappable out of their window even
+    -- under 'nohidden', so open_buffer can reuse the one query window instead of
+    -- splitting (the old buffer hides -- still loaded, still in the drawer).
+    local ok, err =
+      pcall(vim.cmd, 'setlocal noswapfile nowrap nospell modifiable bufhidden=hide filetype=' .. entry.filetype)
     if not ok and self.config.debug then
-      require('dadbod-ui.notifications').warn('Error in FileType autocmd: ' .. tostring(err))
+      notify.warn('Error in FileType autocmd: ' .. tostring(err))
     end
   end
   local is_sql = vim.bo.filetype == entry.filetype
@@ -330,7 +459,6 @@ function Query:setup_buffer(entry, opts, name)
   local bufnr = vim.api.nvim_get_current_buf()
 
   do
-    local mappings = require('dadbod-ui.mappings')
     -- Keyed by the ids in `config.builtin_actions.query`; the same ids drive the
     -- help window. `execute` is mode-aware (visual runs the selection).
     -- `save_query` is offered only for writable tmp SQL buffers, so it is omitted
@@ -524,7 +652,7 @@ end
 ---@param on_done fun(values: DadbodUI.BindParams|nil)
 ---@return nil
 local function resolve_params(config, input, names, known, on_done)
-  local resolved = require('dadbod-ui.hooks').call(config, 'resolve_bind_params', names, known)
+  local resolved = hooks.call(config, 'resolve_bind_params', names, known)
   if type(resolved) == 'table' then
     -- Copy so we never mutate the buffer's stored `b:dbui_bind_params` table, and
     -- only pull string values for the actual placeholders (ignore stray keys).
@@ -562,8 +690,6 @@ end
 ---@param quiet? boolean
 ---@return nil
 function Query:dispatch(lines, entry, whole_buffer, quiet)
-  local paginator = require('dadbod-ui.paginator')
-  local dbout = require('dadbod-ui.dbout')
   local sql = table.concat(lines, '\n')
   local page_size = self.config.results.page_size
   local paginated = paginator.paginate(entry.scheme, sql, 1, page_size)
@@ -610,8 +736,6 @@ end
 ---@param transform? DadbodUI.SqlTransform
 ---@return nil
 function Query:execute_query(is_visual, transform)
-  local notify = require('dadbod-ui.notifications')
-  local dbout = require('dadbod-ui.dbout')
   local lines = self:get_lines(is_visual)
   local pattern = self.config.query.bind_param_pattern
   local names = bind_params.detect(lines, pattern)
@@ -637,7 +761,7 @@ function Query:execute_query(is_visual, transform)
   elseif type(raw_db) == 'string' then
     pre_url = raw_db
   end
-  require('dadbod-ui.hooks').run(self.config, 'on_execute_query', {
+  hooks.run(self.config, 'on_execute_query', {
     sql = lines,
     url = pre_url,
     name = pre_entry ~= nil and pre_entry.name or '',
@@ -746,8 +870,6 @@ end
 ---@param opts? DadbodUI.ExplainOpts
 ---@return nil
 function Query:explain_query(is_visual, opts)
-  local notify = require('dadbod-ui.notifications')
-  local explain = require('dadbod-ui.explain')
   local lines = self:get_lines(is_visual)
   local entry = self.instance.dbs[vim.b.dbui_db_key_name]
   if entry == nil then
@@ -800,8 +922,6 @@ end
 ---@param is_visual? boolean
 ---@return nil
 function Query:export_query(is_visual)
-  local notify = require('dadbod-ui.notifications')
-  local export = require('dadbod-ui.export')
   local lines = self:get_lines(is_visual)
   local entry = self.instance.dbs[vim.b.dbui_db_key_name]
   if entry == nil then
@@ -848,8 +968,6 @@ end
 --- each isolated so a throwing hook never breaks the cancel.
 ---@return nil
 function Query:cancel_query()
-  local notify = require('dadbod-ui.notifications')
-  local hooks = require('dadbod-ui.hooks')
   local bufnr = vim.api.nvim_get_current_buf()
   if not bridge.can_cancel() then
     return notify.info('No cancellable query is running.')
@@ -871,7 +989,6 @@ end
 --- offered.
 ---@return nil
 function Query:edit_bind_parameters()
-  local notify = require('dadbod-ui.notifications')
   local bufnr = vim.api.nvim_get_current_buf()
   local params = stored_params(bufnr)
 
@@ -929,6 +1046,64 @@ function Query:edit_bind_parameters()
   end)
 end
 
+---@private
+--- Is `bufnr` a modified SCRATCH query buffer -- the only thing the quit sweep
+--- may touch? Requires the `b:dbui_db_key_name` contract (so it is a tracked dbui
+--- buffer, not some unrelated SQL file), a real file buffer, and a name under the
+--- tmp location. Saved queries live under `save_path`, so they fail the last test
+--- and keep Vim's normal prompt -- they are real files the user deliberately named.
+---@param instance DadbodUI.Instance
+---@param bufnr integer
+---@return boolean
+local function is_scratch_buf(instance, bufnr)
+  if not vim.api.nvim_buf_is_loaded(bufnr) or not vim.bo[bufnr].modified then
+    return false
+  end
+  if vim.bo[bufnr].buftype ~= '' then
+    return false
+  end
+  local key = vim.b[bufnr].dbui_db_key_name
+  if type(key) ~= 'string' or key == '' then
+    return false
+  end
+  return instance:is_tmp_location_buffer(vim.api.nvim_buf_get_name(bufnr))
+end
+
+--- Resolve every modified scratch query buffer so quitting doesn't raise Vim's
+--- "No write since last change" prompt once per buffer (`setup_buffer`'s
+--- `bufhidden=hide` keeps the whole session's scratch buffers loaded, so the
+--- prompts pile up -- see issue #74). Driven by `config.query.save_on_exit`;
+--- `'ask'` is a no-op that leaves Vim's prompt alone.
+---
+--- `'auto'` defers to `Instance:persists_scratch` -- the same predicate that
+--- decides whether `state` restores a connection's scratch `buffers` on startup,
+--- so the two halves cannot drift apart. With a tmp location the buffers are
+--- written, because they come back next session; without one their folder is the
+--- session temp dir, which Neovim wipes on exit, so the prompt asks about a file
+--- that cannot outlive the answer. Saved queries are never swept.
+---@return nil
+function Query:sweep_on_exit()
+  local mode = self.config.query.save_on_exit
+  if mode == 'ask' then
+    return -- leave Vim's own prompt alone
+  end
+  -- 'discard' never writes; 'auto' writes only what state will restore.
+  local persist = mode == 'auto' and self.instance:persists_scratch()
+  for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
+    if is_scratch_buf(self.instance, bufnr) then
+      if persist then
+        -- `noautocmd`: a plain write fires BufWritePost, which under
+        -- `execute_on_save` would run every scratch query on the way out.
+        vim.api.nvim_buf_call(bufnr, function()
+          pcall(vim.cmd, 'silent! noautocmd write')
+        end)
+      else
+        vim.bo[bufnr].modified = false
+      end
+    end
+  end
+end
+
 --- Drop a wiped/deleted buffer from its connection's buffer lists and re-render.
 ---@param bufnr integer
 ---@return nil
@@ -938,9 +1113,9 @@ function Query:remove_buffer(bufnr)
   if entry == nil then
     return
   end
-  local target = vim.fn.fnamemodify(vim.fn.bufname(bufnr), ':p')
+  local target = vim.fn.bufname(bufnr)
   local function keep(path)
-    return vim.fn.fnamemodify(path, ':p') ~= target
+    return not utils.same_path(path, target)
   end
   entry.buffers = vim.tbl_filter(keep, entry.buffers)
   self.drawer:render()
@@ -951,7 +1126,6 @@ end
 --- existing file. Callback-shaped for the async prompt backend.
 ---@return nil
 function Query:save_query()
-  local notify = require('dadbod-ui.notifications')
   local entry = self.instance.dbs[vim.b.dbui_db_key_name]
   if entry == nil then
     return notify.error('Buffer not attached to any database')

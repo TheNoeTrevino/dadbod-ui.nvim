@@ -54,6 +54,115 @@ WHERE n.nspname = '%s' AND p.proname = '%s';]],
   )
 end
 
+-- "Script As" (SSMS-style DDL scripting) ------------------------------------
+--
+-- Postgres has no CREATE-vs-ALTER split for a routine body (a function/procedure
+-- is redefined with CREATE OR REPLACE; `ALTER FUNCTION` only touches attributes),
+-- so the action set is postgres-native: CREATE OR REPLACE / DROP / DROP And
+-- CREATE / EXECUTE. Every statement is built server-side (postgres' catalog
+-- functions handle overloading and comma-bearing types like `numeric(10,2)`
+-- correctly, which Lua-side parsing would not), so each `build` just returns the
+-- fetched text and the generic `M.text` parser reassembles it. Statements are
+-- emitted per overload (a name can resolve to several functions).
+
+---@private
+-- The pg_proc row(s) for one (schema, name): the shared FROM/WHERE every builder
+-- below hangs off. `p` is the proc, `n` its namespace; identifiers are escaped
+-- for the single-quoted literals.
+---@param schema string
+---@param name string
+---@return string
+local function proc_source(schema, name)
+  return table.concat({
+    'FROM pg_catalog.pg_proc p',
+    'JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace',
+    string.format("WHERE n.nspname = '%s' AND p.proname = '%s'", parse.sql_squote(schema), parse.sql_squote(name)),
+    'ORDER BY p.oid',
+  }, '\n')
+end
+
+---@private
+-- `DROP FUNCTION`/`DROP PROCEDURE schema.name(identity_args);` per overload --
+-- the identity args (from `pg_get_function_identity_arguments`) disambiguate
+-- overloaded routines.
+---@param schema string
+---@param name string
+---@return string
+local function drop_query(schema, name)
+  return table.concat({
+    "SELECT 'DROP ' || CASE p.prokind WHEN 'p' THEN 'PROCEDURE' ELSE 'FUNCTION' END",
+    "  || ' ' || quote_ident(n.nspname) || '.' || quote_ident(p.proname)",
+    "  || '(' || pg_get_function_identity_arguments(p.oid) || ');'",
+    proc_source(schema, name),
+  }, '\n')
+end
+
+---@private
+-- The DROP statement + a blank line + the CREATE OR REPLACE definition, per
+-- overload.
+---@param schema string
+---@param name string
+---@return string
+local function drop_and_create_query(schema, name)
+  return table.concat({
+    "SELECT 'DROP ' || CASE p.prokind WHEN 'p' THEN 'PROCEDURE' ELSE 'FUNCTION' END",
+    "  || ' ' || quote_ident(n.nspname) || '.' || quote_ident(p.proname)",
+    "  || '(' || pg_get_function_identity_arguments(p.oid) || ');' || E'\\n\\n'",
+    '  || pg_get_functiondef(p.oid)',
+    proc_source(schema, name),
+  }, '\n')
+end
+
+---@private
+-- A runnable call stub per overload: `CALL` for a procedure, `SELECT * FROM` for
+-- a set-returning function, else `SELECT`. Each input argument (IN/INOUT/VARIADIC,
+-- via `proargmodes`) becomes a `name => :name` bind placeholder -- so running the
+-- stub prompts for each value -- with its type as a trailing comment. Positional
+-- (unnamed) args fall back to `:argN`. No-arg routines get `()`.
+---@param schema string
+---@param name string
+---@return string
+local function execute_query(schema, name)
+  return table.concat({
+    'SELECT',
+    "  CASE p.prokind WHEN 'p' THEN 'CALL '",
+    "    ELSE CASE WHEN p.proretset THEN 'SELECT * FROM ' ELSE 'SELECT ' END END",
+    "  || quote_ident(n.nspname) || '.' || quote_ident(p.proname)",
+    '  || COALESCE(',
+    "       E'(\\n    ' || (",
+    '         SELECT string_agg(',
+    "           CASE WHEN COALESCE(a.argname, '') <> '' THEN a.argname || ' => ' ELSE '' END",
+    "           || ':' || CASE WHEN COALESCE(a.argname, '') <> '' THEN a.argname ELSE 'arg' || a.ord END",
+    "           || '  -- ' || format_type(a.argtype, NULL),",
+    "           E'\\n    , ' ORDER BY a.ord",
+    '         )',
+    '         FROM unnest(',
+    '                COALESCE(p.proallargtypes, p.proargtypes::oid[]),',
+    '                COALESCE(p.proargnames, ARRAY[]::text[]),',
+    '                COALESCE(p.proargmodes, ARRAY[]::"char"[])',
+    '              ) WITH ORDINALITY AS a(argtype, argname, argmode, ord)',
+    "         WHERE COALESCE(a.argmode, 'i') IN ('i', 'b', 'v')",
+    "       ) || E'\\n)',",
+    "       '()'",
+    '     )',
+    "  || ';'",
+    proc_source(schema, name),
+  }, '\n')
+end
+
+---@private
+-- Every postgres action builds its statement server-side, so it needs no `build`
+-- -- the generic default (return the fetched, `M.text`-reassembled result) applies.
+---@type DadbodUI.RoutineScripts
+local routine_scripts = {
+  actions = {
+    { label = 'CREATE OR REPLACE To', query = routine_definition },
+    { label = 'DROP To', query = drop_query },
+    { label = 'DROP And CREATE To', query = drop_and_create_query },
+    { label = 'EXECUTE To', query = execute_query },
+  },
+}
+
 ---@private
 local foreign_key_query = [[
 SELECT ccu.table_name AS foreign_table_name, ccu.column_name AS foreign_column_name, ccu.table_schema as foreign_table_schema
@@ -97,6 +206,7 @@ return {
       schemes_tables_query = use_views and tables_and_views_query or tables_query,
       procedures_query = procedures_query,
       routine_definition = routine_definition,
+      routine_scripts = routine_scripts,
       foreign_key_query = foreign_key_query,
       select_foreign_key_query = 'select * from "%s"."%s" where "%s" = %s',
       cell_line_number = 2,
