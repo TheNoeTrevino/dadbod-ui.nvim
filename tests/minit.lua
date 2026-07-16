@@ -15,18 +15,20 @@ else
   load(vim.fn.system('curl -s https://raw.githubusercontent.com/folke/lazy.nvim/main/bootstrap.lua'), 'bootstrap.lua')()
 end
 
+-- busted's `pending()` marks a spec skipped; mini.test's busted emulation does
+-- not provide it. Our guarded specs call `return pending(msg)` to bow out when a
+-- DB binary/url is unavailable, so a no-op that returns nil lets that `return`
+-- exit the body cleanly. Defined BEFORE setup(): lazy.minit runs the whole
+-- suite synchronously inside setup, and integration specs call pending() at
+-- collect time (top of a describe body).
+_G.pending = function(...) end
+
+-- Keep the command line quiet during tests.
+vim.notify = function() end
+
 require('lazy.minit').setup({
   spec = {
     { dir = vim.uv.cwd() },
     { 'tpope/vim-dadbod', lazy = false },
   },
 })
-
--- Keep the command line quiet during tests.
-vim.notify = function() end
-
--- busted's `pending()` marks a spec skipped; mini.test's busted emulation does
--- not provide it. Our guarded specs call `return pending(msg)` to bow out when a
--- DB binary/url is unavailable, so a no-op that returns nil lets that `return`
--- exit the body cleanly.
-_G.pending = function(...) end

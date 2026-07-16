@@ -1,19 +1,17 @@
 #!/usr/bin/env bash
-# Export integration harness (host runner model): stand up the database servers
-# in Docker, seed them with the shared fixture using the host client CLIs, then
-# drive the real export pipeline from headless Neovim and diff the output against
-# committed golden files.
+# Integration harness: stand up the database servers in Docker (the compose file
+# is the SINGLE definition of the stack -- CI runs this same script), seed them
+# with the shared fixture using the host client CLIs, then run every
+# integration/**/*_spec.lua against the live servers under the same mini.test
+# runner the unit suite uses (tests/minit.lua).
 #
 #   integration/run.sh            # check mode: fail on any golden mismatch
 #   integration/run.sh record     # record mode: (re)write every golden
 #
-# Connection details come from env vars (local defaults match docker-compose.yml).
-# CI / act override the hosts+ports to point at service containers and set
-# DBUI_IT_NO_COMPOSE=1:
+# Connection details come from env vars (defaults match docker-compose.yml).
+# Point the DBUI_IT_*_HOST/_PORT overrides at servers you already run:
 #   DBUI_IT_{PG,MYSQL,MARIADB}_HOST / _PORT
-#   DBUI_IT_NO_COMPOSE=1  databases already up (CI service containers); skip
-#                         compose up/down.
-#   DBUI_IT_KEEP=1        leave the containers running on exit (faster re-runs).
+#   DBUI_IT_KEEP=1   leave the containers running on exit (faster re-runs).
 set -euo pipefail
 
 MODE="${1:-check}"
@@ -42,16 +40,14 @@ export DBUI_IT_SQLITE_URL="sqlite:${SQLITE_TMP}/dbui.db"
 
 cleanup() {
   rm -rf "$SQLITE_TMP"
-  if [[ "${DBUI_IT_NO_COMPOSE:-0}" != "1" && "${DBUI_IT_KEEP:-0}" != "1" ]]; then
+  if [[ "${DBUI_IT_KEEP:-0}" != "1" ]]; then
     "${COMPOSE[@]}" down -v >/dev/null 2>&1 || true
   fi
 }
 trap cleanup EXIT
 
 echo "==> databases"
-if [[ "${DBUI_IT_NO_COMPOSE:-0}" != "1" ]]; then
-  "${COMPOSE[@]}" up -d --wait
-fi
+"${COMPOSE[@]}" up -d --wait
 
 echo "==> seeding"
 # The mysql-family client is `mysql` on Arch/macOS and may be `mariadb` on some
@@ -64,7 +60,10 @@ PGPASSWORD=dbui psql -h "$PG_HOST" -p "$PG_PORT" -U dbui -d dbui -v ON_ERROR_STO
 "$MYSQL_BIN" --host="$MA_HOST" --port="$MA_PORT" -u dbui -pdbui dbui <"$HERE/seed/mysql.sql"
 sqlite3 "${SQLITE_TMP}/dbui.db" <"$HERE/seed/sqlite.sql"
 
-echo "==> running export integration spec ($MODE)"
+echo "==> running integration specs ($MODE)"
 cd "$ROOT"
-nvim --headless --noplugin -u tests/minimal_init.lua \
-  -c "PlenaryBustedDirectory integration/ { minimal_init = 'tests/minimal_init.lua', sequential = true }"
+# Same runner as the unit suite (lazy.minit + mini.test, one Neovim process):
+# tests/minit.lua collects the spec files passed as argv instead of globbing
+# tests/, so the integration tree needs no runner of its own.
+mapfile -t SPECS < <(find integration -name '*_spec.lua' | sort)
+nvim -l tests/minit.lua --minitest "${SPECS[@]}"

@@ -150,8 +150,9 @@ make test   # run the spec suite
 make fmt    # format with stylua
 ```
 
-`make help` lists the rest, including `make test-integration` (which exercises
-the export goldens against real databases, and does need `make deps` + docker).
+`make help` lists the rest, including `make test-integration` (the end-to-end
+suite against real databases in Docker -- see `integration/README.md`; it needs
+docker + the client CLIs, nothing else).
 
 ### Layout
 
