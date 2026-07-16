@@ -18,6 +18,9 @@ local ids = require('dadbod-ui.drawer.ids')
 local spinner = require('dadbod-ui.spinner')
 local spinners = require('dadbod-ui.spinners')
 local table_helpers = require('dadbod-ui.table_helpers')
+local state = require('dadbod-ui.state')
+local routine_script = require('dadbod-ui.routine_script')
+local dbout = require('dadbod-ui.dbout')
 
 ---@private
 -- The connected predicate lives in state (the SSOT); required lazily here to
@@ -25,7 +28,7 @@ local table_helpers = require('dadbod-ui.table_helpers')
 ---@param entry DadbodUI.ConnectionEntry
 ---@return boolean
 local function is_connected(entry)
-  return require('dadbod-ui.state').is_connected(entry)
+  return state.is_connected(entry)
 end
 
 ---@private
@@ -193,7 +196,6 @@ function Drawer:build_dbout_section(roots)
   if not expanded then
     return
   end
-  local dbout = require('dadbod-ui.dbout')
   table.sort(files, dbout.sort_dbout)
   node.children = vim
     .iter(files)
@@ -497,7 +499,7 @@ function Drawer:build_routine(entry, routine, schema)
           action = 'activate',
           key_name = entry.key_name,
           on_activate = function()
-            require('dadbod-ui.routine_script').run({
+            routine_script.run({
               entry = entry,
               schema = schema,
               name = routine.name,

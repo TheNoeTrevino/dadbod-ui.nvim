@@ -9,6 +9,9 @@ local constants = require('dadbod-ui.constants')
 local bridge = require('dadbod-ui.bridge')
 local ids = require('dadbod-ui.drawer.ids')
 local utils = require('dadbod-ui.utils')
+local notify = require('dadbod-ui.notifications')
+local state = require('dadbod-ui.state')
+local mappings = require('dadbod-ui.mappings')
 
 ---@private
 -- The connected predicate lives in state (the SSOT); required lazily here to
@@ -16,7 +19,7 @@ local utils = require('dadbod-ui.utils')
 ---@param entry DadbodUI.ConnectionEntry
 ---@return boolean
 local function is_connected(entry)
-  return require('dadbod-ui.state').is_connected(entry)
+  return state.is_connected(entry)
 end
 
 ---@class DadbodUI.Drawer
@@ -32,7 +35,7 @@ function Drawer:toggle_help()
 
   -- Built from each context's `keys` map so the help window and the live keymaps
   -- can never drift; disabled (`false`) keys are already filtered out.
-  local lines = require('dadbod-ui.mappings').help_lines(self.config)
+  local lines = mappings.help_lines(self.config)
   local max_len = vim.iter(lines):fold(0, function(acc, line)
     return math.max(acc, #line)
   end)
@@ -299,7 +302,7 @@ function Drawer:delete_line()
   if item.action == 'toggle' and item.type == 'db' then
     local entry = self.instance.dbs[item.key_name]
     if entry.source ~= 'file' then
-      return require('dadbod-ui.notifications').error('Cannot delete this connection.')
+      return notify.error('Cannot delete this connection.')
     end
     return self:connections():delete_connection(entry)
   end
@@ -314,7 +317,6 @@ end
 ---@param item DadbodUI.Node
 ---@return nil
 function Drawer:delete_buffer(item)
-  local notify = require('dadbod-ui.notifications')
   local entry = self.instance.dbs[item.key_name]
   local file = item.file_path
   if entry == nil or file == nil then
@@ -382,7 +384,6 @@ end
 ---@param key_name string  the owning connection's key
 ---@return nil
 function Drawer:rename_buffer(buffer, key_name)
-  local notify = require('dadbod-ui.notifications')
   if not utils.is_file(buffer) then
     return notify.error('Only written queries can be renamed.')
   end
@@ -502,7 +503,6 @@ end
 --- connection, then returns focus to the query window.
 ---@return nil
 function Drawer:find_buffer()
-  local notify = require('dadbod-ui.notifications')
   if #self.instance.dbs_list == 0 then
     return notify.error('No database entries found in ' .. constants.name .. '.')
   end
@@ -531,7 +531,7 @@ function Drawer:reveal_buffer(entry)
   -- Refuse an unnamed buffer: adopting it would insert '' into entry.buffers
   -- and render a phantom empty node in the drawer.
   if bufname == '' then
-    return require('dadbod-ui.notifications').error('Cannot assign an unnamed buffer; save it to a file first.')
+    return notify.error('Cannot assign an unnamed buffer; save it to a file first.')
   end
   self:query():setup_buffer(entry, { existing_buffer = true }, bufname)
   -- Feed vim-dadbod-completion when it is installed.
@@ -612,7 +612,6 @@ end
 ---@return boolean|nil ok
 ---@return string|nil err
 function Drawer:switch_buffer(target_name)
-  local notify = require('dadbod-ui.notifications')
   local bufnr = vim.api.nvim_get_current_buf()
   local key = vim.b[bufnr].dbui_db_key_name
   local current = (type(key) == 'string' and key ~= '') and self.instance.dbs[key] or nil
@@ -726,7 +725,6 @@ function Drawer:redraw()
   if item == nil then
     return
   end
-  local notify = require('dadbod-ui.notifications')
   if item.type == 'db' and item.key_name ~= nil then
     local entry = self.instance.dbs[item.key_name]
     notify.info(string.format('Refreshing database %s...', entry and entry.name or ''))

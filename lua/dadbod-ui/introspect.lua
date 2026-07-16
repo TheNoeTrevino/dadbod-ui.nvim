@@ -25,6 +25,10 @@
 ---@private
 local bridge = require('dadbod-ui.bridge')
 ---@private
+local hooks = require('dadbod-ui.hooks')
+---@private
+local notify = require('dadbod-ui.notifications')
+---@private
 local schemas = require('dadbod-ui.schemas')
 ---@private
 local spinner = require('dadbod-ui.spinner')
@@ -72,7 +76,7 @@ end
 ---@param entry DadbodUI.ConnectionEntry
 ---@return string
 function Introspect:_pre_connect(entry)
-  return require('dadbod-ui.hooks').transform(self.config, 'on_connect', {
+  return hooks.transform(self.config, 'on_connect', {
     url = entry.url,
     name = entry.name,
     key_name = entry.key_name,
@@ -100,7 +104,7 @@ function Introspect:_apply_connect(entry, url, ok, conn, started)
   else
     entry.conn = ''
     entry.conn_error = tostring(conn)
-    require('dadbod-ui.notifications').error(string.format('Error connecting to db %s: %s', entry.name, tostring(conn)))
+    notify.error(string.format('Error connecting to db %s: %s', entry.name, tostring(conn)))
   end
   entry.conn_tried = true
 
@@ -119,7 +123,7 @@ function Introspect:_apply_connect(entry, url, ok, conn, started)
   else
     post.error = tostring(conn)
   end
-  require('dadbod-ui.hooks').run(self.config, 'on_connect_post', post)
+  hooks.run(self.config, 'on_connect_post', post)
 end
 
 --- Connect a connection if not already connected (SYNCHRONOUS -- blocks Neovim).
