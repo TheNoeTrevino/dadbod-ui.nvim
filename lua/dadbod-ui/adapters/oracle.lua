@@ -114,6 +114,10 @@ end
 return {
   name = 'oracle',
 
+  -- Oracle extends the classifier's SQL core: PURGE (standalone, or trailing a
+  -- DROP) bypasses the recycle bin, so it both mutates and destroys.
+  statements = { changing = { 'purge' }, dangerous = { 'purge' } },
+
   ---@param config? DadbodUI.Config
   ---@return DadbodUI.SchemaAdapter
   schema = function(config)

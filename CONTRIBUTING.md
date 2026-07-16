@@ -107,6 +107,10 @@ Please adhere to these separations as much as possible.
 
 `paginator.lua` - LIMIT/OFFSET result pagination (styles from the adapter registry).
 
+`classifier.lua` - statement classification (changing / dangerous / plain-select /
+already-paged) over the adapter specs' `statements` patterns; non-SQL adapters
+answer "cannot tell" instead of guessing.
+
 `bind_params.lua` - bind-parameter detection, quoting and substitution.
 
 `table_helpers.lua` - table-helper merge + ordering (templates live on the adapter specs).

@@ -131,9 +131,17 @@
 ---@field table_helpers? table<string, string>|fun(config: DadbodUI.Config): table<string, string>  helper name -> SQL template
 ---@field explain? { plain: string, analyze?: string }  EXPLAIN templates ({sql} placeholder)
 ---@field pagination? 'limit_offset'|'limit_comma'  LIMIT clause style (absent: no pagination)
+---@field statements? DadbodUI.StatementPatterns  dialect keywords for the statement classifier; ABSENT means the dialect is not SQL (mongodb) and classify() answers "cannot tell" instead of guessing
 ---@field export? { stdin: boolean, extract: string[], native: table<string, string[]> }  CLI export flags
 ---@field db_path_lists_tables? boolean  a url naming a database in its path lists tables directly instead of schemas (mysql/mariadb)
 ---@field normalize_tables? fun(raw: string[]): string[]  clean dadbod's raw `tables` output (sqlite splitting, mysql header filter)
+
+--- Dialect extensions to the statement classifier's shared SQL core
+--- (dadbod-ui.classifier). An empty table is meaningful: it declares "this
+--- dialect is plain SQL, the shared core applies as-is".
+---@class DadbodUI.StatementPatterns
+---@field changing? string[]   extra mutating keywords beyond the shared core (e.g. oracle PURGE)
+---@field dangerous? string[]  extra always-dangerous keywords beyond the shared core (each implies changing)
 
 --- Per-adapter introspection metadata (dadbod-ui.schemas). M6 uses the
 --- schema/table listing fields, M10 uses the dbout foreign-key / cell / layout
