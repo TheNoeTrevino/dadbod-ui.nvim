@@ -36,11 +36,11 @@ test-integration-record:
 
 ## Format all Lua in place with stylua (uses ./stylua.toml).
 fmt:
-	stylua lua/ plugin/ tests/
+	stylua lua/ plugin/ tests/ integration/
 
 ## Check formatting without writing; non-zero exit on any diff (CI-friendly).
 fmt-check:
-	stylua --check lua/ plugin/ tests/
+	stylua --check lua/ plugin/ tests/ integration/
 
 ## Install the stylua pre-commit hook into .git/hooks.
 install-hooks:
