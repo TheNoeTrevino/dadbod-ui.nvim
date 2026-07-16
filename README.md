@@ -24,6 +24,7 @@ familiar workflow, but API-first, deeply configurable, and typed to the teeth.
   - [Events](#events)
 - [Migrating from vim-dadbod-ui](#migrating-from-vim-dadbod-ui)
 - [Contributing](#contributing)
+
 <!--toc:end-->
 
 > [!NOTE]
@@ -228,6 +229,11 @@ Events: `on_connect`, `on_connect_post`, `on_execute_query`, `on_execute_query_p
 Every `g:db_ui_*` global maps to a grouped `opts` field, your connections and
 default keys carry over untouched, and the old `:DBUI*` commands are a few lines
 away. See [`MIGRATION.md`](MIGRATION.md) for the full mapping.
+
+## Support
+
+[`CURRENT_SUPPORT.md`](CURRENT_SUPPORT.md) has the full feature-by-adapter
+support matrix. The roadmap lives in the [GitHub milestones](https://github.com/TheNoeTrevino/dadbod-ui.nvim/milestones).
 
 ## Contributing
 
