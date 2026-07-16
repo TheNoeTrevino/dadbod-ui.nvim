@@ -7,8 +7,11 @@ file lives under the tmp location instead of the save location.
 
 ## Where the code lives
 
-- [`lua/dadbod-ui/query.lua`](../lua/dadbod-ui/query.lua) - the Query
-  controller. Open, contract, execute, bind params, save, quit sweep.
+- [`lua/dadbod-ui/query/`](../lua/dadbod-ui/query/) - the Query controller
+  package. `init.lua` is the facade (class + construction + quit-sweep arming);
+  `buffers.lua` (open, contract, save, quit sweep) and `execute.lua` (execute,
+  bind params, explain/export duals) are method mixins, mirroring `drawer/`
+  and `dbout/`.
 - [`lua/dadbod-ui/bridge.lua`](../lua/dadbod-ui/bridge.lua) - the only module
   allowed to talk to vim-dadbod. User queries go through `:DB` here.
 - [`lua/dadbod-ui/bind_params.lua`](../lua/dadbod-ui/bind_params.lua) - pure
