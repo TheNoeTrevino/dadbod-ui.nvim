@@ -152,3 +152,24 @@ make fmt    # format with stylua
 
 `make help` lists the rest, including `make test-integration` (which exercises
 the export goldens against real databases, and does need `make deps` + docker).
+
+### Layout
+
+Specs live in packages under `tests/` that mirror `lua/dadbod-ui/`: a source
+package gets the same-named test dir (`tests/drawer/`, `tests/query/`,
+`tests/export/`, ...), a flat module with several specs gets its own dir
+(`tests/bind_params/`), and single-spec flat modules share `tests/core/`.
+The runner collects `tests/**/*_spec.lua` recursively, so a new dir needs no
+registration - but only files ending in `_spec.lua` are collected; shared
+fixtures/helpers (like `tests/helper.lua`) are safe from the runner by name.
+
+Run a single package or spec by passing paths through:
+
+```bash
+./scripts/test tests/query/*.lua              # one package
+./scripts/test tests/core/paginator_spec.lua  # one spec
+```
+
+Put a spec next to the module it exercises, named for the behavior it covers
+(`drawer/nav_spec.lua`, not `drawer/drawer_nav_spec.lua` - the dir already says
+drawer).
