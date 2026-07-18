@@ -34,7 +34,14 @@ export DBUI_IT_EXTRA="${DBUI_IT_EXTRA:-0}"
 
 cleanup() {
   if [[ "${DBUI_IT_KEEP:-0}" != "1" ]]; then
-    "${COMPOSE[@]}" down -v >/dev/null 2>&1 || true
+    # `down` without -v: the seeds are idempotent, so keeping the database
+    # volumes costs nothing and keeps the test-deps volume (the thing that
+    # makes re-runs fast) intact. DBUI_IT_CLEAN=1 wipes everything.
+    if [[ "${DBUI_IT_CLEAN:-0}" == "1" ]]; then
+      "${COMPOSE[@]}" down -v >/dev/null 2>&1 || true
+    else
+      "${COMPOSE[@]}" down >/dev/null 2>&1 || true
+    fi
   fi
 }
 trap cleanup EXIT

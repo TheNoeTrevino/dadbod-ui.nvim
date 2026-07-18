@@ -61,6 +61,11 @@ services:
     working_dir: /work
     volumes:
       - ..:/work
+      # Test deps (lazy.nvim, mini.test, vim-dadbod) live here, NOT in the
+      # mounted repo -- see LAZY_STDPATH in the Dockerfile. A named volume
+      # keeps local re-runs fast; CI starts with an empty one, so a missing
+      # dependency fails there instead of hiding behind the host's copy.
+      - test-deps:/deps
     environment:
       # Servers are reachable by service name on the compose network.
       DBUI_IT_PG_HOST: postgres
@@ -127,3 +132,6 @@ services:
       interval: 3s
       timeout: 5s
       retries: 40
+
+volumes:
+  test-deps:

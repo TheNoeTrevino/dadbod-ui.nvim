@@ -25,7 +25,16 @@ RUN apt-get update \
   && apt-get install -y --no-install-recommends \
   ca-certificates curl git make tar xz-utils bzip2 \
   postgresql-client mariadb-client sqlite3 \
+  luarocks \
   && rm -rf /var/lib/apt/lists/*
+
+# luassert (the specs' assertion library) system-wide, into a path Neovim
+# already searches (/usr/local/share/lua/5.1). lazy.minit would otherwise pull
+# it as a LuaRocks rock through hererocks, which needs python3 + a C toolchain
+# just to bootstrap its own Lua -- a big image and a per-run download, for a
+# pure-Lua library apt can install in seconds.
+RUN luarocks --lua-version=5.1 install luassert 1.9.0 \
+  && rm -rf /root/.cache
 
 # Neovim, clickhouse, mongosh and sqlcmd are all single-binary/tarball installs
 # -- no extra apt repos, and each is arch-aware (the suite runs on arm64 too,
@@ -63,5 +72,17 @@ RUN set -eux; \
   \
   rm -rf /tmp/*; \
   nvim --version | head -1
+
+# Keep the test dependencies (lazy.nvim, mini.test, vim-dadbod) OUT of the
+# mounted repo. With the default in-repo `.tests/`, a container run would reuse
+# whatever the host had already installed there -- which is exactly how a
+# missing dependency passed locally and failed in CI. A named volume mounted
+# here keeps re-runs fast without ever sharing the host's copy.
+#
+# 0777 because the container runs as the invoking host user (so files it writes
+# into the mounted repo are not root-owned) -- a fresh named volume inherits
+# this directory's mode, and that user must be able to populate it.
+ENV LAZY_STDPATH=/deps
+RUN mkdir -p /deps && chmod 0777 /deps
 
 WORKDIR /work

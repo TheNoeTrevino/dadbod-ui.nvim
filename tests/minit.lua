@@ -4,7 +4,10 @@
 -- under mini.test (`--minitest`). Mirrors the setup folke uses in snacks.nvim.
 -- vim-dadbod is the one runtime dependency (the query engine the bridge calls).
 
-vim.env.LAZY_STDPATH = '.tests'
+-- `.tests/` in the repo by default; the integration runner container points
+-- this at a path of its own so it never reuses the host's copy (see
+-- integration/Dockerfile).
+vim.env.LAZY_STDPATH = vim.env.LAZY_STDPATH or '.tests'
 
 -- Prefer a local lazy.nvim clone (offline / fast); fall back to the upstream
 -- bootstrap over the network (CI).
