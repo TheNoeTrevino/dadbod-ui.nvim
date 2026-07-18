@@ -38,7 +38,11 @@ jobs:
         run: echo "ref=$(./integration/runner-image.sh)" >>"$GITHUB_OUTPUT"
 
       - name: Log in to GHCR
-        run: echo '${{ secrets.GITHUB_TOKEN }}' | docker login ghcr.io -u '${{ github.actor }}' --password-stdin
+        # Via env rather than ${{ }} interpolation: the latter pastes the token
+        # into the shell command itself, where it reaches argv.
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
 
       # Content-addressed, so an existing tag is by definition the image this
       # Dockerfile produces -- rebuilding it would only cost minutes.

@@ -40,7 +40,11 @@ jobs:
       # run.sh just builds locally instead -- so this must never fail the job.
       - name: Log in to GHCR
         continue-on-error: true
-        run: echo '${{ secrets.GITHUB_TOKEN }}' | docker login ghcr.io -u '${{ github.actor }}' --password-stdin
+        # Via env rather than ${{ }} interpolation: the latter pastes the token
+        # into the shell command itself, where it reaches argv.
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
 
       - name: Run integration suite
         env:
