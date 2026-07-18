@@ -37,4 +37,7 @@ return {
   },
 
   pagination = 'limit_offset',
+
+  -- Plain SQL: the classifier's shared core applies as-is.
+  statements = {},
 }

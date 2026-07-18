@@ -1,110 +1,37 @@
-name: export-integration
+name: integration
 
-# Real-database export integration suite: runs the actual adapter CLIs against
-# postgres / mysql / mariadb service containers and diffs the exported bytes
-# against the committed golden files (integration/golden). This is the automated
-# form of the T16 manual verification checklist.
+# Real-database integration suite. This job installs NOTHING: the database
+# servers and the test runner (Neovim + every client CLI) are all containers
+# defined in integration/docker-compose.yml -- the single definition of the
+# stack -- so CI runs the byte-identical command a contributor runs locally.
 #
-# The job runs INSIDE a container so the database services are reachable by their
-# service hostname (postgres/mysql/mariadb) -- this makes the workflow behave
-# identically under `act` (which always containerises the job) and on real
-# GitHub-hosted runners. See integration/README.md.
+# See integration/README.md.
 
 on:
   push:
     branches: [main]
   pull_request:
     paths:
-      - 'lua/dadbod-ui/export*.lua'
-      - 'lua/dadbod-ui/config.lua'
+      - 'lua/dadbod-ui/**'
       - 'integration/**'
+      - 'tests/minit.lua'
+      - 'Makefile'
       - '.github/workflows/integration.yml'
   workflow_dispatch:
+    inputs:
+      extra:
+        description: 'Also run the extra adapters (clickhouse, mongodb, sqlserver)'
+        type: boolean
+        default: false
 
 jobs:
-  export-integration:
+  integration:
     runs-on: ubuntu-latest
-    container:
-      image: ubuntu:24.04
-
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_USER: dbui
-          POSTGRES_PASSWORD: dbui
-          POSTGRES_DB: dbui
-        options: >-
-          --health-cmd "pg_isready -U dbui -d dbui"
-          --health-interval 2s --health-timeout 3s --health-retries 30
-      mysql:
-        image: mysql:8.4
-        env:
-          MYSQL_ROOT_PASSWORD: root
-          MYSQL_USER: dbui
-          MYSQL_PASSWORD: dbui
-          MYSQL_DATABASE: dbui
-        options: >-
-          --health-cmd "mysqladmin ping -h 127.0.0.1 -uroot -proot"
-          --health-interval 2s --health-timeout 3s --health-retries 30
-      mariadb:
-        image: mariadb:11
-        env:
-          MARIADB_ROOT_PASSWORD: root
-          MARIADB_USER: dbui
-          MARIADB_PASSWORD: dbui
-          MARIADB_DATABASE: dbui
-        options: >-
-          --health-cmd "healthcheck.sh --connect --innodb_initialized"
-          --health-interval 2s --health-timeout 3s --health-retries 30
-
-    env:
-      # Databases are provided by the service containers -- do not compose-up.
-      DBUI_IT_NO_COMPOSE: "1"
-      DBUI_IT_PG_HOST: postgres
-      DBUI_IT_PG_PORT: "5432"
-      DBUI_IT_MYSQL_HOST: mysql
-      DBUI_IT_MYSQL_PORT: "3306"
-      DBUI_IT_MARIADB_HOST: mariadb
-      DBUI_IT_MARIADB_PORT: "3306"
-      # Pin Neovim: apt's is too old (the plugin requires >= 0.12).
-      NVIM_VERSION: v0.12.3
 
     steps:
-      - name: Install OS tooling
-        run: |
-          set -eux
-          apt-get update
-          # mariadb-client (NOT Oracle's mysql-client): the golden files are
-          # recorded with the MariaDB client, whose --batch/--html/--xml output
-          # differs from Oracle's for NULL. Pinning the client keeps CI byte-for-
-          # byte consistent with local `make test-integration`. See the README.
-          apt-get install -y --no-install-recommends \
-            make git curl ca-certificates tar \
-            postgresql-client mariadb-client sqlite3
-
-      - name: Install Neovim (arch-aware, cached in the docker image layer store)
-        run: |
-          set -eux
-          case "$(uname -m)" in
-            x86_64)  NARCH=linux-x86_64 ;;
-            aarch64|arm64) NARCH=linux-arm64 ;;
-            *) echo "unsupported arch $(uname -m)" >&2; exit 1 ;;
-          esac
-          curl -fsSL -o /tmp/nvim.tar.gz \
-            "https://github.com/neovim/neovim/releases/download/${NVIM_VERSION}/nvim-${NARCH}.tar.gz"
-          tar -C /opt -xzf /tmp/nvim.tar.gz
-          ln -sf "/opt/nvim-${NARCH}/bin/nvim" /usr/local/bin/nvim
-          nvim --version | head -1
-
       - uses: actions/checkout@v4
 
-      # No actions/cache here: it is a Node action and the bare container has no
-      # Node, which breaks `act`. The expensive artifacts (the postgres/mysql/
-      # mariadb images and the runner image) are cached automatically by the
-      # local Docker image store across runs -- that is the caching that matters,
-      # and it works identically on a GitHub runner and on a self-hosted box /
-      # Raspberry Pi. The remaining per-run cost is a small apt install + two
-      # shallow git clones (a few seconds). See integration/README.md.
-      - name: Run export integration suite
+      - name: Run integration suite
+        env:
+          DBUI_IT_EXTRA: ${{ inputs.extra && '1' || '0' }}
         run: make test-integration

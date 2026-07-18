@@ -12,6 +12,7 @@
 -- and every capability picks it up -- `require('dadbod-ui.api').register_adapter`.
 
 ---@class DadbodUI.AdaptersModule
+---@field Type DadbodUI.AdapterType
 ---@field register fun(spec: DadbodUI.Adapter): DadbodUI.Adapter
 ---@field unregister fun(name: string): boolean
 ---@field get fun(scheme: string|nil): DadbodUI.Adapter|nil
@@ -21,6 +22,25 @@
 ---@type DadbodUI.AdaptersModule
 ---@diagnostic disable-next-line: missing-fields
 local M = {}
+
+--- The built-in adapters as a static enum: each value is the canonical name
+--- (also the key), so `adapters.Type.postgres` can replace the bare 'postgres'
+--- string literal anywhere a canonical adapter name is expected. Custom
+--- adapters registered at runtime are intentionally NOT in here -- the enum is
+--- the closed set of names this plugin ships and tests against; `names()`
+--- remains the open, runtime enumeration.
+---@enum DadbodUI.AdapterType
+M.Type = {
+  postgres = 'postgres',
+  mysql = 'mysql',
+  mariadb = 'mariadb',
+  sqlite = 'sqlite',
+  sqlserver = 'sqlserver',
+  oracle = 'oracle',
+  bigquery = 'bigquery',
+  clickhouse = 'clickhouse',
+  mongodb = 'mongodb',
+}
 
 ---@private
 ---@type table<string, DadbodUI.Adapter>  every scheme name (canonical + aliases) -> spec
@@ -100,18 +120,9 @@ function M.names(capability)
   return names
 end
 
--- Built-in adapters, one file per database.
-for _, name in ipairs({
-  'postgres',
-  'mysql',
-  'mariadb',
-  'sqlite',
-  'sqlserver',
-  'oracle',
-  'bigquery',
-  'clickhouse',
-  'mongodb',
-}) do
+-- Built-in adapters, one file per database -- the enum IS the load list, so a
+-- new built-in is one file plus one enum entry.
+for _, name in ipairs(vim.tbl_values(M.Type)) do
   M.register(require('dadbod-ui.adapters.' .. name))
 end
 

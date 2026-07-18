@@ -31,6 +31,20 @@ describe('adapters: registry lookup', function()
     assert.is_nil(adapters.get(nil))
   end)
 
+  it('Type enumerates exactly the built-in adapters, values equal to keys', function()
+    for key, value in pairs(adapters.Type) do
+      assert.equals(key, value)
+      -- every enum value is a registered, resolvable canonical name
+      local spec = adapters.get(value)
+      assert.is_not_nil(spec, value .. ' is in the enum but not registered')
+      assert.equals(value, spec.name)
+    end
+    -- and nothing built-in is missing from the enum
+    for _, name in ipairs(adapters.names()) do
+      assert.equals(name, adapters.Type[name], name .. ' is registered but missing from the enum')
+    end
+  end)
+
   it('enumerates names, optionally filtered by capability', function()
     local all = adapters.names()
     assert.is_true(vim.tbl_contains(all, 'postgres'))

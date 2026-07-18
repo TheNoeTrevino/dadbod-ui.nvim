@@ -7,4 +7,6 @@
 return {
   name = 'mongodb',
   table_helpers = { List = '{table}.find()' },
+  -- Deliberately NO `statements` field: mongodb isn't SQL, so the statement
+  -- classifier answers "cannot tell" for it rather than guessing.
 }
