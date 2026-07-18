@@ -32,7 +32,9 @@ fi
 export DBUI_IT_MODE="$MODE"
 export DBUI_IT_EXTRA="${DBUI_IT_EXTRA:-0}"
 # Names the image the compose `runner` service uses; see runner-image.sh.
-DBUI_IT_RUNNER_IMAGE="$("$HERE/runner-image.sh")"
+# Overridable so a candidate image can be pointed at by hand (trying a registry
+# image before publishing it, pinning an older runner to bisect a golden).
+DBUI_IT_RUNNER_IMAGE="${DBUI_IT_RUNNER_IMAGE:-$("$HERE/runner-image.sh")}"
 export DBUI_IT_RUNNER_IMAGE
 
 # Get the runner image the cheapest way that works, in order: already on this
