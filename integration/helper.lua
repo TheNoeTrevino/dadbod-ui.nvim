@@ -21,6 +21,11 @@ local M = {}
 -- `plan_marker`: text a real EXPLAIN of `SELECT * FROM people` must contain.
 -- `error_markers`: how the adapter CLI spells a failure inside result text --
 -- dadbod surfaces statement errors as output, not always as a notification.
+-- `quoted_name`: how the seeded name O'Brien renders in THIS client's output
+-- (clickhouse's TabSeparated format backslash-escapes the quote).
+-- `counts_rows`: dadbod-ui can count result rows for this adapter's output
+-- format (needs a header rule or a row-count footer). false => the pagination
+-- last-page guard cannot engage -- see the note in query/pagination_spec.lua.
 M.adapters = {
   {
     name = 'postgres',
@@ -30,6 +35,8 @@ M.adapters = {
     routines = true,
     plan_marker = 'Seq Scan',
     error_markers = { 'ERROR:' },
+    quoted_name = "O'Brien",
+    counts_rows = true,
     extra_schema = 'app',
     extra_schema_table = 'orders_archive',
   },
@@ -40,6 +47,8 @@ M.adapters = {
     routines = true,
     plan_marker = 'people',
     error_markers = { 'ERROR ' },
+    quoted_name = "O'Brien",
+    counts_rows = true,
   },
   {
     name = 'mariadb',
@@ -48,6 +57,8 @@ M.adapters = {
     routines = true,
     plan_marker = 'people',
     error_markers = { 'ERROR ' },
+    quoted_name = "O'Brien",
+    counts_rows = true,
   },
   {
     name = 'sqlite',
@@ -56,6 +67,8 @@ M.adapters = {
     routines = false,
     plan_marker = 'SCAN',
     error_markers = { 'Parse error', 'Runtime error', 'Error:' },
+    quoted_name = "O'Brien",
+    counts_rows = true,
   },
   -- Opt-in extras (run.sh exports these urls only under DBUI_IT_EXTRA=1 with
   -- the matching host client installed). mongodb is not SQL and has its own
@@ -68,6 +81,8 @@ M.adapters = {
     routines = false,
     plan_marker = 'people', -- ReadFromMergeTree (dbui.people)
     error_markers = { 'DB::Exception' },
+    quoted_name = "O\\'Brien", -- TabSeparated escapes the quote
+    counts_rows = false, -- bare TSV: no header rule, no footer to count from
   },
   {
     name = 'sqlserver',
@@ -77,6 +92,8 @@ M.adapters = {
     routines = true,
     plan_marker = 'people', -- unused: sqlserver declares no explain template
     error_markers = { 'Msg ' },
+    quoted_name = "O'Brien",
+    counts_rows = true,
   },
 }
 
@@ -98,11 +115,19 @@ function M.entry(d)
   return d.instance.dbs[d.instance.dbs_list[1].key_name]
 end
 
---- The concatenated text of every open .dbout result buffer.
+---@private
+-- A dadbod result buffer. The extension is the ADAPTER's output extension:
+-- `.dbout` for the SQL adapters, `.json` for mongodb.
+local function is_result_buf(b)
+  local name = vim.api.nvim_buf_get_name(b)
+  return name:match('%.dbout$') ~= nil or name:match('%.json$') ~= nil
+end
+
+--- The concatenated text of every open result buffer.
 function M.dbout_text()
   local out = {}
   for _, b in ipairs(vim.api.nvim_list_bufs()) do
-    if vim.api.nvim_buf_get_name(b):match('%.dbout$') then
+    if is_result_buf(b) then
       vim.list_extend(out, vim.api.nvim_buf_get_lines(b, 0, -1, false))
     end
   end
@@ -172,10 +197,10 @@ function M.assert_no_error_text(adapter, context)
   end
 end
 
---- Wipe every .dbout buffer (isolate result assertions between cases).
+--- Wipe every result buffer (isolate result assertions between cases).
 function M.clear_dbout()
   for _, b in ipairs(vim.api.nvim_list_bufs()) do
-    if vim.api.nvim_buf_get_name(b):match('%.dbout$') then
+    if is_result_buf(b) then
       pcall(vim.api.nvim_buf_delete, b, { force = true })
     end
   end

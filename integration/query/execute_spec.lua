@@ -27,7 +27,7 @@ for _, adapter in ipairs(h.adapters) do
       h.open_query(d, { "SELECT name FROM people WHERE note = 'has, comma'" })
       d:query():execute_query()
 
-      assert.is_true(h.wait_for_text("O'Brien"), 'expected the matching row in .dbout')
+      assert.is_true(h.wait_for_text(adapter.quoted_name), 'expected the matching row in the result buffer')
       assert.same({}, cap.errors)
     end)
 
@@ -37,7 +37,7 @@ for _, adapter in ipairs(h.adapters) do
       d:query():execute_query()
 
       assert.is_true(h.wait_for_text('Ünïcödé'), 'expected the unicode row')
-      assert.is_true(h.dbout_text():find("O'Brien", 1, true) ~= nil, 'expected the quoted row')
+      assert.is_true(h.dbout_text():find(adapter.quoted_name, 1, true) ~= nil, 'expected the quoted row')
       assert.same({}, cap.errors)
       h.assert_no_error_text(adapter)
     end)

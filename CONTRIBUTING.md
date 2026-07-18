@@ -151,8 +151,9 @@ make fmt    # format with stylua
 ```
 
 `make help` lists the rest, including `make test-integration` (the end-to-end
-suite against real databases in Docker -- see `integration/README.md`; it needs
-docker + the client CLIs, nothing else).
+suite against real databases -- see `integration/README.md`). It needs **only
+docker**: the servers and the test runner itself (Neovim + every database
+client CLI) are all containers.
 
 ### Layout
 

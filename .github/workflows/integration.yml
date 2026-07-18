@@ -1,13 +1,11 @@
 name: integration
 
-# Real-database integration suite. The job is a thin caller: it installs the
-# client CLIs + Neovim and runs `make test-integration` -- the exact same entry
-# point contributors run locally. integration/docker-compose.yml is the SINGLE
-# definition of the database stack (this file deliberately declares no
-# `services:`), so local and CI cannot drift: compose runs inside the runner,
-# whose Docker daemon hosts the database containers as siblings of the job.
+# Real-database integration suite. This job installs NOTHING: the database
+# servers and the test runner (Neovim + every client CLI) are all containers
+# defined in integration/docker-compose.yml -- the single definition of the
+# stack -- so CI runs the byte-identical command a contributor runs locally.
 #
-# See integration/README.md (including how to rehearse this workflow with act).
+# See integration/README.md.
 
 on:
   push:
@@ -20,10 +18,11 @@ on:
       - 'Makefile'
       - '.github/workflows/integration.yml'
   workflow_dispatch:
-
-env:
-  # Pin Neovim: apt's is too old (the plugin requires >= 0.12).
-  NVIM_VERSION: v0.12.3
+    inputs:
+      extra:
+        description: 'Also run the extra adapters (clickhouse, mongodb, sqlserver)'
+        type: boolean
+        default: false
 
 jobs:
   integration:
@@ -32,30 +31,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install client CLIs
-        run: |
-          set -eux
-          sudo apt-get update
-          # mariadb-client (NOT Oracle's mysql-client): the golden files are
-          # recorded with the MariaDB client, whose --batch/--html/--xml output
-          # differs from Oracle's for NULL. Pinning the client keeps CI byte-
-          # for-byte consistent with local `make test-integration`.
-          sudo apt-get install -y --no-install-recommends \
-            postgresql-client mariadb-client sqlite3
-
-      - name: Install Neovim
-        run: |
-          set -eux
-          case "$(uname -m)" in
-            x86_64)  NARCH=linux-x86_64 ;;
-            aarch64|arm64) NARCH=linux-arm64 ;;
-            *) echo "unsupported arch $(uname -m)" >&2; exit 1 ;;
-          esac
-          curl -fsSL -o /tmp/nvim.tar.gz \
-            "https://github.com/neovim/neovim/releases/download/${NVIM_VERSION}/nvim-${NARCH}.tar.gz"
-          sudo tar -C /opt -xzf /tmp/nvim.tar.gz
-          sudo ln -sf "/opt/nvim-${NARCH}/bin/nvim" /usr/local/bin/nvim
-          nvim --version | head -1
-
       - name: Run integration suite
+        env:
+          DBUI_IT_EXTRA: ${{ inputs.extra && '1' || '0' }}
         run: make test-integration

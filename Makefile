@@ -23,9 +23,9 @@ help:
 test:
 	./scripts/test
 
-## Run the integration suite against real databases in Docker (compose file is
-## the single stack definition; CI runs this same path). Needs docker + the
-## psql/mysql/sqlite3 clients. DBUI_IT_KEEP=1 keeps the containers up between runs.
+## Run the end-to-end suite against real databases. Needs ONLY docker: the
+## servers AND the runner (nvim + every client CLI) are containers. CI runs
+## this same path. DBUI_IT_KEEP=1 keeps servers up; DBUI_IT_EXTRA=1 adds more adapters.
 test-integration:
 	./integration/run.sh check
 
