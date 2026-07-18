@@ -26,9 +26,21 @@ _G.pending = function(...) end
 -- Keep the command line quiet during tests.
 vim.notify = function() end
 
+-- NOTE on quieting: specs that execute real SQL make vim-dadbod echo a line
+-- per query ('DB: Running query...', 'DB: Query ... finished in 0.02s'), which
+-- buries the test report. It cannot be silenced from here: the completion line
+-- is echoed from an async job callback (so `:silent` at the call site never
+-- covers it), and under `nvim -l` an `:echo` writes to stdout even while
+-- `:redir` is capturing it. `scripts/test` filters the noise out of the output
+-- stream instead -- see the FILTER there, and DBUI_TEST_VERBOSE=1 to keep it.
+
 require('lazy.minit').setup({
   spec = {
     { dir = vim.uv.cwd() },
     { 'tpope/vim-dadbod', lazy = false },
   },
+  -- lazy's own headless output (per-plugin fetch/status/checkout task lines)
+  -- goes through io.stdout, so `:redir` above cannot catch it -- turn it off
+  -- here instead. Errors during install still surface.
+  headless = vim.env.DBUI_TEST_VERBOSE ~= '1' and { process = false, log = false, task = false } or nil,
 })

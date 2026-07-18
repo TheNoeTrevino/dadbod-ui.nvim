@@ -25,7 +25,9 @@ trap 'rm -rf "$SQLITE_TMP"' EXIT
 export DBUI_IT_SQLITE_URL="sqlite:${SQLITE_TMP}/dbui.db"
 
 echo "==> seeding"
-PGPASSWORD=dbui psql -h "$DBUI_IT_PG_HOST" -p "$DBUI_IT_PG_PORT" -U dbui -d dbui \
+# client-min-messages=warning: the seeds are idempotent (DROP ... IF EXISTS),
+# so psql's NOTICEs about absent objects are pure noise on a fresh stack.
+PGPASSWORD=dbui PGOPTIONS='--client-min-messages=warning' psql -h "$DBUI_IT_PG_HOST" -p "$DBUI_IT_PG_PORT" -U dbui -d dbui \
   -v ON_ERROR_STOP=1 -q -f "$HERE/seed/postgres.sql"
 mariadb --host="$DBUI_IT_MYSQL_HOST" --port="$DBUI_IT_MYSQL_PORT" -u dbui -pdbui dbui <"$HERE/seed/mysql.sql"
 mariadb --host="$DBUI_IT_MARIADB_HOST" --port="$DBUI_IT_MARIADB_PORT" -u dbui -pdbui dbui <"$HERE/seed/mysql.sql"
@@ -45,8 +47,8 @@ fi
 
 echo "==> running integration specs ($MODE)"
 cd "$ROOT"
-# Same runner as the unit suite (lazy.minit + mini.test, one Neovim process):
-# tests/minit.lua collects the spec files passed as argv instead of globbing
-# tests/, so the integration tree needs no runner of its own.
+# Same entry point as the unit suite (scripts/test -> lazy.minit + mini.test,
+# one Neovim process): it takes spec paths as argv, so the integration tree
+# needs no runner of its own -- and inherits the output filtering.
 mapfile -t SPECS < <(find integration -name '*_spec.lua' | sort)
-nvim -l tests/minit.lua --minitest "${SPECS[@]}"
+./scripts/test "${SPECS[@]}"

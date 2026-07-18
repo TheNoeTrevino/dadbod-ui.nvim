@@ -1,3 +1,37 @@
 #!/usr/bin/env bash
+# Run the spec suite (lazy.minit + mini.test, one Neovim process). With no
+# arguments the unit suite under tests/ is collected; pass spec paths to run a
+# subset (this is also how integration/run-suite.sh runs the integration tree).
+#
+#   scripts/test                            # everything under tests/
+#   scripts/test tests/query/*.lua          # one package
+#   DBUI_TEST_VERBOSE=1 scripts/test        # keep vim-dadbod's per-query echo
+set -uo pipefail
 
-nvim -l tests/minit.lua --minitest "$@"
+# Specs that execute real SQL make vim-dadbod echo a line per query:
+#
+#   DB: Running query...
+#   DB: Query '/tmp/.../14.dbout' finished in 0.026s
+#
+# It cannot be muted from inside Neovim: the completion line is echoed from an
+# async job callback (so `:silent` at the call site never covers it), and under
+# `nvim -l` an `:echo` still writes even while `:redir` is capturing it.
+#
+# Those echoes go to STDERR while mini.test writes its report and failures to
+# STDOUT, so filter stderr alone -- anything else Neovim reports there (real
+# errors, stack traces) still comes through untouched.
+#
+# Vim's own file-write echo ('"/tmp/x.sql" [New] 1L, 9B written') is dropped
+# for the same reason: specs that exercise the save paths write temp files
+# constantly, and the line says nothing a spec has not already asserted.
+FILTER='
+  /^DB: (Running query|Query )/ { next }
+  /^"[^"]+"[ ]*(\[New\][ ]*)?([0-9]+L, [0-9]+B written)?[ ]*$/ { next }
+  { print > "/dev/stderr" }
+'
+
+if [[ "${DBUI_TEST_VERBOSE:-0}" == "1" ]]; then
+  nvim -l tests/minit.lua --minitest "$@"
+else
+  nvim -l tests/minit.lua --minitest "$@" 2> >(awk "$FILTER")
+fi
