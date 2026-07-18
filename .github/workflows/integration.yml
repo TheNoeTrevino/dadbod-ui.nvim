@@ -27,9 +27,20 @@ on:
 jobs:
   integration:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # To pull the prebuilt runner image published by integration-runner.yml.
+      packages: read
 
     steps:
       - uses: actions/checkout@v4
+
+      # Lets run.sh pull the prebuilt runner image instead of building it. Not
+      # required: a fork PR gets a token that cannot read the package, and
+      # run.sh just builds locally instead -- so this must never fail the job.
+      - name: Log in to GHCR
+        continue-on-error: true
+        run: echo '${{ secrets.GITHUB_TOKEN }}' | docker login ghcr.io -u '${{ github.actor }}' --password-stdin
 
       - name: Run integration suite
         env:

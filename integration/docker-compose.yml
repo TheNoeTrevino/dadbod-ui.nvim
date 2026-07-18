@@ -55,6 +55,13 @@ services:
   # profile. This is what makes docker the ONLY thing a contributor installs.
   runner:
     profiles: [runner]
+    # Content-addressed tag from integration/runner-image.sh, which run.sh
+    # exports. Published to GHCR whenever the Dockerfile changes on a trunk
+    # branch, so a normal run pulls it in a couple of seconds instead of
+    # spending ~30s reinstalling the same clients. The `build:` below stays the
+    # fallback: a Dockerfile edit on a branch has no published tag yet, and
+    # builds locally exactly as it always did.
+    image: ${DBUI_IT_RUNNER_IMAGE:-dadbod-ui-integration-runner:dev}
     build:
       context: .
       dockerfile: Dockerfile
