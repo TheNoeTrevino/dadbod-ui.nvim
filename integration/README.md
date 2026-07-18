@@ -1,34 +1,69 @@
-# Export integration suite
+# Integration suite
 
-High-fidelity, end-to-end tests for native CLI result export (`specs/native-export.md`).
-Where `tests/export_spec.lua` stubs the database bridge and `vim.system`, this suite
-drives the **real** pipeline - real adapter CLI → real server → parse/passthrough →
-file bytes - and compares the output to committed **golden files**. It is the
-automated form of the T16 manual verification checklist.
+High-fidelity, end-to-end tests against **real database servers**. Where the
+unit suite (`make test`) stubs the database bridge and `vim.system`, everything
+under `integration/` drives the real pipeline - real adapter CLI → real server →
+real parsing - organized as one spec package per feature:
 
-It covers every adapter × every format, plus the forced-formatter path
-(`prefer_native = false`) for each format the CLI can emit natively:
+```
+export/          real CLI export, byte-diffed against committed golden files
+introspection/   expand a live connection; seeded schemas/tables/routines land
+query/           execution, pagination, explain, table helpers
+mongodb/         the (non-SQL) mongodb surface: collections + find()
+```
 
-| Adapter  | Server (Docker)     | Client CLI        |
-|----------|---------------------|-------------------|
-| postgres | `postgres:16`       | `psql`            |
-| mysql    | `mysql:8.4`         | `mysql`/`mariadb` |
-| mariadb  | `mariadb:11`        | `mysql`/`mariadb` |
-| sqlite   | *(none - a file)*   | `sqlite3`         |
+The servers under test:
 
-## Running locally (host runner)
+| Adapter    | Server (Docker)                          | Client CLI (in the runner image) | Tier |
+|------------|------------------------------------------|----------------------------------|------|
+| postgres   | `postgres:16`                            | `psql`                           | default |
+| mysql      | `mysql:8.4`                              | `mariadb`                        | default |
+| mariadb    | `mariadb:11`                             | `mariadb`                        | default |
+| sqlite     | *(none - a file)*                        | `sqlite3`                        | default |
+| clickhouse | `clickhouse/clickhouse-server:24.8`      | `clickhouse`                     | extra |
+| mongodb    | `mongo:7`                                | `mongosh`                        | extra |
+| sqlserver  | `mcr.microsoft.com/mssql/server:2022`    | `sqlcmd`                         | extra |
 
-The databases run in Docker; **Neovim and the client CLIs run on your host**.
+The **extra tier** is the compose profile `extra`, opted into with
+`DBUI_IT_EXTRA=1 make test-integration`. Nothing extra to install -- the
+runner image already carries every client.
+
+Not in the suite: **oracle** (the free container image is multi-GB with a
+minutes-long first start, and `sqlplus` host installs are rare -- revisit if
+oracle regressions actually bite) and **bigquery** (a cloud service; there is
+no container to test against).
+
+## Docker is the only requirement
+
+`integration/docker-compose.yml` is the **single definition** of everything -
+pinned image tags, healthchecks, non-default ports (`5543x`/`5330x`) so it never
+collides with databases you already run, **and the test runner itself**.
+
+dadbod does not speak the database wire protocols: it shells out to the client
+CLI (`psql`, `mariadb`, `mongosh`, ...), so those binaries must live wherever
+Neovim runs. Rather than making every contributor install six database clients,
+the `runner` service (see `Dockerfile`) is an image with Neovim + all of them,
+and the repo mounted at `/work`. So:
 
 ```sh
-make test-integration          # check: fail on any golden mismatch
+make test-integration          # check: fail on any golden mismatch / assertion
 make test-integration-record   # record: (re)write the golden files
 ```
 
-Requires on your PATH: `docker` (+ compose plugin), `nvim` (≥ 0.10, for `vim.system`),
-`psql`, `mysql` (or `mariadb`), `sqlite3`. `integration/run.sh` brings the servers up
-with `docker compose`, waits for health, seeds them with the shared fixture using the
-host clients, runs the spec, and tears the servers down.
+...needs **only `docker` (+ the compose plugin)**. Nothing else - no Neovim, no
+clients, no `.deps`. `integration/run.sh` brings the servers up, waits for
+health, then runs `integration/run-suite.sh` inside the runner container (which
+seeds every server and runs every `integration/**/*_spec.lua`), and tears the
+stack down. `DBUI_IT_KEEP=1` leaves the servers up for fast re-runs.
+
+Because the runner is a container, CI and local runs are the *same* execution
+environment rather than two parallel ones - the client versions that produce
+the golden bytes are pinned in the image, not in whatever each machine
+installed.
+
+The specs run under the **same mini.test runner as the unit suite**
+(`tests/minit.lua`, spec files passed as argv) - one busted-style dialect, one
+process, no extra test dependencies.
 
 A golden change is a **deliberate output change** - review the diff (`git diff
 integration/golden`) before committing a re-record.
@@ -36,56 +71,51 @@ integration/golden`) before committing a re-record.
 ## Layout
 
 ```
-docker-compose.yml   the three DB servers (pinned tags, healthchecks, 127.0.0.1:5543x/5330x)
-seed/*.sql           one shared "nasty data" fixture per dialect (NULL, quotes, commas,
-                     embedded newline, unicode, XML/HTML metachars, nullable numeric)
-export_integration_spec.lua   the plenary spec (real M.export, byte-exact golden diff)
-golden/<adapter>/<fmt>              production path (prefer_native on)
-golden/<adapter>/formatter/<fmt>    forced Lua-formatter path (native pairs only)
-run.sh               orchestrator (compose up → seed → spec → down)
+docker-compose.yml   THE stack definition (servers + the runner service)
+Dockerfile           the runner image: Neovim + every client CLI (pinned)
+run.sh               host side: compose lifecycle (up → run runner → down)
+run-suite.sh         container side: seed every server → run every spec
+seed/*               one shared "nasty data" fixture per dialect (NULL, quotes,
+                     commas, embedded newline, unicode, XML/HTML metachars)
+helper.lua           shared spec plumbing (real sessions, waits, dialect quirks)
+<package>/*_spec.lua the specs themselves
+golden/              export goldens: <adapter>/<fmt> is the production path
+                     (prefer_native on), <adapter>/formatter/<fmt> the forced
+                     Lua-formatter path (native pairs only)
 ```
 
 ## CI
 
-`.github/workflows/integration.yml` runs the same suite. The job runs **inside a
-container** so the DB services are reachable by their service hostname - which makes
-the workflow behave identically under [`act`](https://github.com/nektos/act) (always
-containerised) and on real GitHub-hosted runners. `run.sh` reads the connection
-host/port from env (`DBUI_IT_{PG,MYSQL,MARIADB}_HOST/_PORT`) and `DBUI_IT_NO_COMPOSE=1`
-skips compose (the CI service containers provide the DBs).
+`.github/workflows/integration.yml` installs **nothing**: checkout, then
+`make test-integration`. Everything it needs is in the compose stack. Run the
+extra adapters from the Actions tab via `workflow_dispatch` (the `extra` input).
 
-Run it locally with act:
+### Rehearsing CI locally with act (optional)
+
+[`act`](https://github.com/nektos/act) is NOT required to contribute -
+`make test-integration` is the suite. But to rehearse the workflow itself:
 
 ```sh
 act workflow_dispatch -W .github/workflows/integration.yml \
   -P ubuntu-latest=catthehacker/ubuntu:act-latest
 ```
 
-### Raspberry Pi / self-hosted `act`
+act mounts the host Docker socket into the job container by default, so the
+compose-up inside `run.sh` talks to your host daemon exactly like CI's.
 
-Yes, this runs on a Pi (or any arm64 self-hosted box). All four images
-(`ubuntu:24.04`, `postgres:16`, `mysql:8.4`, `mariadb:11`) publish `linux/arm64`, and
-the Neovim install step is arch-aware (`nvim-linux-arm64.tar.gz`). Notes:
+### Raspberry Pi / self-hosted
 
-- Use a **64-bit** OS. Point `act` at an arm64 runner image
-  (`-P ubuntu-latest=catthehacker/ubuntu:act-latest` resolves per-arch), or add a
-  `~/.actrc` with that `-P` line so you can just run `act`.
-- Running postgres + mysql + mariadb at once wants ~1.5-2 GB free RAM. On a small Pi,
-  narrow the matrix by pointing only some `DBUI_IT_*_URL` at live servers (an unset url
-  is reported as `pending`, not failed).
+All server images publish `linux/arm64`, and every download in the runner
+`Dockerfile` is arch-aware, so the suite builds and runs on arm64 (a Pi, or
+Apple silicon). Running all servers at once wants ~1.5-2 GB free RAM; the
+default tier alone is much lighter than `DBUI_IT_EXTRA=1` (sqlserver especially).
+Docker's local image store persists the pulled images and the built runner layer
+across runs - no cache configuration needed.
 
-### Caching (so it isn't slow every run)
-
-The expensive artifacts are the **Docker images** (the three DB servers + the runner
-image). Docker's local image store persists them across runs automatically - on a
-persistent host or Pi they are pulled **once**, not per run. That is the caching that
-matters, and it needs no configuration.
-
-There is intentionally **no `actions/cache` step**: it is a Node action and the bare
-container has no Node, which breaks `act`. What remains per run is a small apt install
-(~8 s) plus two shallow `git clone`s into `.deps` (a few seconds). If you want to
-eliminate even those on a Pi, bake a custom runner image with the tools + `.deps`
-preinstalled and point the workflow's `container.image` at it.
+Every tool in the runner image is fetched from **GitHub releases**, including
+clickhouse and mongosh: their vendor download hosts fail TLS verification from
+inside a container on networks with a proxy CA, while github.com is reachable
+anywhere Docker can pull images.
 
 ## Known limitations this suite pinned down
 
@@ -94,8 +124,15 @@ preinstalled and point the workflow's `container.image` at it.
   The extractor maps **both** to the SQL-NULL sentinel, so a real string value of
   `\N`/`NULL` is indistinguishable from SQL NULL - the same empty-vs-NULL ambiguity
   class as CSV (LIMITATION-001). The goldens are recorded with the **MariaDB client**;
-  CI pins `mariadb-client` to match, because the `--html`/`--xml` native passthrough is
+  the runner image ships `mariadb-client` (not Oracle's), which is what keeps the
+  golden bytes reproducible everywhere -- the `--html`/`--xml` native passthrough is
   raw client bytes and differs between the two clients.
+- **Row counting needs a header rule or a row-count footer.** clickhouse's bare
+  TabSeparated output has neither, so dadbod-ui cannot count result rows for it
+  -- which means the pagination last-page guard (`b:dbui_page.last`) never
+  engages and `]` will keep stepping into empty pages. Pre-existing, unrelated
+  to pagination itself; `integration/query/pagination_spec.lua` asserts the
+  guard only for adapters where row counting works (`counts_rows`).
 - **sqlite native `markdown` and `html` are not passthrough.** sqlite3's `-markdown`
   numeric-column alignment changed between releases (not reproducible across
   environments) and its `-html` emits a bare `<TR>` fragment. Both go through the Lua

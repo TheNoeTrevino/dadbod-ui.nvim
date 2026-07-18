@@ -1,8 +1,4 @@
-DEPS    := .deps
-PLENARY := $(DEPS)/plenary.nvim
-DADBOD  := $(DEPS)/vim-dadbod
-
-.PHONY: help test test-integration test-integration-record deps clean fmt fmt-check install-hooks
+.PHONY: help test test-integration test-integration-record fmt fmt-check install-hooks
 
 # Bare `make` shows the help rather than silently running the suite.
 .DEFAULT_GOAL := help
@@ -27,37 +23,25 @@ help:
 test:
 	./scripts/test
 
-## Run the export integration suite against real databases in Docker, comparing
-## output to committed goldens. Needs docker + the psql/mysql/sqlite3 clients.
-test-integration: deps
+## Run the end-to-end suite against real databases. Needs ONLY docker: the
+## servers AND the runner (nvim + every client CLI) are containers. CI runs
+## this same path. DBUI_IT_KEEP=1 keeps servers up; DBUI_IT_EXTRA=1 adds more adapters.
+test-integration:
 	./integration/run.sh check
 
-## (Re)record the export golden files from the live databases. Review the diff
+## (Re)record the golden files from the live databases. Review the diff
 ## before committing -- a golden change is a deliberate output change.
-test-integration-record: deps
+test-integration-record:
 	./integration/run.sh record
 
 ## Format all Lua in place with stylua (uses ./stylua.toml).
 fmt:
-	stylua lua/ plugin/ tests/
+	stylua lua/ plugin/ tests/ integration/
 
 ## Check formatting without writing; non-zero exit on any diff (CI-friendly).
 fmt-check:
-	stylua --check lua/ plugin/ tests/
+	stylua --check lua/ plugin/ tests/ integration/
 
 ## Install the stylua pre-commit hook into .git/hooks.
 install-hooks:
 	./scripts/install-hooks.sh
-
-## Clone test dependencies into .deps/ (idempotent).
-deps: $(PLENARY) $(DADBOD)
-
-$(PLENARY):
-	git clone --depth 1 https://github.com/nvim-lua/plenary.nvim $(PLENARY)
-
-$(DADBOD):
-	git clone --depth 1 https://github.com/tpope/vim-dadbod $(DADBOD)
-
-## Remove .deps/ -- the next `make deps` re-clones them.
-clean:
-	rm -rf $(DEPS)

@@ -150,8 +150,10 @@ make test   # run the spec suite
 make fmt    # format with stylua
 ```
 
-`make help` lists the rest, including `make test-integration` (which exercises
-the export goldens against real databases, and does need `make deps` + docker).
+`make help` lists the rest, including `make test-integration` (the end-to-end
+suite against real databases -- see `integration/README.md`). It needs **only
+docker**: the servers and the test runner itself (Neovim + every database
+client CLI) are all containers.
 
 ### Layout
 
