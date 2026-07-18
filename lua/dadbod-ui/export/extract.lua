@@ -11,7 +11,7 @@
 --     so an empty field parses to `''`, never the NULL sentinel.
 --   * `from_tsv` -- mysql `--batch`: tab-separated with backslash escapes and a
 --     literal `\N` for SQL NULL, so NULLs ARE recovered here (mapped to the
---     `export_formats.NULL` sentinel).
+--     `export.formats.NULL` sentinel).
 
 ---@class DadbodUI.ExportExtractModule
 ---@field from_csv fun(text: string, opts?: { delimiter?: string, quote?: string }): DadbodUI.ExportData
@@ -19,7 +19,7 @@
 ---@field parse fun(scheme: string, text: string): DadbodUI.ExportData
 
 ---@private
-local formats = require('dadbod-ui.export_formats')
+local formats = require('dadbod-ui.export.formats')
 
 ---@type DadbodUI.ExportExtractModule
 ---@diagnostic disable-next-line: missing-fields
@@ -28,7 +28,7 @@ local M = {}
 ---@private
 -- Plain (non-pattern) split on a literal separator, like
 -- `vim.split(s, sep, { plain = true })`. Reimplemented with only stdlib so this
--- module (and its `export_formats` dependency) stays free of the `vim` API and can
+-- module (and its `export.formats` dependency) stays free of the `vim` API and can
 -- load + run inside a `vim.uv` worker thread (see `dadbod-ui.export`), which has no
 -- `vim` global.
 ---@param s string

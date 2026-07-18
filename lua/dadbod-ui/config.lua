@@ -172,7 +172,7 @@ M.defaults = {
     -- `default_path` ('' => cwd) is the directory the export-path prompt defaults to;
     -- `coerce_numbers` opts the JSON/SQL formatters into emitting numeric/boolean
     -- literals (off by default since the CSV extract is untyped). The per-format
-    -- sub-tables tune each formatter (see the format docs in dadbod-ui.export_formats).
+    -- sub-tables tune each formatter (see the format docs in dadbod-ui.export.formats).
     export = {
       prefer_native = true,
       default_path = '',

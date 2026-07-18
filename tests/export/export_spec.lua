@@ -268,6 +268,26 @@ describe('export.export: progress spinner hook', function()
   end)
 end)
 
+describe('export._lua_dir (worker package.path root)', function()
+  -- This is asserted directly because nothing else can catch it: the worker
+  -- thread also has Neovim's runtimepath searcher, so a WRONG root still
+  -- resolves the require and every async-transform spec still passes. Moving
+  -- `export/init.lua` deeper without adding a `:h` would slip through silently.
+  it('resolves to the plugin lua/ root, with this module under it', function()
+    local dir = export._lua_dir()
+    assert.are.equal('lua', vim.fn.fnamemodify(dir, ':t'))
+    assert.are.equal(1, vim.fn.filereadable(dir .. '/dadbod-ui/export/init.lua'))
+  end)
+
+  it('is a root the worker could require the vim-free modules from', function()
+    -- The two modules the thread body actually pulls in, found by the same
+    -- `?.lua` / `?/init.lua` expansion the worker installs.
+    local dir = export._lua_dir()
+    assert.are.equal(1, vim.fn.filereadable(dir .. '/dadbod-ui/export/extract.lua'))
+    assert.are.equal(1, vim.fn.filereadable(dir .. '/dadbod-ui/export/formats.lua'))
+  end)
+end)
+
 describe('export._transform_async (off-thread transform)', function()
   it('runs a small payload inline: the callback fires synchronously', function()
     local content, rows, fired

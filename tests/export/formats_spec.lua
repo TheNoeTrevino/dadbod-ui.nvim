@@ -1,9 +1,9 @@
--- Specs for dadbod-ui.export_formats: the pure result formatters (CSV/TSV/JSON/
+-- Specs for dadbod-ui.export.formats: the pure result formatters (CSV/TSV/JSON/
 -- Markdown/HTML/XML/SQL) over the canonical ExportData intermediate. No Neovim
 -- buffers and no database -- string in, string out -- so these are exhaustive and
 -- fast. Fixtures here are the acceptance fixtures from specs/native-export.md §5.
 
-local fmt = require('dadbod-ui.export_formats')
+local fmt = require('dadbod-ui.export.formats')
 
 -- The shared §5 fixture: an `id,name,note` result whose rows exercise NULL, an
 -- embedded delimiter, an apostrophe (not the quote char), and an embedded newline.
@@ -19,7 +19,7 @@ local function fixture()
   }
 end
 
-describe('export_formats.NULL', function()
+describe('export.formats.NULL', function()
   it('is a stable unique sentinel distinct from empty string and nil', function()
     assert.are_not.equal('', fmt.NULL)
     assert.is_not_nil(fmt.NULL)
@@ -27,7 +27,7 @@ describe('export_formats.NULL', function()
   end)
 end)
 
-describe('export_formats.csv', function()
+describe('export.formats.csv', function()
   it('renders the §5.1 fixture with default options', function()
     local expected = table.concat({
       'id,name,note',
@@ -69,7 +69,7 @@ describe('export_formats.csv', function()
   end)
 end)
 
-describe('export_formats.tsv', function()
+describe('export.formats.tsv', function()
   it('separates with tabs, no quoting, escaping embedded newlines to the literal', function()
     local expected = table.concat({
       'id\tname\tnote',
@@ -97,7 +97,7 @@ describe('export_formats.tsv', function()
   end)
 end)
 
-describe('export_formats.csv: replacement strings with %', function()
+describe('export.formats.csv: replacement strings with %', function()
   it('does not raise on a line_feed_escape / escape_delimiter containing %', function()
     -- regression: a raw '%' in a gsub REPLACEMENT string errors ("invalid use of
     -- '%' in replacement string"); user-configured escape strings must be safe.
@@ -112,7 +112,7 @@ describe('export_formats.csv: replacement strings with %', function()
   end)
 end)
 
-describe('export_formats.json', function()
+describe('export.formats.json', function()
   it('renders the §5.3 fixture (unwrapped, no number coercion)', function()
     local expected = table.concat({
       '[',
@@ -179,7 +179,7 @@ describe('export_formats.json', function()
   end)
 end)
 
-describe('export_formats.markdown', function()
+describe('export.formats.markdown', function()
   it('renders the §5.4 fixture', function()
     local expected = table.concat({
       '| id | name | note |',
@@ -197,7 +197,7 @@ describe('export_formats.markdown', function()
   end)
 end)
 
-describe('export_formats.html', function()
+describe('export.formats.html', function()
   it('renders a thead/tbody table with the fixture rows', function()
     local out = fmt.html(fixture())
     assert.is_truthy(out:find('<table>', 1, true))
@@ -213,7 +213,7 @@ describe('export_formats.html', function()
   end)
 end)
 
-describe('export_formats.xml', function()
+describe('export.formats.xml', function()
   it('renders <data>/<row>/<col> with the fixture rows', function()
     local out = fmt.xml(fixture())
     assert.is_truthy(out:find('<?xml version="1.0" encoding="UTF-8"?>\n<data>', 1, true))
@@ -229,7 +229,7 @@ describe('export_formats.xml', function()
   end)
 end)
 
-describe('export_formats.sql', function()
+describe('export.formats.sql', function()
   it('emits one INSERT per row, NULL bare, quotes doubled (unquoted identifiers)', function()
     local expected = table.concat({
       "INSERT INTO t (id, name, note) VALUES ('1', 'Ann', NULL);",
