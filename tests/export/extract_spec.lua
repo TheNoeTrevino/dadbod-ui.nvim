@@ -1,11 +1,11 @@
--- Specs for dadbod-ui.export_extract: parsing a CLI's canonical delimited output
+-- Specs for dadbod-ui.export.extract: parsing a CLI's canonical delimited output
 -- into the ExportData intermediate. RFC-4180 CSV (psql/sqlite) and mysql --batch
 -- TSV (with \N NULLs). Pure: string in, table out.
 
-local extract = require('dadbod-ui.export_extract')
-local fmt = require('dadbod-ui.export_formats')
+local extract = require('dadbod-ui.export.extract')
+local fmt = require('dadbod-ui.export.formats')
 
-describe('export_extract.from_csv', function()
+describe('export.extract.from_csv', function()
   it('parses a simple CSV with header into columns + rows', function()
     local data = extract.from_csv('id,name\n1,Ann\n2,Bob')
     assert.are.same({ 'id', 'name' }, data.columns)
@@ -59,7 +59,7 @@ describe('export_extract.from_csv', function()
   end)
 end)
 
-describe('export_extract.from_tsv', function()
+describe('export.extract.from_tsv', function()
   it('parses tab-separated rows with a header', function()
     local data = extract.from_tsv('id\tname\n1\tAnn')
     assert.are.same({ 'id', 'name' }, data.columns)
@@ -90,7 +90,7 @@ describe('export_extract.from_tsv', function()
   end)
 end)
 
-describe('export_extract.parse (dispatch)', function()
+describe('export.extract.parse (dispatch)', function()
   it('routes mysql/mariadb to TSV (recovering NULLs) and others to CSV', function()
     assert.are.equal(fmt.NULL, extract.parse('mysql', 'a\n\\N').rows[1][1])
     assert.are.equal(fmt.NULL, extract.parse('mariadb', 'a\n\\N').rows[1][1])

@@ -5,7 +5,7 @@
 -- templates, pagination style, export flags -- registered here under its
 -- canonical name AND its url-scheme aliases (postgresql -> postgres,
 -- sqlite3 -> sqlite). The capability modules (`schemas`, `table_helpers`,
--- `explain`, `paginator`, `export_adapters`) own behavior only and read their
+-- `explain`, `paginator`, `export.adapters`) own behavior only and read their
 -- data through `get`, so aliasing is resolved exactly once, here.
 --
 -- `register` is public: a user (or plugin) adds a custom adapter with one call

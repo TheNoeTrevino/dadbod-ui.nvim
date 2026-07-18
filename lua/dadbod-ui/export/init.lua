@@ -21,9 +21,9 @@ local utils = require('dadbod-ui.utils')
 local state = require('dadbod-ui.state')
 local schemas = require('dadbod-ui.schemas')
 local notify = require('dadbod-ui.notifications')
-local adapters = require('dadbod-ui.export_adapters')
-local export_formats = require('dadbod-ui.export_formats')
-local export_extract = require('dadbod-ui.export_extract')
+local adapters = require('dadbod-ui.export.adapters')
+local formats = require('dadbod-ui.export.formats')
+local extract = require('dadbod-ui.export.extract')
 
 ---@alias DadbodUI.ExportRunOnDone fun(result: DadbodUI.SystemCompleted)
 ---@alias DadbodUI.ExportTransformCallback fun(ok: boolean, content: string?, rows: integer?, err: string?)
@@ -56,6 +56,7 @@ local export_extract = require('dadbod-ui.export_extract')
 ---@field _transform_sync fun(scheme: string, stdout: string, fmt: string, opts: table, source: string): string, integer  test seam: inline parse+format core
 ---@field _TRANSFORM_THRESHOLD integer  test seam: bytes below which the transform runs inline
 ---@field _transform_async DadbodUI.ExportTransform  test seam: worker-thread parse+format
+---@field _lua_dir fun(): string  test seam: the `.../lua` root handed to the worker thread
 ---@field resolve_buffer fun(bufnr: integer): DadbodUI.ExportBufferInfo|nil, string?
 ---@field query_for fun(info: table, page_choice?: 'full'|'current'): string
 ---@field export fun(params: table, deps?: DadbodUI.ExportDeps)
@@ -108,23 +109,30 @@ function M._write(path, content)
 end
 
 --- Serialize `data` to `fmt` via the matching pure formatter. `fmt` is one of the
---- `export_formats` function names (`csv`/`tsv`/`json`/`markdown`/`html`/`xml`/`sql`).
+--- `formats` function names (`csv`/`tsv`/`json`/`markdown`/`html`/`xml`/`sql`).
 ---@param data DadbodUI.ExportData
 ---@param fmt string
 ---@param opts? table  per-format options
 ---@return string
 function M.format(data, fmt, opts)
-  return export_formats[fmt](data, opts)
+  return formats[fmt](data, opts)
 end
 
----@private
--- The `.../lua` directory this plugin lives under, derived from THIS file's path
--- (`.../lua/dadbod-ui/export.lua` -> `.../lua`). Passed into the worker thread so
--- it can `require` the (vim-free) extractor / formatter with no runtimepath.
+--- The `.../lua` directory this plugin lives under, derived from THIS file's
+--- path (`.../lua/dadbod-ui/export/init.lua` -> `.../lua`). Passed into the
+--- worker thread so it can `require` the (vim-free) extractor / formatter off
+--- the runtimepath.
+---
+--- The `:h` count tracks this file's depth under `lua/`: moving this module a
+--- directory deeper without adding one points the worker at the wrong place. In
+--- a normal Neovim that miss is INVISIBLE -- the thread's own runtimepath
+--- searcher resolves the require anyway, so the async transform still works and
+--- no spec fails. It only bites where that searcher isn't there. Hence the test
+--- seam: `_lua_dir` is asserted directly, because nothing else will catch it.
 ---@return string
-local function lua_dir()
+function M._lua_dir()
   local this = debug.getinfo(1, 'S').source:gsub('^@', '')
-  return vim.fn.fnamemodify(this, ':h:h')
+  return vim.fn.fnamemodify(this, ':h:h:h')
 end
 
 ---@private
@@ -161,11 +169,11 @@ end
 ---@param source string
 ---@return string content, integer rows
 function M._transform_sync(scheme, stdout, fmt, opts, source)
-  local data = export_extract.parse(scheme, stdout or '')
+  local data = extract.parse(scheme, stdout or '')
   -- Normalize '' to nil: an empty string is truthy in Lua, so `data.source` would
   -- otherwise defeat the `opts.table or data.source or 'exported_table'` fallback
   -- chain in the SQL formatter (and wrap the JSON export under an empty key).
-  data.source = export_formats.nonempty(source)
+  data.source = formats.nonempty(source)
   return M.format(data, fmt, opts), #data.rows
 end
 
@@ -207,8 +215,8 @@ function M._transform_async(scheme, stdout, fmt, opts, source, cb)
     function(dir, scheme_, text, fmt_, opts_src, source_)
       package.path = dir .. '/?.lua;' .. dir .. '/?/init.lua;' .. package.path
       local ok, content, rows = pcall(function()
-        local extract = require('dadbod-ui.export_extract')
-        local formats = require('dadbod-ui.export_formats')
+        local extract = require('dadbod-ui.export.extract')
+        local formats = require('dadbod-ui.export.formats')
         local o = (loadstring or load)(opts_src)()
         local data = extract.parse(scheme_, text)
         -- Same '' -> nil normalization as `_transform_sync` (the empty string
@@ -234,7 +242,7 @@ function M._transform_async(scheme, stdout, fmt, opts, source, cb)
       end)
     end
   )
-  work:queue(lua_dir(), scheme, stdout, fmt, serialize_opts(opts), source or '')
+  work:queue(M._lua_dir(), scheme, stdout, fmt, serialize_opts(opts), source or '')
 end
 
 ---@private
@@ -459,7 +467,7 @@ local EXTENSIONS = { csv = 'csv', tsv = 'tsv', json = 'json', markdown = 'md', h
 ---@param dir? string  configured default directory ('' / nil => cwd)
 ---@return string
 function M.default_path(source, fmt, dir)
-  local base = export_formats.nonempty(source) or 'export'
+  local base = formats.nonempty(source) or 'export'
   local base_dir = (dir ~= nil and dir ~= '') and vim.fs.normalize(dir) or vim.fn.getcwd()
   return string.format('%s/%s.%s', base_dir, base, EXTENSIONS[fmt] or fmt)
 end
