@@ -6,6 +6,12 @@
 -- Special characters are built with chr() concatenation, NOT E'\n' escape-strings:
 -- an SQL auto-formatter lowercases E'...' to e '...' (a syntax error), so the
 -- escape-free form keeps the fixture robust. chr(10) = newline, chr(9) = tab.
+-- The DROP ... IF EXISTS statements below are no-ops on a fresh container, and
+-- psql announces each skip as a NOTICE. That is the seed being re-runnable, not
+-- a problem -- but it buries the real output, so keep notices out of the log.
+-- Warnings and errors still surface (psql also runs with ON_ERROR_STOP=1).
+SET client_min_messages = warning;
+
 DROP TABLE IF EXISTS orders; -- references people; drop the referrer first
 DROP TABLE IF EXISTS people;
 CREATE TABLE people (
