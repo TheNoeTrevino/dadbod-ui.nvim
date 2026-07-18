@@ -38,6 +38,19 @@ require('lazy.minit').setup({
   spec = {
     { dir = vim.uv.cwd() },
     { 'tpope/vim-dadbod', lazy = false },
+    {
+      -- Report progress per `describe` block, not per file. The integration
+      -- specs name their blocks after the adapter under test ('execute
+      -- postgres', 'introspection mysql', ...), so this is what makes it
+      -- visible WHICH adapter a run is currently on -- and which one a
+      -- failure or a hang belongs to.
+      'echasnovski/mini.test',
+      opts = function(_, opts)
+        opts.execute = opts.execute or {}
+        opts.execute.reporter = require('mini.test').gen_reporter.stdout({ group_depth = 2 })
+        return opts
+      end,
+    },
   },
   -- lazy's own headless output (per-plugin fetch/status/checkout task lines)
   -- goes through io.stdout, so `:redir` above cannot catch it -- turn it off
