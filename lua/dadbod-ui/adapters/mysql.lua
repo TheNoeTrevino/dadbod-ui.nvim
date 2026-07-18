@@ -95,6 +95,9 @@ return {
 
   pagination = 'limit_comma',
 
+  -- Plain SQL: the classifier's shared core applies as-is.
+  statements = {},
+
   export = {
     stdin = true,
     extract = { '--batch' },

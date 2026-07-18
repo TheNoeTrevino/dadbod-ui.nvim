@@ -238,6 +238,9 @@ return {
 
   pagination = 'limit_offset',
 
+  -- Plain SQL: the classifier's shared core applies as-is.
+  statements = {},
+
   -- Export flags begin with `--no-psqlrc` so a user's ~/.psqlrc cannot inject
   -- lines (e.g. `\timing`) into the strictly-parsed delimited output.
   export = {

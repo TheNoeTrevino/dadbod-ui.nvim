@@ -19,6 +19,8 @@
 
 ---@private
 local adapters = require('dadbod-ui.adapters')
+---@private
+local classifier = require('dadbod-ui.classifier')
 
 ---@type DadbodUI.PaginatorModule
 ---@diagnostic disable-next-line: missing-fields
@@ -33,13 +35,6 @@ local function style_for(scheme)
   return spec and spec.pagination or nil
 end
 
----@private
--- Words whose presence (case-insensitive, on a word boundary) means we must not
--- inject a paging clause: an existing LIMIT/OFFSET/FETCH/TOP would double-page,
--- and INTO/UPDATE/PROCEDURE mark statements that aren't plain row-returning
--- SELECTs.
-local guard = { 'limit', 'offset', 'fetch', 'top', 'into', 'update', 'procedure' }
-
 --- Whether `scheme` has a paginator (i.e. pagination is supported for it).
 ---@param scheme string
 ---@return boolean
@@ -48,25 +43,18 @@ function M.supports(scheme)
 end
 
 ---@private
---- Is `sql` a single plain SELECT with no existing paging clause? `sql` is the
---- already trailing-`;`-stripped query. Rejects multi-statement input (an inner
---- `;`) and anything not starting with SELECT, then bails on any guard word.
+--- Is `sql` a single plain SELECT with no existing paging clause? Asked of the
+--- statement classifier as `scheme`'s dialect; a user-registered adapter with
+--- a `pagination` style but no classifier patterns falls back to the generic
+--- SQL core (declaring a LIMIT style is already a claim of SQL-ish syntax).
+---@param scheme string
 ---@param sql string
 ---@return boolean
-local function paginatable(sql)
-  local lower = sql:lower()
-  if not lower:match('^%s*select%f[%A]') then
-    return false
-  end
-  if lower:find(';', 1, true) then
-    return false -- multiple statements; pagination targets a single SELECT
-  end
-  if vim.iter(guard):any(function(kw)
-    return lower:match('%f[%a]' .. kw .. '%f[%A]') ~= nil
-  end) then
-    return false -- an existing paging/aggregate guard word
-  end
-  return true
+local function paginatable(scheme, sql)
+  local c = classifier.classify({ adapter = scheme, sql = sql }) or classifier.classify_sql(sql)
+  -- Appending a clause needs both facts: another LIMIT would double-page, and
+  -- anything but a plain row-returning SELECT can't take one at all.
+  return c.is_plain_select and not c.is_paginated
 end
 
 --- The `sql` rewritten with the adapter's paging clause for `page` (1-based) at
@@ -84,7 +72,7 @@ function M.paginate(scheme, sql, page, page_size)
     return nil
   end
   local trimmed = (sql:gsub('%s*;?%s*$', ''))
-  if not paginatable(trimmed) then
+  if not paginatable(scheme, trimmed) then
     return nil
   end
   local offset = (page - 1) * page_size

@@ -86,6 +86,9 @@ return {
 
   pagination = 'limit_offset',
 
+  -- Plain SQL: the classifier's shared core applies as-is.
+  statements = {},
+
   export = {
     -- stdin delivery (not a positional arg): sqlite3 treats a positional SQL
     -- string beginning with `-` (e.g. a `-- comment` line) as an unknown option

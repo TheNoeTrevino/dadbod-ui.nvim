@@ -281,6 +281,10 @@ local routine_scripts = {
 return {
   name = 'sqlserver',
 
+  -- Plain SQL: the classifier's shared core applies as-is (the core already
+  -- guards TOP and strips [bracket] identifiers).
+  statements = {},
+
   ---@param _config? DadbodUI.Config
   ---@return DadbodUI.SchemaAdapter
   schema = function(_config)
