@@ -5,33 +5,28 @@
 #
 #   scripts/test                            # everything under tests/
 #   scripts/test tests/query/*.lua          # one package
-#   DBUI_TEST_VERBOSE=1 scripts/test        # keep vim-dadbod's per-query echo
+#   DBUI_TEST_VERBOSE=1 scripts/test        # keep the noise (debugging)
 set -uo pipefail
 
-# Specs that execute real SQL make vim-dadbod echo a line per query:
+# Specs that execute real SQL make vim-dadbod echo a line per query, and specs
+# that exercise the save paths make Vim echo the file it wrote:
 #
 #   DB: Running query...
 #   DB: Query '/tmp/.../14.dbout' finished in 0.026s
+#   "/tmp/dbui_saved/qa/myquery.sql" [New] 1L, 9B written
 #
-# It cannot be muted from inside Neovim: the completion line is echoed from an
-# async job callback (so `:silent` at the call site never covers it), and under
-# `nvim -l` an `:echo` still writes even while `:redir` is capturing it.
+# Neither can be muted from inside Neovim: dadbod's completion line is echoed
+# from an async job callback (so `:silent` at the call site never covers it),
+# under `nvim -l` an `:echo` still writes even while `:redir` is capturing it,
+# and `shortmess` drops only the word "written", not the rest of the line.
 #
-# Those echoes go to STDERR while mini.test writes its report and failures to
-# STDOUT, so filter stderr alone -- anything else Neovim reports there (real
-# errors, stack traces) still comes through untouched.
-#
-# Vim's own file-write echo ('"/tmp/x.sql" [New] 1L, 9B written') is dropped
-# for the same reason: specs that exercise the save paths write temp files
-# constantly, and the line says nothing a spec has not already asserted.
-FILTER='
-  /^DB: (Running query|Query )/ { next }
-  /^"[^"]+"[ ]*(\[New\][ ]*)?([0-9]+L, [0-9]+B written)?[ ]*$/ { next }
-  { print > "/dev/stderr" }
-'
+# They all go to STDERR, while mini.test writes its report, its failures and
+# their tracebacks to STDOUT -- so dropping these shapes from stderr leaves
+# everything that matters, including Neovim's own error tracebacks.
+NOISE='^(DB: (Running query|Query )|"[^"]+" )'
 
 if [[ "${DBUI_TEST_VERBOSE:-0}" == "1" ]]; then
   nvim -l tests/minit.lua --minitest "$@"
 else
-  nvim -l tests/minit.lua --minitest "$@" 2> >(awk "$FILTER")
+  nvim -l tests/minit.lua --minitest "$@" 2> >(grep --line-buffered -vE "$NOISE" >&2)
 fi
