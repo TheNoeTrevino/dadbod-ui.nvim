@@ -24,6 +24,12 @@ on:
         type: boolean
         default: false
 
+# A newer push to the same PR supersedes the running suite -- cancel it rather
+# than paying for both. Never cancel on main: every merge should get its run.
+concurrency:
+  group: integration-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   integration:
     runs-on: ubuntu-latest
