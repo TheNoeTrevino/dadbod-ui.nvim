@@ -33,7 +33,13 @@ jobs:
       packages: read
 
     steps:
-      - uses: actions/checkout@v4
+      # Pinned by commit: a version tag is a mutable pointer -- what runs here
+      # should change only when we change it.
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          # Nothing after checkout talks to the repo, so don't leave the token
+          # embedded in .git/config for the rest of the job.
+          persist-credentials: false
 
       # Lets run.sh pull the prebuilt runner image instead of building it. Not
       # required: a fork PR gets a token that cannot read the package, and
