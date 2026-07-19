@@ -51,8 +51,13 @@ jobs:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
 
-      # Content-addressed, so an existing tag is by definition the image this
-      # Dockerfile produces -- rebuilding it would only cost minutes.
+      # The tag is content-addressed as a *request* (same Dockerfile, same
+      # tag), but a registry tag is a mutable pointer: nothing cryptographic
+      # ties what is stored there to this Dockerfile. Trusting an existing tag
+      # is sound only while the package's writers are exactly this workflow --
+      # keep the GHCR package's Actions access restricted to this repo. Each
+      # publish records its digest in the job summary, so what a tag pointed
+      # to is always auditable.
       - name: Skip if already published
         id: existing
         run: |
@@ -71,3 +76,14 @@ jobs:
         run: |
           docker build -t '${{ steps.image.outputs.ref }}' integration
           docker push '${{ steps.image.outputs.ref }}'
+
+      # The audit trail for the mutable tag: what THIS run actually pushed,
+      # pinned by digest, findable later from the run list.
+      - name: Record the published digest
+        if: steps.existing.outputs.exists == 'false'
+        run: |
+          {
+            echo "Published \`${{ steps.image.outputs.ref }}\`"
+            echo ""
+            echo "\`$(docker inspect --format '{{index .RepoDigests 0}}' '${{ steps.image.outputs.ref }}')\`"
+          } >>"$GITHUB_STEP_SUMMARY"
