@@ -24,6 +24,7 @@ Full annotations are in [`types.lua`](../lua/dadbod-ui/types.lua)
 | `schema().foreign_key_query` + `select_foreign_key_query` + cell fields    | dbout cell nav and FK jump                                           |
 | `schema().layout_flag`                                                     | the expanded layout toggle (`\x`, `\G`)                              |
 | `explain.plain` / `.analyze`                                               | EXPLAIN / EXPLAIN ANALYZE                                            |
+| `explain.json` / `.json_analyze` + `.json_args` + `.parser`                | the EXPLAIN plan tree (see EXPLAIN_TREE.md)                          |
 | `pagination`                                                               | `[` / `]` result paging                                              |
 | `export`                                                                   | export, all formats (native ones per `export.native`, see EXPORT.md) |
 

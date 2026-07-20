@@ -29,6 +29,7 @@ If the plugin DOES support something, and this doc says it does not, then this d
 | Table helpers           |   ✅ 6    |   ✅ 5    |   ✅ 5    |   ✅ 5    | ✅ 8  |  ✅ 6  |    ✅ 2    |   ✅ 2   | ✅ 1  |   ⬜   |    ⬜     |   ⬜   |   ⬜   |  ⬜   |   ⬜    |
 | EXPLAIN                 |    ✅     |    ✅     |    ✅     |    ✅     |  ⬜   |   ✅   |     ✅     |    ⬜    |  ⬜   |   ⬜   |    ⬜     |   ⬜   |   ⬜   |  ⬜   |   ⬜    |
 | EXPLAIN ANALYZE         |    ✅     |    ✅     |    ✅     |    ⬜     |  ⬜   |   ⬜   |     ⬜     |    ⬜    |  ⬜   |   ⬜   |    ⬜     |   ⬜   |   ⬜   |  ⬜   |   ⬜    |
+| EXPLAIN plan tree       |    ✅     |    ✅     |    ✅     |    ❌     |  ❌   |   ❌   |     ⬜     |    ❌    |  ❌   |   ⬜   |    ⬜     |   ⬜   |   ⬜   |  ⬜   |   ⬜    |
 | **Results (`.dbout`)**  |           |           |           |           |       |        |            |          |       |        |           |        |        |       |         |
 | Auto-pagination         |    ✅     |    ✅     |    ✅     |    ✅     |  ⬜   |   ⬜   |     ✅     |    ✅    |  ⬜   |   ⬜   |    ⬜     |   ⬜   |   ⬜   |  ⬜   |   ⬜    |
 | Foreign-key jump        |    ✅     |    ✅     |    ✅     |    ✅     |  ✅   |   ✅   |     ⬜     |    ⬜    |  ⬜   |   ⬜   |    ⬜     |   ⬜   |   ⬜   |  ⬜   |   ⬜    |
