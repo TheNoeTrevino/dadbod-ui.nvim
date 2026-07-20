@@ -49,12 +49,12 @@ local PLAIN = [=[
 }}]
 ]=]
 
---- The row rendering `node_id`, or nil.
+--- The row carrying tree-path id `id`, or nil.
 ---@param rows DadbodUI.ExplainRow[]
----@param node_id string
-local function row_by_id(rows, node_id)
+---@param id string
+local function row_by_id(rows, id)
   for _, row in ipairs(rows) do
-    if row.node ~= nil and row.node.id == node_id then
+    if row.id == id then
       return row
     end
   end

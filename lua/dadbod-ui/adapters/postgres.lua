@@ -246,6 +246,7 @@ return {
     -- user's psqlrc from injecting lines -- together stdout is the bare JSON
     -- document.
     json_args = { '--no-psqlrc', '-q', '-A', '-t' },
+    parser = 'dadbod-ui.explain.parsers.postgres',
   },
 
   pagination = 'limit_offset',

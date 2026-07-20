@@ -27,16 +27,6 @@ local EXPR_KEYS = {
 }
 
 ---@private
----@param value string|string[]
----@return string
-local function expr_text(value)
-  if type(value) == 'table' then
-    return table.concat(value, ', ')
-  end
-  return value
-end
-
----@private
 --- The operation name, with the join type folded in like postgres's text
 --- format: 'Hash Join'+Left -> 'Hash Left Join', 'Nested Loop'+Anti ->
 --- 'Nested Loop Anti Join'. Inner joins stay bare -- that is the default and
@@ -77,7 +67,8 @@ local function to_node(raw)
   for _, key in ipairs(EXPR_KEYS) do
     local value = raw[key]
     if type(value) == 'string' or type(value) == 'table' then
-      exprs[#exprs + 1] = { key, expr_text(value) }
+      -- Sort Key / Group Key arrive as arrays; join them for display.
+      exprs[#exprs + 1] = { key, type(value) == 'table' and table.concat(value, ', ') or value }
     end
   end
   local node = {

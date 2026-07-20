@@ -20,13 +20,15 @@
 
 ---@class DadbodUI.ExplainRow
 ---@field node? DadbodUI.PlanNode  the plan node this line renders; nil for the summary header
+---@field id? string  stable tree-path id ('1.2.1') for this node -- what the collapse map keys on. View-owned: derived here during the walk, never written onto the plan model (same rule as the drawer's ids)
 ---@field line string
 ---@field highlights DadbodUI.Highlight[]
 
 ---@class DadbodUI.ExplainRenderOpts
----@field collapsed? table<string, boolean>  node id -> hidden children
+---@field collapsed? table<string, boolean>  row id -> hidden children
 ---@field heat? { warn: number, hot: number }  exclusive-share thresholds for the warm/hot tiers
 ---@field skew_threshold? number  actual/estimated row ratio that flags a misestimate
+---@field collapsed_icon? string  fold marker for a collapsed subtree (thread the resolved icons.collapsed here)
 
 local M = {}
 
@@ -40,7 +42,7 @@ local DEFAULT_SKEW = 100
 local EXPR_BUDGET = 60
 
 ---@private
---- Compact human count: 1234 -> '1.2k', 5000000 -> '5.0M'.
+--- Compact human count: 12345 -> '12.3k', 5000000 -> '5.0M'; smaller counts stay exact.
 ---@param n number
 ---@return string
 local function fmt_count(n)
@@ -125,11 +127,9 @@ local function exprs_text(node)
   end
   local text = table.concat(parts, ' · ')
   if #text > EXPR_BUDGET then
-    local cut = EXPR_BUDGET
-    while cut > 1 and text:byte(cut + 1) ~= nil and text:byte(cut + 1) >= 0x80 and text:byte(cut + 1) < 0xC0 do
-      cut = cut - 1
-    end
-    text = text:sub(1, cut) .. '…'
+    -- Cut on a UTF-8 boundary: str_utf_start is 0 on a lead byte, negative inside
+    -- a multibyte character.
+    text = text:sub(1, EXPR_BUDGET + vim.str_utf_start(text, EXPR_BUDGET + 1)) .. '…'
   end
   return text
 end
@@ -156,18 +156,20 @@ local SEP = ' · '
 
 ---@private
 --- Render one node into a row. `branch` is the accumulated tree-glyph prefix
---- for this node's line; `marker` its own connector (`├─ `/`└─ `).
+--- for this node's line; `marker` its own connector (`├─ `/`└─ `); `id` the
+--- view-derived tree path.
 ---@param node DadbodUI.PlanNode
+---@param id string
 ---@param branch string
 ---@param marker string
 ---@param analyzed boolean
----@param opts { collapsed: table<string, boolean>, heat: { warn: number, hot: number }, skew_threshold: number }
+---@param opts { collapsed: table<string, boolean>, heat: { warn: number, hot: number }, skew_threshold: number, collapsed_icon: string }
 ---@return DadbodUI.ExplainRow
-local function row_for(node, branch, marker, analyzed, opts)
+local function row_for(node, id, branch, marker, analyzed, opts)
   local acc = { text = {}, hls = {}, col = 0 }
   cell(acc, branch .. marker, 'DadbodUIExplainTree')
-  if #node.children > 0 and opts.collapsed[node.id] then
-    cell(acc, '▸ ', 'DadbodUIExplainTree')
+  if #node.children > 0 and opts.collapsed[id] then
+    cell(acc, opts.collapsed_icon .. ' ', 'DadbodUIExplainTree')
   end
   cell(acc, node.op, 'DadbodUIExplainOp')
   local target = target_text(node)
@@ -182,29 +184,36 @@ local function row_for(node, branch, marker, analyzed, opts)
   end
 
   -- rows cell: actuals when analyzed (with the estimate called out on a
-  -- misestimate), the planner's estimate otherwise.
-  local rows_n = analyzed and node.actual_rows or node.plan_rows
-  if rows_n ~= nil then
+  -- misestimate), the planner's ~estimate otherwise.
+  local rows_text
+  if analyzed and node.actual_rows ~= nil then
+    rows_text = 'rows ' .. fmt_count(node.actual_rows * (node.loops or 1))
+  elseif node.plan_rows ~= nil then
+    rows_text = 'rows ~' .. fmt_count(node.plan_rows)
+  end
+  if rows_text ~= nil then
     cell(acc, SEP, 'DadbodUIExplainTree')
-    local prefix = analyzed and 'rows ' or 'rows ~'
-    cell(acc, prefix .. fmt_count(rows_n * (analyzed and (node.loops or 1) or 1)), 'DadbodUIExplainRows')
+    cell(acc, rows_text, 'DadbodUIExplainRows')
     if node.skew ~= nil and node.skew >= opts.skew_threshold then
       cell(acc, string.format(' (est %s ⚠×%d)', fmt_count(node.plan_rows), node.skew), 'DadbodUIExplainSkew')
     end
   end
 
-  -- time/cost cell: the node's OWN work and its share of the whole plan.
+  -- time/cost cell: the node's OWN work (exclusive of children) and its share
+  -- of the whole plan -- one shared tail, only the value text differs.
+  local value
   if analyzed and node.exclusive_ms ~= nil then
-    cell(acc, SEP, 'DadbodUIExplainTree')
-    local share = node.frac ~= nil and string.format(' %d%%', math.floor(node.frac * 100 + 0.5)) or ''
-    cell(acc, fmt_ms(node.exclusive_ms) .. share, heat_group(node.frac, opts.heat))
+    value = fmt_ms(node.exclusive_ms)
   elseif not analyzed and node.total_cost ~= nil then
+    value = string.format('cost %.0f', node.total_cost)
+  end
+  if value ~= nil then
     cell(acc, SEP, 'DadbodUIExplainTree')
     local share = node.frac ~= nil and string.format(' %d%%', math.floor(node.frac * 100 + 0.5)) or ''
-    cell(acc, string.format('cost %.0f', node.total_cost) .. share, heat_group(node.frac, opts.heat))
+    cell(acc, value .. share, heat_group(node.frac, opts.heat))
   end
 
-  return { node = node, line = table.concat(acc.text), highlights = acc.hls }
+  return { node = node, id = id, line = table.concat(acc.text), highlights = acc.hls }
 end
 
 ---@private
@@ -212,14 +221,15 @@ end
 --- grows `│  ` under a non-last ancestor and `   ` under a last one -- the
 --- standard tree-drawing recurrence.
 ---@param node DadbodUI.PlanNode
+---@param id string
 ---@param branch string
 ---@param marker string
 ---@param analyzed boolean
----@param opts { collapsed: table<string, boolean>, heat: { warn: number, hot: number }, skew_threshold: number }
+---@param opts { collapsed: table<string, boolean>, heat: { warn: number, hot: number }, skew_threshold: number, collapsed_icon: string }
 ---@param out DadbodUI.ExplainRow[]
-local function emit(node, branch, marker, analyzed, opts, out)
-  out[#out + 1] = row_for(node, branch, marker, analyzed, opts)
-  if opts.collapsed[node.id] then
+local function emit(node, id, branch, marker, analyzed, opts, out)
+  out[#out + 1] = row_for(node, id, branch, marker, analyzed, opts)
+  if opts.collapsed[id] then
     return
   end
   local child_branch = branch
@@ -227,7 +237,7 @@ local function emit(node, branch, marker, analyzed, opts, out)
     child_branch = branch .. (marker:find('└') == 1 and '   ' or '│  ')
   end
   for i, child in ipairs(node.children) do
-    emit(child, child_branch, i == #node.children and '└─ ' or '├─ ', analyzed, opts, out)
+    emit(child, id .. '.' .. i, child_branch, i == #node.children and '└─ ' or '├─ ', analyzed, opts, out)
   end
 end
 
@@ -260,9 +270,10 @@ function M.rows(plan, opts)
     collapsed = opts.collapsed or {},
     heat = opts.heat or DEFAULT_HEAT,
     skew_threshold = opts.skew_threshold or DEFAULT_SKEW,
+    collapsed_icon = opts.collapsed_icon or '▸',
   }
   local out = { header_row(plan), { line = '', highlights = {} } }
-  emit(plan.root, '', '', plan.analyzed, resolved, out)
+  emit(plan.root, '1', '', '', plan.analyzed, resolved, out)
   return out
 end
 

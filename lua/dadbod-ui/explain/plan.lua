@@ -23,14 +23,6 @@ local adapters = require('dadbod-ui.adapters')
 local M = {}
 
 ---@private
---- Canonical adapter name -> parser module. A scheme absent here has no
---- structured-plan parser even if it has a `json` template; `decode` reports it
---- honestly instead of guessing at the shape.
-local parsers = {
-  postgres = 'dadbod-ui.explain.parsers.postgres',
-}
-
----@private
 --- Fill the derived metrics fields on every node, bottom-up. Clamped at zero:
 --- dialects don't always include every child's contribution in the parent's
 --- total (postgres InitPlans, parallel workers), and a negative "own time" is
@@ -65,25 +57,12 @@ local function walk(node, visit)
   end
 end
 
----@private
---- Assign stable path ids ('1', '1.2', '1.2.1') -- what collapse state keys
---- on, so it survives re-renders.
----@param node DadbodUI.PlanNode
----@param id string
-local function assign_ids(node, id)
-  node.id = id
-  for i, child in ipairs(node.children) do
-    assign_ids(child, id .. '.' .. i)
-  end
-end
-
 --- Fill the derived metrics (`total_ms`, `exclusive_*`, `frac`, `skew`) on
 --- every node of `plan`. Called by `decode`; exposed for parsers-in-tests.
 ---@param plan DadbodUI.ExplainPlan
 ---@return DadbodUI.ExplainPlan
 function M.annotate(plan)
   local root = plan.root
-  assign_ids(root, '1')
   compute(root)
   -- Heat denominator: real time when the plan was analyzed, planner cost
   -- otherwise -- whichever the whole tree consistently carries.
@@ -99,14 +78,6 @@ function M.annotate(plan)
   return plan
 end
 
---- Whether `scheme` has a structured-plan parser (stricter than
---- `explain.supports_json`: a template without a parser renders nothing).
----@param scheme string
----@return boolean
-function M.supports(scheme)
-  return parsers[adapters.canonical(scheme) or ''] ~= nil
-end
-
 --- Decode the raw CLI output of a JSON EXPLAIN into an annotated plan.
 --- Returns `nil, err` (user-facing) when the scheme has no parser, the output
 --- is not valid JSON (e.g. the server reported an error instead of a plan), or
@@ -116,10 +87,11 @@ end
 ---@return DadbodUI.ExplainPlan|nil plan
 ---@return string|nil err
 function M.decode(scheme, raw)
-  local canonical = adapters.canonical(scheme)
-  local parser = canonical and parsers[canonical] or nil
+  local spec = adapters.get(scheme)
+  local parser = spec and spec.explain and spec.explain.parser or nil
   if parser == nil then
-    return nil, string.format('no structured plan parser for adapter %s', tostring(canonical or scheme))
+    return nil,
+      string.format('no structured plan parser for adapter %s', tostring(adapters.canonical(scheme) or scheme))
   end
   local ok, decoded = pcall(vim.json.decode, vim.trim(raw or ''))
   if not ok or type(decoded) ~= 'table' then

@@ -66,14 +66,16 @@ function M.supports(scheme)
   return templates_for(scheme) ~= nil
 end
 
---- Whether `scheme` has a structured (JSON) plan template -- the gate for the
---- explain tree. Stricter than `supports`: text-only EXPLAIN dialects (sqlite,
---- clickhouse, oracle) answer false here.
+--- Whether `scheme` can produce a structured plan tree -- the single gate for
+--- the explain tree feature: a `json` template to run AND a parser to decode
+--- what comes back, both declared on the adapter spec. Stricter than
+--- `supports`: text-only EXPLAIN dialects (sqlite, clickhouse, oracle) answer
+--- false here.
 ---@param scheme string
 ---@return boolean
 function M.supports_json(scheme)
   local template = templates_for(scheme)
-  return template ~= nil and template.json ~= nil
+  return template ~= nil and template.json ~= nil and template.parser ~= nil
 end
 
 --- The canonical adapter names with a structured (JSON) plan template, sorted --

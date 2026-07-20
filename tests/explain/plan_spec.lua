@@ -150,12 +150,10 @@ describe('explain plan: decode (postgres)', function()
     assert.equals(1, root.frac)
   end)
 
-  it('errors on a scheme with no parser', function()
+  it('errors on a scheme with no parser declared on its adapter spec', function()
     local parsed, err = plan.decode('sqlite', '[]')
     assert.is_nil(parsed)
     assert.is_truthy(err and err:match('no structured plan parser for adapter sqlite'))
-    assert.is_false(plan.supports('sqlite'))
-    assert.is_true(plan.supports('postgresql'))
   end)
 
   it('errors (with the offending output) when stdout is not JSON', function()

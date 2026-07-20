@@ -149,6 +149,7 @@
 ---@field json? string     structured-plan form (e.g. EXPLAIN (FORMAT JSON))
 ---@field json_analyze? string  executing structured form; wrap DML safely (BEGIN/ROLLBACK) where the dialect allows
 ---@field json_args? string[]   extra client argv for raw, parseable JSON output
+---@field parser? string    module path of the dialect's plan parser (explain/parsers/*); json support = template AND parser
 
 --- One node of a normalized explain plan: the dialect-agnostic shape every
 --- plan parser targets, so the tree renderer never branches on
@@ -172,7 +173,6 @@
 ---@field exprs [string, string][]  ordered (label, deparsed text) pairs: Filter, Index Cond, Sort Key, ...
 ---@field children DadbodUI.PlanNode[]
 ---@field raw table            the adapter's untouched JSON node
----@field id string              derived: stable tree-path id ('1.2.1'), what collapse state and memos key on
 ---@field total_ms? number       derived: actual_time_ms * loops
 ---@field exclusive_ms? number   derived: total_ms minus children's (the node's own time)
 ---@field exclusive_cost? number derived: total_cost minus children's
