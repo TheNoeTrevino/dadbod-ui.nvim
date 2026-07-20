@@ -59,8 +59,11 @@ keep their own groups. The highlight groups are dynamic
 `DadbodUIColor_<rrggbb>` definitions, re-set at render time so they survive
 a `:colorscheme` reset. The same color also paints the query-buffer winbar
 block (see `query/init.lua`'s `connection_winbar`), as a background with
-black/white text picked by luminance. No color set means every one of these
-surfaces renders exactly like before.
+black/white text picked by luminance; its group is (re)defined when the
+winbar is applied (buffer setup / BufWinEnter), so after a `:colorscheme`
+it recovers the next time the buffer enters a window - the same lifetime
+the default `DadbodUIWinbarConnection` block already has. No color set
+means every one of these surfaces renders exactly like before.
 
 ## Lazy introspection
 
