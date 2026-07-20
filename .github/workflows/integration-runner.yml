@@ -1,0 +1,89 @@
+name: integration runner image
+
+# Publishes the integration suite's runner image (Neovim + every database
+# client CLI) to GHCR so `integration.yml` can pull it instead of spending ~30s
+# per run reinstalling the same pinned clients from apt and GitHub releases.
+#
+# The tag is a hash of integration/Dockerfile (see integration/runner-image.sh),
+# so this only has work to do when that file changes -- and an older branch
+# keeps pulling the image matching *its* Dockerfile.
+#
+# Nothing depends on this having run: integration/run.sh builds locally when the
+# tag is not published. That is what a PR editing the Dockerfile does, until it
+# merges and this publishes the new tag.
+
+on:
+  push:
+    branches: [main, nightly]
+    paths:
+      - 'integration/Dockerfile'
+      - 'integration/runner-image.sh'
+      - '.github/workflows/integration-runner.yml'
+  # So a branch can publish its image before the integration job runs, rather
+  # than waiting for a merge to see the fast path.
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      # Pinned by commit: a version tag is a mutable pointer, and this job's
+      # token can write packages -- what runs here should change only when we
+      # change it.
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+        with:
+          # Nothing after checkout talks to the repo, so don't leave the token
+          # embedded in .git/config for the rest of the job.
+          persist-credentials: false
+
+      - name: Resolve the image tag
+        id: image
+        run: echo "ref=$(./integration/runner-image.sh)" >>"$GITHUB_OUTPUT"
+
+      - name: Log in to GHCR
+        # Via env rather than ${{ }} interpolation: the latter pastes the token
+        # into the shell command itself, where it reaches argv.
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+
+      # The tag is content-addressed as a *request* (same Dockerfile, same
+      # tag), but a registry tag is a mutable pointer: nothing cryptographic
+      # ties what is stored there to this Dockerfile. Trusting an existing tag
+      # is sound only while the package's writers are exactly this workflow --
+      # keep the GHCR package's Actions access restricted to this repo. Each
+      # publish records its digest in the job summary, so what a tag pointed
+      # to is always auditable.
+      - name: Skip if already published
+        id: existing
+        run: |
+          if docker manifest inspect '${{ steps.image.outputs.ref }}' >/dev/null 2>&1; then
+            echo "exists=true" >>"$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >>"$GITHUB_OUTPUT"
+          fi
+
+      # amd64 only: that is what GitHub's runners are. arm64 contributors (Pi,
+      # Apple silicon) get no matching manifest, and run.sh falls back to a
+      # local build for them -- the status quo. Cross-building arm64 under QEMU
+      # here would cost far more than it saves.
+      - name: Build and push
+        if: steps.existing.outputs.exists == 'false'
+        run: |
+          docker build -t '${{ steps.image.outputs.ref }}' integration
+          docker push '${{ steps.image.outputs.ref }}'
+
+      # The audit trail for the mutable tag: what THIS run actually pushed,
+      # pinned by digest, findable later from the run list.
+      - name: Record the published digest
+        if: steps.existing.outputs.exists == 'false'
+        run: |
+          {
+            echo "Published \`${{ steps.image.outputs.ref }}\`"
+            echo ""
+            echo "\`$(docker inspect --format '{{index .RepoDigests 0}}' '${{ steps.image.outputs.ref }}')\`"
+          } >>"$GITHUB_STEP_SUMMARY"

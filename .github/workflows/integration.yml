@@ -24,12 +24,39 @@ on:
         type: boolean
         default: false
 
+# A newer push to the same PR supersedes the running suite -- cancel it rather
+# than paying for both. Never cancel on main: every merge should get its run.
+concurrency:
+  group: integration-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   integration:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # To pull the prebuilt runner image published by integration-runner.yml.
+      packages: read
 
     steps:
-      - uses: actions/checkout@v4
+      # Pinned by commit: a version tag is a mutable pointer -- what runs here
+      # should change only when we change it.
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+        with:
+          # Nothing after checkout talks to the repo, so don't leave the token
+          # embedded in .git/config for the rest of the job.
+          persist-credentials: false
+
+      # Lets run.sh pull the prebuilt runner image instead of building it. Not
+      # required: a fork PR gets a token that cannot read the package, and
+      # run.sh just builds locally instead -- so this must never fail the job.
+      - name: Log in to GHCR
+        continue-on-error: true
+        # Via env rather than ${{ }} interpolation: the latter pastes the token
+        # into the shell command itself, where it reaches argv.
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
 
       - name: Run integration suite
         env:
