@@ -25,6 +25,7 @@ local WRAPPERS = {
   { 'table', nil }, -- leaf scans; op derived from access_type
   { 'query_block', 'Query' },
   { 'nested_loop', 'Nested Loop' },
+  -- MySQL spellings.
   { 'ordering_operation', 'Sort' },
   { 'grouping_operation', 'Group' },
   { 'duplicates_removal', 'Distinct' },
@@ -39,7 +40,45 @@ local WRAPPERS = {
   { 'order_by_subqueries', 'Subquery' },
   { 'group_by_subqueries', 'Subquery' },
   { 'insert_from', 'Insert From' },
+  -- MariaDB spellings (its optimizer trace never uses MySQL's *_operation keys).
+  { 'filesort', 'Sort' },
+  { 'temporary_table', 'Temporary' },
+  { 'read_sorted_file', 'Read Sorted' },
+  { 'block-nl-join', 'Block Nested Loop' },
+  { 'range-checked-for-each-record', 'Range Check' },
+  { 'expression_cache', 'Expression Cache' },
+  { 'subqueries', 'Subquery' },
 }
+
+---@private
+--- Wrapper-key lookup set, for the unknown-key safety net below.
+local KNOWN = {}
+for _, spec in ipairs(WRAPPERS) do
+  KNOWN[spec[1]] = true
+end
+
+---@private
+--- Whether an UNKNOWN key's value looks like nested plan structure -- the
+--- safety net for dialect spellings this table hasn't met: better a child
+--- named after the raw key than a silently truncated tree.
+---@param value any
+---@return boolean
+local function looks_like_plan(value)
+  if type(value) ~= 'table' then
+    return false
+  end
+  local probe = value[1] ~= nil and value[1] or value
+  return type(probe) == 'table'
+    and (probe.table ~= nil or probe.query_block ~= nil or probe.access_type ~= nil or probe.nested_loop ~= nil)
+end
+
+---@private
+--- 'block-nl-join' -> 'Block Nl Join': a readable label for an unknown key.
+---@param key string
+---@return string
+local function prettify(key)
+  return (key:gsub('[_%-]', ' '):gsub('%f[%a]%a', string.upper))
+end
 
 ---@private
 --- MySQL access_type -> a readable operation name (mirroring how the
@@ -130,8 +169,12 @@ local function add_children(key, op, value, children)
   local items = {}
   for _, item in ipairs(value) do
     local node = to_node(key, op, item)
-    -- A pure wrapper item (no identity of its own, one child) unwraps.
-    if node.op == op and #node.children == 1 and node.total_cost == nil and #node.exprs == 0 then
+    -- nested_loop operands ({ table = {...} }) and union query_specifications
+    -- ({ query_block = {...} }) are pure wrappers: unwrap their single child.
+    -- Subquery-list items are NOT unwrapped -- their 'Subquery' label and raw
+    -- scalars (dependent/cacheable) carry information.
+    local unwrap = key == 'nested_loop' or key == 'query_specifications'
+    if unwrap and node.op == op and #node.children == 1 and node.total_cost == nil and #node.exprs == 0 then
       items[#items + 1] = node.children[1]
     else
       items[#items + 1] = node
@@ -173,8 +216,11 @@ function to_node(key, op, raw)
   -- Table nodes (MariaDB >= 10.9) split it into r_table_time_ms +
   -- r_other_time_ms instead -- sum them so scans still carry real time.
   local r_time = field(raw.r_total_time_ms, 'number')
-  if r_time == nil and (raw.r_table_time_ms ~= nil or raw.r_other_time_ms ~= nil) then
-    r_time = (field(raw.r_table_time_ms, 'number') or 0) + (field(raw.r_other_time_ms, 'number') or 0)
+  if r_time == nil then
+    local r_table, r_other = field(raw.r_table_time_ms, 'number'), field(raw.r_other_time_ms, 'number')
+    if r_table ~= nil or r_other ~= nil then
+      r_time = (r_table or 0) + (r_other or 0)
+    end
   end
   if r_time ~= nil then
     node.actual_time_ms = r_time
@@ -193,6 +239,19 @@ function to_node(key, op, raw)
     else
       add_children(child_key, child_op, value, node.children)
     end
+  end
+  -- Safety net: an unknown key whose value is clearly nested plan structure
+  -- still becomes a child (labeled from the key) instead of silently
+  -- truncating the tree. Sorted for a deterministic child order.
+  local unknown = {}
+  for raw_key, value in pairs(raw) do
+    if type(raw_key) == 'string' and not KNOWN[raw_key] and looks_like_plan(value) then
+      unknown[#unknown + 1] = raw_key
+    end
+  end
+  table.sort(unknown)
+  for _, raw_key in ipairs(unknown) do
+    add_children(raw_key, prettify(raw_key), raw[raw_key], node.children)
   end
   return node
 end

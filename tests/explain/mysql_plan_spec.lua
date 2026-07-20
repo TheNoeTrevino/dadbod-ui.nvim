@@ -104,6 +104,66 @@ describe('explain plan: decode (mysql/mariadb)', function()
     assert.is_true(scan.frac > 0.9)
   end)
 
+  it('descends MariaDB structural spellings (filesort, block-nl-join)', function()
+    -- MariaDB never emits MySQL's *_operation keys; ORDER BY nests the scan
+    -- under `filesort`, and a join-buffer join wraps its inner table in
+    -- `block-nl-join` INSIDE the nested_loop array.
+    local mariadb_sort = [=[
+    {"query_block": {"select_id": 1,
+      "filesort": {"sort_key": "t.c",
+        "temporary_table": {
+          "nested_loop": [
+            {"table": {"table_name": "t", "access_type": "ALL", "rows": 10, "r_rows": 10, "r_total_time_ms": 3.0}},
+            {"block-nl-join": {"table": {"table_name": "u", "access_type": "ALL", "rows": 5},
+                               "attached_condition": "u.id = t.u_id"}}
+          ]}}}}
+    ]=]
+    local parsed = assert(plan.decode('mariadb', mariadb_sort))
+    local sort = parsed.root.children[1]
+    assert.equals('Sort', sort.op)
+    local join = sort.children[1].children[1]
+    assert.equals('Nested Loop', join.op)
+    assert.equals(2, #join.children)
+    assert.equals('t', join.children[1].relation)
+    local bnl = join.children[2]
+    assert.equals('Block Nested Loop', bnl.op)
+    assert.equals('u', bnl.children[1].relation)
+    assert.is_true(parsed.analyzed)
+  end)
+
+  it('keeps subquery items labeled, raw scalars intact', function()
+    local subq = [=[
+    {"query_block": {"select_id": 1,
+      "table": {"table_name": "a", "access_type": "ALL", "rows": 3},
+      "select_list_subqueries": [
+        {"dependent": true, "cacheable": false,
+         "query_block": {"select_id": 2,
+           "table": {"table_name": "b", "access_type": "ALL", "rows": 7}}}
+      ]}}
+    ]=]
+    local parsed = assert(plan.decode('mysql', subq))
+    local sub
+    for _, child in ipairs(parsed.root.children) do
+      if child.op == 'Subquery' then
+        sub = child
+      end
+    end
+    assert.is_truthy(sub, 'subquery child kept its label')
+    assert.equals(true, sub.raw.dependent) -- detail-float info preserved
+    assert.equals('b', sub.children[1].children[1].relation)
+  end)
+
+  it('never silently truncates: unknown structural keys become children', function()
+    local unknown = [=[
+    {"query_block": {"select_id": 1,
+      "some_future_wrapper": {"table": {"table_name": "z", "access_type": "ALL", "rows": 2}}}}
+    ]=]
+    local parsed = assert(plan.decode('mysql', unknown))
+    local child = parsed.root.children[1]
+    assert.equals('Some Future Wrapper', child.op)
+    assert.equals('z', child.children[1].relation)
+  end)
+
   it('errors on JSON without a query_block', function()
     local parsed, err = plan.decode('mysql', '{"rows": 1}')
     assert.is_nil(parsed)
