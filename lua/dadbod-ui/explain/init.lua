@@ -15,10 +15,14 @@
 
 ---@class DadbodUI.ExplainOpts
 ---@field analyze? boolean  run the query and report real timings (EXPLAIN ANALYZE); errors when the adapter has no analyze form
+---@field format? 'json'  request the structured-plan form (the explain tree's input); errors when the adapter has no JSON templates
 
 ---@class DadbodUI.ExplainModule
 ---@field supports fun(scheme: string): boolean
+---@field supports_json fun(scheme: string): boolean
 ---@field supported_schemes fun(): string[]
+---@field json_schemes fun(): string[]
+---@field json_args fun(scheme: string): string[]
 ---@field wrap fun(scheme: string, sql: string, opts?: DadbodUI.ExplainOpts): string|nil, string|nil
 
 ---@private
@@ -34,7 +38,7 @@ local M = {}
 --- estimate (never executes); `analyze` runs the query for real timings and is
 --- intentionally absent for adapters with no executing EXPLAIN form.
 ---@param scheme string
----@return { plain: string, analyze?: string }|nil
+---@return DadbodUI.ExplainTemplates|nil
 local function templates_for(scheme)
   local spec = adapters.get(scheme)
   return spec and spec.explain or nil
@@ -60,6 +64,39 @@ end
 ---@return boolean
 function M.supports(scheme)
   return templates_for(scheme) ~= nil
+end
+
+--- Whether `scheme` has a structured (JSON) plan template -- the gate for the
+--- explain tree. Stricter than `supports`: text-only EXPLAIN dialects (sqlite,
+--- clickhouse, oracle) answer false here.
+---@param scheme string
+---@return boolean
+function M.supports_json(scheme)
+  local template = templates_for(scheme)
+  return template ~= nil and template.json ~= nil
+end
+
+--- The canonical adapter names with a structured (JSON) plan template, sorted --
+--- the explain tree's honest support matrix for error messages and gating.
+---@return string[]
+function M.json_schemes()
+  local names = {}
+  for _, name in ipairs(M.supported_schemes()) do
+    if M.supports_json(name) then
+      names[#names + 1] = name
+    end
+  end
+  return names
+end
+
+--- Extra client argv that makes `scheme`'s CLI emit the raw JSON plan document
+--- (no aligned-table framing). Empty when the adapter needs none; only
+--- meaningful for schemes where `supports_json` is true.
+---@param scheme string
+---@return string[]
+function M.json_args(scheme)
+  local template = templates_for(scheme)
+  return (template and template.json_args) or {}
 end
 
 --- The canonical adapter names that support an explain plan, sorted -- for
@@ -90,6 +127,20 @@ function M.wrap(scheme, sql, opts)
         tostring(scheme),
         table.concat(M.supported_schemes(), ', ')
       )
+  end
+  if opts.format == 'json' then
+    if template.json == nil then
+      return nil,
+        string.format(
+          'JSON explain plan is not supported for adapter %s (supported: %s)',
+          adapters.canonical(scheme),
+          table.concat(M.json_schemes(), ', ')
+        )
+    end
+    if opts.analyze and template.json_analyze == nil then
+      return nil, string.format('JSON EXPLAIN ANALYZE is not supported for adapter %s', adapters.canonical(scheme))
+    end
+    return subst(opts.analyze and template.json_analyze or template.json, sql)
   end
   if opts.analyze then
     if template.analyze == nil then

@@ -129,12 +129,26 @@
 ---@field aliases? string[]  other url schemes that resolve to this adapter (e.g. 'postgresql')
 ---@field schema? fun(config?: DadbodUI.Config): DadbodUI.SchemaAdapter  introspection SQL + parsers + dbout metadata
 ---@field table_helpers? table<string, string>|fun(config: DadbodUI.Config): table<string, string>  helper name -> SQL template
----@field explain? { plain: string, analyze?: string }  EXPLAIN templates ({sql} placeholder)
+---@field explain? DadbodUI.ExplainTemplates  EXPLAIN templates ({sql} placeholder)
 ---@field pagination? 'limit_offset'|'limit_comma'  LIMIT clause style (absent: no pagination)
 ---@field statements? DadbodUI.StatementPatterns  dialect keywords for the statement classifier; ABSENT means the dialect is not SQL (mongodb) and classify() answers "cannot tell" instead of guessing
 ---@field export? { stdin: boolean, extract: string[], native: table<string, string[]> }  CLI export flags
 ---@field db_path_lists_tables? boolean  a url naming a database in its path lists tables directly instead of schemas (mysql/mariadb)
 ---@field normalize_tables? fun(raw: string[]): string[]  clean dadbod's raw `tables` output (sqlite splitting, mysql header filter)
+
+--- An adapter's EXPLAIN forms, all carrying the literal `{sql}` placeholder.
+--- `plain`/`analyze` produce the human-readable text plan (dadbod-ui.explain's
+--- original capability). The `json` pair produces the machine-readable plan the
+--- explain tree renders; adapters without a structured plan format simply omit
+--- them. `json_args` is the extra CLI argv that makes the client emit the raw
+--- JSON document instead of its human table framing (psql's `-Aqt`), mirroring
+--- how `SchemaAdapter.args` keeps introspection output parseable.
+---@class DadbodUI.ExplainTemplates
+---@field plain string
+---@field analyze? string  executing form with real timings; absent when the dialect has none
+---@field json? string     structured-plan form (e.g. EXPLAIN (FORMAT JSON))
+---@field json_analyze? string  executing structured form; wrap DML safely (BEGIN/ROLLBACK) where the dialect allows
+---@field json_args? string[]   extra client argv for raw, parseable JSON output
 
 --- Dialect extensions to the statement classifier's shared SQL core
 --- (dadbod-ui.classifier). An empty table is meaningful: it declares "this

@@ -234,7 +234,19 @@ return {
     ['Primary Keys'] = "SELECT * FROM information_schema.table_constraints WHERE constraint_type = 'PRIMARY KEY' AND table_schema = '{schema}' AND table_name = '{table}'",
   },
 
-  explain = { plain = 'EXPLAIN {sql}', analyze = 'EXPLAIN ANALYZE {sql}' },
+  explain = {
+    plain = 'EXPLAIN {sql}',
+    analyze = 'EXPLAIN ANALYZE {sql}',
+    json = 'EXPLAIN (FORMAT JSON) {sql}',
+    -- ANALYZE executes the statement, so the JSON form runs inside a rolled-back
+    -- transaction: analyzing a DML statement must never commit its effects.
+    json_analyze = 'BEGIN; EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) {sql}; ROLLBACK;',
+    -- `-q` suppresses the BEGIN/ROLLBACK command tags, `-A -t` drop psql's
+    -- aligned-table framing (the `+` continuation gutter), `--no-psqlrc` keeps a
+    -- user's psqlrc from injecting lines -- together stdout is the bare JSON
+    -- document.
+    json_args = { '--no-psqlrc', '-q', '-A', '-t' },
+  },
 
   pagination = 'limit_offset',
 
