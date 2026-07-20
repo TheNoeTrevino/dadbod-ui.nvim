@@ -35,8 +35,9 @@
 ---@field set_group fun(list: DadbodUI.FileConnection[], name: string, url: string, group: string, cur_group?: string): (DadbodUI.FileConnection[]|nil, string|nil)
 ---@field is_hex_color fun(color: any): boolean
 ---@field group_colors fun(entries: DadbodUI.FileEntry[]): table<string, string>
----@field set_connection_color fun(list: DadbodUI.FileEntry[], name: string, url: string, color: string, group?: string): DadbodUI.FileEntry[]
----@field set_group_color fun(list: DadbodUI.FileEntry[], group: string, color: string): DadbodUI.FileEntry[]
+---@field store_entries fun(config: DadbodUI.Config, inputs?: DadbodUI.DiscoverInputs): DadbodUI.FileEntry[]
+---@field set_connection_color fun(list: DadbodUI.FileEntry[], name: string, url: string, color: string, group?: string): (DadbodUI.FileEntry[]|nil, string|nil)
+---@field set_group_color fun(list: DadbodUI.FileEntry[], group: string, color: string): (DadbodUI.FileEntry[]|nil, string|nil)
 ---@field move_connection fun(list: DadbodUI.FileConnection[], name: string, url: string, direction: 'up'|'down', group?: string): (DadbodUI.FileConnection[]|nil, string|nil)
 ---@field discover fun(config: DadbodUI.Config, inputs?: DadbodUI.DiscoverInputs): DadbodUI.ConnectionRecord[]
 
@@ -90,6 +91,17 @@ end
 ---@return boolean
 local function is_connection(entry)
   return entry.url ~= nil
+end
+
+---@private
+--- Whether an entry is a PURE group-color row: group metadata and nothing else.
+--- Requiring `name == nil` (not just a missing url) keeps a malformed,
+--- hand-edited connection entry -- `{ name = 'x', group = 'prod', color = … }`
+--- with its url dropped -- from silently recoloring the whole group.
+---@param entry DadbodUI.FileEntry
+---@return boolean
+local function is_group_row(entry)
+  return entry.url == nil and entry.name == nil and entry.group ~= nil and entry.group ~= ''
 end
 
 --- Normalize a discovered connection into a record (url resolved at storage
@@ -238,7 +250,7 @@ end
 function M.group_colors(entries)
   return vim.iter(entries):fold({}, function(acc, entry)
     local color = normalize_color(entry.color)
-    if not is_connection(entry) and entry.group ~= nil and entry.group ~= '' and color ~= nil then
+    if is_group_row(entry) and color ~= nil then
       acc[entry.group:lower()] = color
     end
     return acc
@@ -564,15 +576,16 @@ function M.move_connection(list, name, url, direction, group)
   -- list is a fresh, block-contiguous ordering and the input is untouched.
   -- Group-color rows are not part of the visual order (they render nothing, so a
   -- move must never swap "past" one and appear to do nothing); they are set aside
-  -- here and re-appended to whatever list is returned.
-  local copy = vim.deepcopy(list)
-  local metas = vim
-    .iter(copy)
-    :filter(function(entry)
-      return not is_connection(entry)
-    end)
-    :totable()
-  local out = visual_order(vim.iter(copy):filter(is_connection):totable())
+  -- here and re-appended by `with_metas` at every successful return.
+  local conns, metas = {}, {}
+  for _, entry in ipairs(vim.deepcopy(list)) do
+    local dest = is_connection(entry) and conns or metas
+    dest[#dest + 1] = entry
+  end
+  local function with_metas(l)
+    return vim.list_extend(l, metas)
+  end
+  local out = visual_order(conns)
   local i = vim.iter(ipairs(out)):find(function(_, conn)
     return target_conn(conn, name, resolved, group)
   end)
@@ -586,7 +599,7 @@ function M.move_connection(list, name, url, direction, group)
   if (moving.group or ''):lower() == (neighbor.group or ''):lower() then
     -- Same block: a plain reorder among siblings.
     out[i], out[j] = out[j], out[i]
-    return vim.list_extend(out, metas), nil
+    return with_metas(out), nil
   end
 
   -- Block boundary: `moving` crosses into the neighbour's block, adopting its
@@ -607,64 +620,104 @@ function M.move_connection(list, name, url, direction, group)
   else
     moving.group = target_group
   end
-  return vim.list_extend(out, metas), nil
+  return with_metas(out), nil
+end
+
+---@private
+--- The shared refusal for a non-empty, non-`#rrggbb` color -- the single owner
+--- of hex validation, surfaced verbatim by the interactive and api callers.
+---@param color any
+---@return string|nil  normalized color ('' stays ''), or nil on refusal
+---@return string|nil  the refusal message
+local function check_color(color)
+  if color == '' then
+    return '', nil
+  end
+  local normalized = normalize_color(color)
+  if normalized == nil then
+    return nil, 'Please enter a hex color like #ff0000, or leave empty to clear.'
+  end
+  return normalized, nil
 end
 
 --- Set (or clear, with `color = ''`) the own color of the connection matching
---- (name, url, `group` disambiguating clones). Returns a new list; unchanged
---- when nothing matches or the non-empty color is not `#rrggbb` (callers
---- validate first for a user-facing message -- this is the belt to that
---- suspender, so a bad value can never reach the store).
+--- (name, url, `group` disambiguating clones). Returns `(new_list, nil)`, or
+--- `(nil, err)` when the non-empty color is not `#rrggbb` -- the same refusal
+--- contract as the sibling transforms, so a bad value can never be silently
+--- committed. The list comes back unchanged (no error) when nothing matches.
 ---@param list DadbodUI.FileEntry[]
 ---@param name string
 ---@param url string
 ---@param color string  hex `#rrggbb`, or '' to clear
 ---@param group? string
----@return DadbodUI.FileEntry[]
+---@return DadbodUI.FileEntry[]|nil, string|nil
 function M.set_connection_color(list, name, url, color, group)
-  local out = vim.deepcopy(list)
-  if color ~= '' and normalize_color(color) == nil then
-    return out
+  local normalized, err = check_color(color)
+  if normalized == nil then
+    return nil, err
   end
   local resolved = bridge.resolve(url):lower()
+  local out = vim.deepcopy(list)
   local match_idx = vim.iter(ipairs(out)):find(function(_, conn)
     return target_conn(conn, name, resolved, group)
   end)
   if match_idx ~= nil then
-    out[match_idx].color = normalize_color(color)
+    -- '' clears: stored as an absent key, never an empty string.
+    out[match_idx].color = normalized ~= '' and normalized or nil
   end
-  return out
+  return out, nil
 end
 
 --- Set (or clear, with `color = ''`) a group's color: upsert the group's
 --- `{ group, color }` row, or drop it on clear. The row is the group's only
 --- persisted existence (a group is otherwise just a shared name on members), so
---- clearing removes it entirely rather than leaving a colorless husk. Same
---- invalid-color guard as `set_connection_color`.
+--- clearing removes it entirely rather than leaving a colorless husk. Returns
+--- `(new_list, nil)`, or `(nil, err)` for a bad color / empty group name
+--- (mirroring `set_connection_color`'s refusal contract).
 ---@param list DadbodUI.FileEntry[]
 ---@param group string
 ---@param color string  hex `#rrggbb`, or '' to clear
----@return DadbodUI.FileEntry[]
+---@return DadbodUI.FileEntry[]|nil, string|nil
 function M.set_group_color(list, group, color)
-  local out = vim.deepcopy(list)
-  if group == '' or (color ~= '' and normalize_color(color) == nil) then
-    return out
+  if group == nil or group == '' then
+    return nil, 'Please enter a group name.'
   end
+  local normalized, err = check_color(color)
+  if normalized == nil then
+    return nil, err
+  end
+  local out = vim.deepcopy(list)
   local match_idx = vim.iter(ipairs(out)):find(function(_, entry)
-    return not is_connection(entry) and (entry.group or ''):lower() == group:lower()
+    return is_group_row(entry) and entry.group:lower() == group:lower()
   end)
-  if color == '' then
+  if normalized == '' then
     if match_idx ~= nil then
       table.remove(out, match_idx)
     end
-    return out
+    return out, nil
   end
   if match_idx ~= nil then
-    out[match_idx].color = normalize_color(color)
+    out[match_idx].color = normalized
   else
-    out[#out + 1] = { group = group, color = normalize_color(color) }
+    out[#out + 1] = { group = group, color = normalized }
   end
-  return out
+  return out, nil
+end
+
+--- The connections.json entries feeding a discover/populate: an injected
+--- `inputs.file_entries` (tests/overrides) or the file read. The single owner of
+--- that fallback rule -- `discover` reads through here, and `Instance:populate`
+--- calls it once so a single parse feeds both the connection records and the
+--- group-color rows.
+---@param config DadbodUI.Config
+---@param inputs? DadbodUI.DiscoverInputs
+---@return DadbodUI.FileEntry[]
+function M.store_entries(config, inputs)
+  local entries = inputs and inputs.file_entries
+  if entries == nil then
+    entries = M.read_file(M.connections_path(config.save_location))
+  end
+  return entries
 end
 
 --- Discover all connections, merged in precedence order with duplicates dropped.
@@ -684,10 +737,7 @@ function M.discover(config, inputs)
   if g_dbs == nil then
     g_dbs = vim.g.dbs
   end
-  local file_entries = inputs.file_entries
-  if file_entries == nil then
-    file_entries = M.read_file(M.connections_path(config.save_location))
-  end
+  local file_entries = M.store_entries(config, inputs)
 
   local all = {}
   vim.list_extend(all, M.from_dotenv(env, config))

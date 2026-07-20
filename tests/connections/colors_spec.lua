@@ -58,9 +58,10 @@ describe('connections: group_colors', function()
     assert.same({ prod = '#ff0000' }, colors)
   end)
 
-  it('ignores connection entries and invalid colors', function()
+  it('ignores connection entries, malformed rows, and invalid colors', function()
     local colors = connections.group_colors({
       { name = 'db', url = 'sqlite:/tmp/db.db', group = 'prod', color = '#00ff00' }, -- a connection, not a group row
+      { name = 'x', group = 'prod', color = '#ff0000' }, -- malformed (name, no url): must not recolor the group
       { group = 'test', color = 'not-a-color' },
       { group = '', color = '#123456' },
     })
@@ -87,9 +88,10 @@ describe('connections: set_connection_color', function()
     assert.is_nil(out[1].color)
   end)
 
-  it('refuses an invalid color: the list comes back unchanged', function()
-    local out = connections.set_connection_color(base, 'db', 'sqlite:/tmp/a.db', 'red', 'pi')
-    assert.same(base, out)
+  it('refuses an invalid color with (nil, err), like the sibling transforms', function()
+    local out, err = connections.set_connection_color(base, 'db', 'sqlite:/tmp/a.db', 'red', 'pi')
+    assert.is_nil(out)
+    assert.is_truthy(err and err:find('hex color'))
   end)
 
   it('is a no-op when nothing matches', function()
@@ -122,10 +124,14 @@ describe('connections: set_group_color', function()
     assert.equals(2, #base) -- input untouched
   end)
 
-  it('refuses an invalid color or empty group: the list comes back unchanged', function()
+  it('refuses an invalid color or empty group with (nil, err)', function()
     local base = { { group = 'prod', color = '#ff0000' } }
-    assert.same(base, connections.set_group_color(base, 'prod', 'red'))
-    assert.same(base, connections.set_group_color(base, '', '#00ff00'))
+    local out1, err1 = connections.set_group_color(base, 'prod', 'red')
+    assert.is_nil(out1)
+    assert.is_truthy(err1 and err1:find('hex color'))
+    local out2, err2 = connections.set_group_color(base, '', '#00ff00')
+    assert.is_nil(out2)
+    assert.is_truthy(err2 and err2:find('group name'))
   end)
 end)
 
