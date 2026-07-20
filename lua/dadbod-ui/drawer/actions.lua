@@ -167,6 +167,23 @@ function Drawer:set_group_line()
   end
 end
 
+--- Color the connection or group under the cursor (`C`): a db line prompts for
+--- the connection's own color, a group line for the group's (issue #91). Empty
+--- input clears; anything else must be `#rrggbb`.
+---@return nil
+function Drawer:set_color_line()
+  local item = self:get_current_item()
+  if item == nil then
+    return
+  end
+  if item.type == 'db' then
+    return self:connections():set_connection_color(self.instance.dbs[item.key_name])
+  end
+  if item.type == 'group' and item.group ~= nil then
+    return self:connections():set_group_color(item.group)
+  end
+end
+
 --- Place the cursor on the `db` node for `key_name` (best-effort). Used to keep a
 --- connection under the cursor after a reorder/paste re-renders and shuffles the
 --- line list.

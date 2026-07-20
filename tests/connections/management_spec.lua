@@ -605,3 +605,127 @@ describe('connection management: preserves state across an edit', function()
     assert.is_true(d:is_expanded(ids.db(entry_named(d, 'dev').key_name))) -- and dev stayed open
   end)
 end)
+
+describe('connection management: color (issue #91)', function()
+  local d, dir
+  before_each(function()
+    dir = vim.fn.tempname()
+  end)
+  after_each(function()
+    if d then
+      d:close()
+      d = nil
+    end
+    vim.fn.delete(dir, 'rf')
+  end)
+
+  it('colors a file connection: json + entry both update, hex lowercased', function()
+    local seed = { { name = 'qa', url = 'sqlite:' .. dir .. '/qa.db' } }
+    connections.write_file(dir .. '/connections.json', seed)
+    d = make_drawer({ save_location = dir, file_entries = seed, inputs = { '#FF0000' } })
+    d:open()
+    d:connections():set_connection_color(entry_named(d, 'qa'))
+
+    assert.equals('#ff0000', stored(d.instance.connections_path)[1].color)
+    assert.equals('#ff0000', entry_named(d, 'qa').color)
+  end)
+
+  it('empty input clears the connection color', function()
+    local seed = { { name = 'qa', url = 'sqlite:' .. dir .. '/qa.db', color = '#ff0000' } }
+    connections.write_file(dir .. '/connections.json', seed)
+    d = make_drawer({ save_location = dir, file_entries = seed, inputs = { '' } })
+    d:open()
+    d:connections():set_connection_color(entry_named(d, 'qa'))
+
+    assert.is_nil(stored(d.instance.connections_path)[1].color)
+    assert.is_nil(entry_named(d, 'qa').color)
+  end)
+
+  it('rejects a non-hex color and writes nothing', function()
+    local seed = { { name = 'qa', url = 'sqlite:' .. dir .. '/qa.db' } }
+    connections.write_file(dir .. '/connections.json', seed)
+    d = make_drawer({ save_location = dir, file_entries = seed, inputs = { 'red' } })
+    d:open()
+    d:connections():set_connection_color(entry_named(d, 'qa'))
+
+    assert.is_truthy(notifications.get_last_msg():find('hex color'))
+    assert.is_nil(stored(d.instance.connections_path)[1].color)
+  end)
+
+  it('refuses to color a non-file connection', function()
+    d = make_drawer({ save_location = dir, g_dbs = { dev = 'postgres://h/dev' }, inputs = { '#ff0000' } })
+    d:connections():set_connection_color(entry_named(d, 'dev'))
+    assert.is_truthy(notifications.get_last_msg():find('via variables'))
+  end)
+
+  it('colors a group: writes the group row and colors every member, any source', function()
+    local seed = { { name = 'qa', url = 'sqlite:' .. dir .. '/qa.db', group = 'prod' } }
+    connections.write_file(dir .. '/connections.json', seed)
+    d = make_drawer({
+      save_location = dir,
+      file_entries = seed,
+      g_dbs = { { name = 'dev', url = 'postgres://h/dev', group = 'prod' } },
+      inputs = { '#aa0000' },
+    })
+    d:open()
+    d:connections():set_group_color('prod')
+
+    local file = stored(d.instance.connections_path)
+    assert.equals(2, #file)
+    assert.equals('prod', file[2].group)
+    assert.equals('#aa0000', file[2].color)
+    assert.is_nil(file[2].url)
+    assert.same({ prod = '#aa0000' }, d.instance.group_colors)
+    -- Both members inherit the effective color, whatever their source.
+    assert.equals('#aa0000', d.instance:connection_color(entry_named(d, 'qa')))
+    assert.equals('#aa0000', d.instance:connection_color(entry_named(d, 'dev')))
+  end)
+
+  it('clearing the group color removes the row', function()
+    local seed = {
+      { name = 'qa', url = 'sqlite:' .. dir .. '/qa.db', group = 'prod' },
+      { group = 'prod', color = '#aa0000' },
+    }
+    connections.write_file(dir .. '/connections.json', seed)
+    d = make_drawer({ save_location = dir, file_entries = seed, inputs = { '' } })
+    d:open()
+    d:connections():set_group_color('prod')
+
+    assert.equals(1, #stored(d.instance.connections_path))
+    assert.same({}, d.instance.group_colors)
+  end)
+
+  it('set_color_line routes a db line to the connection and a group line to the group', function()
+    local seed = {
+      { name = 'qa', url = 'sqlite:' .. dir .. '/qa.db', group = 'prod' },
+    }
+    connections.write_file(dir .. '/connections.json', seed)
+    d = make_drawer({ save_location = dir, file_entries = seed, inputs = { '#aa0000', '#ff0000' } })
+    d:open()
+    -- Line 1 is the group header (help hidden): color the group.
+    vim.api.nvim_win_set_cursor(d.winid, { 1, 0 })
+    d:set_color_line()
+    assert.same({ prod = '#aa0000' }, d.instance.group_colors)
+    -- Line 2 is the member db line: color the connection itself.
+    vim.api.nvim_win_set_cursor(d.winid, { 2, 0 })
+    d:set_color_line()
+    assert.equals('#ff0000', entry_named(d, 'qa').color)
+  end)
+
+  it('a duplicate carries the source connection color', function()
+    local seed = { { name = 'qa', url = 'sqlite:' .. dir .. '/qa.db', color = '#ff0000' } }
+    connections.write_file(dir .. '/connections.json', seed)
+    d = make_drawer({
+      save_location = dir,
+      file_entries = seed,
+      inputs = { 'qa', 'sqlite:' .. dir .. '/qa.db', 'pi' },
+    })
+    d:open()
+    d:connections():duplicate_connection(entry_named(d, 'qa'))
+
+    local file = stored(d.instance.connections_path)
+    assert.equals(2, #file)
+    assert.equals('#ff0000', file[2].color)
+    assert.equals('pi', file[2].group)
+  end)
+end)

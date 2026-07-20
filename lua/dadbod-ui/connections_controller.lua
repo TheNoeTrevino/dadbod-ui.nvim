@@ -251,7 +251,9 @@ function Controller:duplicate_connection(entry)
           return
         end
         -- Persist the raw typed url (see validate_url), not the resolved one.
-        local list, dup_err = connections.duplicate_connection(store, name, url, group)
+        -- The clone keeps the source's own color: duplicating prod into another
+        -- group shouldn't silently drop the warning paint.
+        local list, dup_err = connections.duplicate_connection(store, name, url, group, entry.color)
         if list == nil then
           return notify.error(dup_err or 'Could not duplicate connection.')
         end
@@ -287,6 +289,61 @@ function Controller:set_group(entry)
       return notify.error(err or 'Could not set group.')
     end
     self:commit_connections(list)
+  end)
+end
+
+--- Prompt for and persist a file connection's OWN color (`C` on a db line).
+--- Hex `#rrggbb` only (self-contained in connections.json, survives colorscheme
+--- swaps); an empty entry clears it, falling back to the group color / default.
+--- Only file-source connections can carry a persisted own color; others are
+--- refused (their group can still be colored via `set_group_color`).
+---@param entry DadbodUI.ConnectionEntry
+---@return nil
+function Controller:set_connection_color(entry)
+  if not require_file_source(entry, 'color') then
+    return
+  end
+  self.input({ prompt = 'Enter hex color (#rrggbb, empty clears): ', default = entry.color or '' }, function(color)
+    if color == nil then
+      return
+    end
+    color = vim.trim(color)
+    if color ~= '' and not connections.is_hex_color(color) then
+      return notify.error('Please enter a hex color like #ff0000, or leave empty to clear.')
+    end
+    local store = self:read_store()
+    if store == nil then
+      return
+    end
+    -- Pass entry.group so the right clone is recolored when a same (name, url)
+    -- exists in two groups.
+    self:commit_connections(connections.set_connection_color(store, entry.name, entry.url, color, entry.group))
+  end)
+end
+
+--- Prompt for and persist a group's color (`C` on a group line). Stored as the
+--- group's own `{ group, color }` row, so it colors members from ANY source
+--- (a g:dbs connection in the group inherits it); an empty entry clears it.
+---@param group string
+---@return nil
+function Controller:set_group_color(group)
+  if not require_store(self) then
+    return
+  end
+  local current = self.instance.group_colors[group:lower()] or ''
+  self.input({ prompt = 'Enter hex color (#rrggbb, empty clears): ', default = current }, function(color)
+    if color == nil then
+      return
+    end
+    color = vim.trim(color)
+    if color ~= '' and not connections.is_hex_color(color) then
+      return notify.error('Please enter a hex color like #ff0000, or leave empty to clear.')
+    end
+    local store = self:read_store()
+    if store == nil then
+      return
+    end
+    self:commit_connections(connections.set_group_color(store, group, color))
   end)
 end
 
