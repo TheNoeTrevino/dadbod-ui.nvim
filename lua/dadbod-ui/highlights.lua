@@ -180,14 +180,16 @@ function M.highlights_for(node, line_text, icons)
   end
 
   -- Icon column: the icon is the first non-space run, so locate it in the line
-  -- (indent is spaces only) rather than re-deriving the indent width.
+  -- (indent is spaces only) rather than re-deriving the indent width. The
+  -- position is found once and shared with the color block below.
+  local icon_start
   if node.icon ~= '' then
-    local s = line_text:find(node.icon, 1, true)
-    if s ~= nil then
+    icon_start = line_text:find(node.icon, 1, true)
+    if icon_start ~= nil then
       hls[#hls + 1] = {
         group = ICON_GROUP[node.type] or 'DadbodUIIcon',
-        col_start = s - 1,
-        col_end = s - 1 + #node.icon,
+        col_start = icon_start - 1,
+        col_end = icon_start - 1 + #node.icon,
       }
     end
   end
@@ -200,9 +202,8 @@ function M.highlights_for(node, line_text, icons)
   if node.color ~= nil and node.color_len ~= nil then
     local label_start
     if node.icon ~= '' then
-      local s = line_text:find(node.icon, 1, true)
-      if s ~= nil then
-        label_start = s - 1 + #node.icon + 1
+      if icon_start ~= nil then
+        label_start = icon_start - 1 + #node.icon + 1
       end
     else
       local s = line_text:find('%S')
