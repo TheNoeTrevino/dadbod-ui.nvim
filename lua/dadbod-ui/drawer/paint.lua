@@ -13,8 +13,8 @@ local highlights = require('dadbod-ui.highlights')
 
 --- Snapshot of the last paint of a buffer: the rendered line texts plus each
 --- line's highlight key -- the node fields `highlights_for` derives its ranges
---- from (`type` + `icon` + the `detail` flag; the line text is its only other
---- input and is compared directly). Returned by `paint` and fed back into the next one to diff
+--- from (`type` + `icon` + the `detail` flag + the `color`; the line text is its
+--- only other input and is compared directly). Returned by `paint` and fed back into the next one to diff
 --- against. `bufnr` makes a stale snapshot self-identifying: a recreated drawer
 --- buffer is repainted from scratch by construction, with no reset for the
 --- drawer to remember.
@@ -70,7 +70,13 @@ function M.paint(bufnr, nodes, icons, prev)
   local lines, keys = {}, {}
   vim.iter(ipairs(nodes)):each(function(i, node)
     lines[i] = M.line_for(node)
-    keys[i] = node.type .. '\0' .. node.icon .. (node.detail and '\0d' or '')
+    -- The color is part of the key: a recolor changes only the highlight, never
+    -- the text, so without it the diff would skip the line and keep stale marks.
+    keys[i] = node.type
+      .. '\0'
+      .. node.icon
+      .. (node.detail and '\0d' or '')
+      .. (node.color and ('\0' .. node.color) or '')
   end)
   local painted = { bufnr = bufnr, lines = lines, keys = keys }
 

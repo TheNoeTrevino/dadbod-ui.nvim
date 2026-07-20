@@ -12,6 +12,7 @@
 ---@class DadbodUI.HighlightsModule
 ---@field NS integer  extmark namespace, cleared and repainted on every render
 ---@field define fun()
+---@field color_group fun(hex: string): string
 ---@field highlights_for fun(node: DadbodUI.Node, line_text: string, icons: DadbodUI.Icons): DadbodUI.Highlight[]
 ---@field apply_line_highlights fun(bufnr: integer, lnum: integer, hls: DadbodUI.Highlight[], ns?: integer)
 
@@ -119,6 +120,21 @@ function M.define()
   hl('DadbodUIWinbarConnection', { link = 'DadbodUIWinbar' })
 end
 
+--- The foreground highlight group for a user-assigned connection/group color
+--- (issue #91): `DadbodUIColor_<rrggbb>`, defined (idempotently, concrete `fg`)
+--- on every call -- these groups are derived from connections.json data, not the
+--- colorscheme, so re-defining at render time keeps them alive across a
+--- `:colorscheme` reset without an autocmd. `hex` must be a store-validated
+--- `#rrggbb` (dadbod-ui.connections normalizes case and drops invalid values
+--- before a color ever reaches a node).
+---@param hex string  `#rrggbb`, lowercase
+---@return string
+function M.color_group(hex)
+  local name = 'DadbodUIColor_' .. hex:sub(2)
+  vim.api.nvim_set_hl(0, name, { fg = hex })
+  return name
+end
+
 --- The highlight ranges for one painted line. Pure: derives every byte column
 --- from `node` and the already-rendered `line_text` (so multibyte nerd-font
 --- glyphs are measured with `#`, never re-escaped into a regex). `icons` supplies
@@ -153,6 +169,33 @@ function M.highlights_for(node, line_text, icons)
         group = ICON_GROUP[node.type] or 'DadbodUIIcon',
         col_start = s - 1,
         col_end = s - 1 + #node.icon,
+      }
+    end
+  end
+
+  -- A user-assigned connection/group color paints the leading `color_len` bytes
+  -- of the label (the connection/group NAME -- never the status glyph or the
+  -- `(…)` details suffix, which keep their own groups). The label starts right
+  -- after the icon + its separator space; with no icon it starts at the first
+  -- non-space (the indent is spaces only).
+  if node.color ~= nil and node.color_len ~= nil then
+    local label_start
+    if node.icon ~= '' then
+      local s = line_text:find(node.icon, 1, true)
+      if s ~= nil then
+        label_start = s - 1 + #node.icon + 1
+      end
+    else
+      local s = line_text:find('%S')
+      if s ~= nil then
+        label_start = s - 1
+      end
+    end
+    if label_start ~= nil then
+      hls[#hls + 1] = {
+        group = M.color_group(node.color),
+        col_start = label_start,
+        col_end = label_start + node.color_len,
       }
     end
   end
