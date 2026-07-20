@@ -89,6 +89,15 @@ One rule worth knowing: the store persists the RAW url the user typed and
 only validates against the resolved one. Resolving expands `$DB_PASS` style
 references, and writing that to disk would leak plaintext secrets.
 
+Colors (#91): the connections.json array holds two entry shapes -
+connection entries (`{ name, url, group?, color? }`) and group-color rows
+(`{ group, color }`, no url). A group is otherwise just a shared name on
+its members, so its color needs a row of its own. `from_file` skips the
+group rows, `group_colors()` reads them (lowercased group -> `#rrggbb`),
+and the CRUD transforms preserve them untouched. The effective color rule
+lives in one place, `Instance:connection_color(entry)`: own color wins
+over group color, nil means render exactly like before.
+
 ## Hooks and events
 
 Two surfaces for the same lifecycle: `config.hooks` (single slot, set at

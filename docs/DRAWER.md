@@ -48,6 +48,20 @@ Expansion state lives in one place: the drawer's `expand` map, keyed by the
 stable ids from ids.lua. Never on the connection entries. Thats why expand
 state survives re-introspection and closing/reopening the drawer.
 
+## Connection colors (#91)
+
+`C` on a db line sets the connection's own `#rrggbb` color, `C` on a group
+header sets the group's; empty input clears. The effective color (own wins
+over group, resolved by `Instance:connection_color`) is stamped on the node
+as `color` + `color_len` at build time, and `highlights_for` paints exactly
+the name prefix of the label - status glyphs and the `(…)` details suffix
+keep their own groups. The highlight groups are dynamic
+`DadbodUIColor_<rrggbb>` definitions, re-set at render time so they survive
+a `:colorscheme` reset. The same color also paints the query-buffer winbar
+block (see `query/init.lua`'s `connection_winbar`), as a background with
+black/white text picked by luminance. No color set means every one of these
+surfaces renders exactly like before.
+
 ## Lazy introspection
 
 Nothing is introspected at startup. Expanding a connection node fires
