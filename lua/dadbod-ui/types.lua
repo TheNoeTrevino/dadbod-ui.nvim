@@ -52,12 +52,24 @@
 ---@field source DadbodUI.Source
 ---@field group string  '' when ungrouped
 ---@field key_name string  name_source, or group_name_source when grouped
+---@field color? string  the connection's own hex color (`#rrggbb`, file source only)
 
---- A connections.json entry (stored form).
+--- A connections.json connection entry (stored form).
 ---@class DadbodUI.FileConnection
 ---@field name string
 ---@field url string
 ---@field group? string
+---@field color? string  own hex color (`#rrggbb`); wins over the group's
+
+--- A connections.json group-color row: a group's persisted color. A group is
+--- otherwise just a shared name on its member connections, so its color gets a
+--- row of its own (no name/url) in the same array.
+---@class DadbodUI.FileGroupColor
+---@field group string
+---@field color string  hex `#rrggbb`
+
+--- Anything stored in the connections.json array.
+---@alias DadbodUI.FileEntry DadbodUI.FileConnection|DadbodUI.FileGroupColor
 
 -- Pure domain containers: drawer expand/collapse state lives in the drawer's
 -- `expand` map (keyed by drawer/ids.lua ids), never on these.
