@@ -31,26 +31,6 @@ local M = {}
 ---@field analyze? boolean  run the executing JSON form (rolled back for DML where the dialect allows)
 ---@field on_error? fun(err: string)  defaults to a notification
 
----@private
---- The command spec for the JSON explain: the adapter's headless client
---- command with the raw-output argv (`explain.json_args`) folded in BEFORE any
---- trailing sql argument, so flags stay flags.
----@param conn string
----@param scheme string
----@param wrapped string
----@return DadbodUI.CommandSpec
-local function command_spec(conn, scheme, wrapped)
-  local spec = bridge.query_command(conn, wrapped)
-  local args = explain.json_args(scheme)
-  if #args == 0 then
-    return spec
-  end
-  local trailing_sql = spec.stdin == nil and table.remove(spec.cmd) or nil
-  vim.list_extend(spec.cmd, args)
-  spec.cmd[#spec.cmd + 1] = trailing_sql
-  return spec
-end
-
 --- Explain `run.sql` and open the plan tree. Asynchronous: returns after
 --- spawning the client; the tree opens (or the error surfaces) from the exit
 --- callback on the main loop.
@@ -62,7 +42,7 @@ function M.open_tree(run)
   if wrapped == nil then
     return fail(err)
   end
-  bridge.run_many({ command_spec(run.conn, run.scheme, wrapped) }, function(results)
+  bridge.run_many({ bridge.query_command(run.conn, wrapped, explain.json_args(run.scheme)) }, function(results)
     local result = results[1]
     if result == nil then
       return fail('explain failed: could not run the adapter client (is it installed?)')

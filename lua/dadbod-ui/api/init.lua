@@ -786,9 +786,13 @@ function M.explain_tree(name, sql, opts)
   if entry == nil then
     return false, 'no connection named ' .. tostring(name)
   end
-  if not explain.supports_json(entry.scheme) then
-    local _, err = explain.wrap(entry.scheme, sql, { format = 'json' })
-    return false, err
+  -- Pre-flight with the REAL opts: an adapter without the structured plan
+  -- format -- or without an executing form when analyze is requested -- fails
+  -- synchronously here, not as an async notification after connecting.
+  local wrapped, wrap_err =
+    explain.wrap(entry.scheme, sql, { format = 'json', analyze = opts ~= nil and opts.analyze or nil })
+  if wrapped == nil then
+    return false, wrap_err
   end
   ensure_connected(entry, function(ok, err)
     if not ok then

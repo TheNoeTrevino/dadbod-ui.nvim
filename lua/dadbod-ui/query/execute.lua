@@ -390,8 +390,10 @@ end
 --- parsed plan in the explain-tree split. The tree dual of `explain_query`,
 --- sharing its buffer read, connection and bind-parameter flow.
 --- `opts.analyze` runs the executing JSON form (rolled back for DML where the
---- dialect allows). Requires a live connection (the client needs the resolved
---- url); unsupported adapters surface `dadbod-ui.explain`'s user error.
+--- dialect allows). Connects first if needed (non-blocking, via the query
+--- controller's introspect backend -- the same connect-if-needed behavior as
+--- `api.explain_tree`); unsupported adapters surface `dadbod-ui.explain`'s
+--- user error.
 ---@param is_visual? boolean
 ---@param opts? DadbodUI.ExplainOpts
 ---@return nil
@@ -401,18 +403,21 @@ function Query:explain_tree(is_visual, opts)
   if entry == nil then
     return notify.error('Buffer not attached to any database')
   end
-  if entry.conn == nil or entry.conn == '' then
-    return notify.error('Not connected. Open the connection in the drawer first.')
-  end
   self:with_resolved_sql(lines, 'explained', function(final_lines)
     local sql = table.concat(final_lines, '\n')
-    explain_run.open_tree({
-      scheme = entry.scheme,
-      conn = entry.conn,
-      sql = sql,
-      analyze = opts ~= nil and opts.analyze or nil,
-    })
-    self.last_query = final_lines
+    self.introspect:connect_async(entry, function()
+      if entry.conn == nil or entry.conn == '' then
+        local detail = entry.conn_error
+        return notify.error(detail ~= nil and detail ~= '' and detail or 'connection failed')
+      end
+      explain_run.open_tree({
+        scheme = entry.scheme,
+        conn = entry.conn,
+        sql = sql,
+        analyze = opts ~= nil and opts.analyze or nil,
+      })
+      self.last_query = final_lines
+    end)
   end)
 end
 

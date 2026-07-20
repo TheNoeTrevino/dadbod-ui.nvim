@@ -130,13 +130,29 @@ describe('explain tree: query-buffer wiring', function()
     assert.is_truthy(notifications.get_last_msg():match('JSON explain plan is not supported'))
   end)
 
-  it('requires a live connection', function()
+  it('connects first when the buffer connection is not live yet', function()
+    canned = { code = 0, stdout = PLAN_JSON, stderr = '' }
     d = make_drawer({ dev = 'postgres://u@h/dev' })
     local entry = open_query_buffer('dev', 'select 1')
     entry.conn = nil
+    d:query().introspect.async_connector = function(url, cb)
+      cb(true, url) -- the connect succeeds; entry.conn gets folded in
+    end
+    d:query():explain_tree(false)
+    assert.equals(1, #ran_specs)
+    assert.is_truthy(tree.get())
+  end)
+
+  it('surfaces a failed connect and runs nothing', function()
+    d = make_drawer({ dev = 'postgres://u@h/dev' })
+    local entry = open_query_buffer('dev', 'select 1')
+    entry.conn = nil
+    d:query().introspect.async_connector = function(_, cb)
+      cb(false, 'no route to host')
+    end
     d:query():explain_tree(false)
     assert.equals(0, #ran_specs)
-    assert.is_truthy(notifications.get_last_msg():match('Not connected'))
+    assert.is_truthy(notifications.get_last_msg():match('no route to host'))
   end)
 end)
 
