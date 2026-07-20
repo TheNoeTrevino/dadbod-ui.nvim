@@ -65,12 +65,25 @@ local function walk(node, visit)
   end
 end
 
+---@private
+--- Assign stable path ids ('1', '1.2', '1.2.1') -- what collapse state keys
+--- on, so it survives re-renders.
+---@param node DadbodUI.PlanNode
+---@param id string
+local function assign_ids(node, id)
+  node.id = id
+  for i, child in ipairs(node.children) do
+    assign_ids(child, id .. '.' .. i)
+  end
+end
+
 --- Fill the derived metrics (`total_ms`, `exclusive_*`, `frac`, `skew`) on
 --- every node of `plan`. Called by `decode`; exposed for parsers-in-tests.
 ---@param plan DadbodUI.ExplainPlan
 ---@return DadbodUI.ExplainPlan
 function M.annotate(plan)
   local root = plan.root
+  assign_ids(root, '1')
   compute(root)
   -- Heat denominator: real time when the plan was analyzed, planner cost
   -- otherwise -- whichever the whole tree consistently carries.

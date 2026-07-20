@@ -55,6 +55,21 @@ function M.define()
   link('DadbodUIConnectionSource', 'Comment')
   link('DadbodUIQueryTime', 'Comment') -- post-execute time/row summary (query-buffer ghost text)
 
+  -- Explain-tree groups: structure dim, content plain, and a cold->hot ramp for
+  -- a node's share of the plan (the renderer picks the tier; see
+  -- explain/render.lua). All default links so themes/users override freely.
+  link('DadbodUIExplainTree', 'NonText') -- branch glyphs + cell separators
+  link('DadbodUIExplainOp', 'Statement') -- operation name (Seq Scan, Hash Join)
+  link('DadbodUIExplainTarget', 'Constant') -- 'on orders o' / 'using users_pkey'
+  link('DadbodUIExplainExpr', 'Comment') -- inline Filter/Cond/Key text
+  link('DadbodUIExplainRows', 'Number')
+  link('DadbodUIExplainSkew', 'WarningMsg') -- estimate-vs-actual misjudgment flag
+  link('DadbodUIExplainCold', 'Comment')
+  link('DadbodUIExplainMild', 'Normal')
+  link('DadbodUIExplainWarm', 'WarningMsg')
+  link('DadbodUIExplainHot', 'ErrorMsg')
+  link('DadbodUIExplainSummary', 'Comment') -- the planning/execution header line
+
   local light = vim.o.background == 'light'
   vim.api.nvim_set_hl(0, 'DadbodUIConnectionOk', { default = true, fg = light and '#00AA00' or '#88FF88' })
   vim.api.nvim_set_hl(0, 'DadbodUIConnectionError', { default = true, fg = light and '#AA0000' or '#ff8888' })
