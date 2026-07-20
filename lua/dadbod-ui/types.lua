@@ -243,6 +243,7 @@
 ---@field source DadbodUI.Source
 ---@field name string
 ---@field group string
+---@field color? string  own hex color (`#rrggbb`, file source only); resolve the effective color via Instance:connection_color
 ---@field key_name string
 ---@field save_name string  group-qualified identifier ({group}_{name} when grouped); names the save folder + tmp query folder
 ---@field scheme string  raw adapter scheme
