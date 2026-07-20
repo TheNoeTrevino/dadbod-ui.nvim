@@ -101,9 +101,23 @@ describe('explain: supports / supported_schemes', function()
   it('gates the structured JSON form separately from text EXPLAIN', function()
     assert.is_true(explain.supports_json('postgres'))
     assert.is_true(explain.supports_json('postgresql')) -- alias resolves
+    assert.is_true(explain.supports_json('mysql'))
+    assert.is_true(explain.supports_json('mariadb'))
     assert.is_false(explain.supports_json('sqlite')) -- text-only EXPLAIN
     assert.is_false(explain.supports_json('sqlserver')) -- no EXPLAIN at all
-    assert.same({ 'postgres' }, explain.json_schemes())
+    assert.same({ 'mariadb', 'mysql', 'postgres' }, explain.json_schemes())
+  end)
+
+  it('rejects JSON analyze where the dialect has no executing JSON form', function()
+    -- MySQL's EXPLAIN ANALYZE emits TREE text, never JSON; MariaDB has
+    -- ANALYZE FORMAT=JSON.
+    local sql, err = explain.wrap('mysql', 'select 1', { format = 'json', analyze = true })
+    assert.is_nil(sql)
+    assert.is_truthy(err and err:match('JSON EXPLAIN ANALYZE is not supported'))
+    assert.equals(
+      'ANALYZE FORMAT=JSON select 1',
+      explain.wrap('mariadb', 'select 1', { format = 'json', analyze = true })
+    )
   end)
 
   it('exposes the raw-output client argv for JSON capture', function()

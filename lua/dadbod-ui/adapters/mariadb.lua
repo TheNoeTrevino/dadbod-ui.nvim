@@ -12,5 +12,14 @@ local mysql = require('dadbod-ui.adapters.mysql')
 ---@type DadbodUI.Adapter
 return vim.tbl_extend('force', {}, mysql, {
   name = 'mariadb',
-  explain = { plain = 'EXPLAIN {sql}', analyze = 'ANALYZE {sql}' },
+  explain = {
+    plain = 'EXPLAIN {sql}',
+    analyze = 'ANALYZE {sql}',
+    json = 'EXPLAIN FORMAT=JSON {sql}',
+    -- MariaDB (unlike MySQL) has an executing JSON form with real r_* timings.
+    json_analyze = 'ANALYZE FORMAT=JSON {sql}',
+    json_args = { '--batch', '--raw', '--skip-column-names' },
+    -- Same query_block shape as MySQL; one normalizer reads both spellings.
+    parser = 'dadbod-ui.explain.parsers.mysql',
+  },
 })

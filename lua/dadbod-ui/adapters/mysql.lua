@@ -91,7 +91,16 @@ return {
     ['Primary Keys'] = "SELECT * FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS WHERE TABLE_SCHEMA = '{schema}' AND TABLE_NAME = '{table}' AND CONSTRAINT_TYPE = 'PRIMARY KEY'",
   },
 
-  explain = { plain = 'EXPLAIN {sql}', analyze = 'EXPLAIN ANALYZE {sql}' },
+  explain = {
+    plain = 'EXPLAIN {sql}',
+    analyze = 'EXPLAIN ANALYZE {sql}',
+    -- No json_analyze: MySQL's EXPLAIN ANALYZE emits TREE text, never JSON.
+    json = 'EXPLAIN FORMAT=JSON {sql}',
+    -- `--batch --raw` prints the JSON cell verbatim (no \n escaping, no table
+    -- framing), `--skip-column-names` drops the header row.
+    json_args = { '--batch', '--raw', '--skip-column-names' },
+    parser = 'dadbod-ui.explain.parsers.mysql',
+  },
 
   pagination = 'limit_comma',
 
