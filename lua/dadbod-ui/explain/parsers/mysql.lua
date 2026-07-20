@@ -170,7 +170,12 @@ function to_node(key, op, raw)
     node.op = access ~= nil and (ACCESS[access] or access) or 'Table'
   end
   -- MariaDB ANALYZE actuals: r_total_time_ms is the total across loops.
+  -- Table nodes (MariaDB >= 10.9) split it into r_table_time_ms +
+  -- r_other_time_ms instead -- sum them so scans still carry real time.
   local r_time = field(raw.r_total_time_ms, 'number')
+  if r_time == nil and (raw.r_table_time_ms ~= nil or raw.r_other_time_ms ~= nil) then
+    r_time = (field(raw.r_table_time_ms, 'number') or 0) + (field(raw.r_other_time_ms, 'number') or 0)
+  end
   if r_time ~= nil then
     node.actual_time_ms = r_time
     node.loops = 1

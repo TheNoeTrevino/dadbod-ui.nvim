@@ -18,7 +18,9 @@ return vim.tbl_extend('force', {}, mysql, {
     json = 'EXPLAIN FORMAT=JSON {sql}',
     -- MariaDB (unlike MySQL) has an executing JSON form with real r_* timings.
     json_analyze = 'ANALYZE FORMAT=JSON {sql}',
-    json_args = { '--batch', '--raw', '--skip-column-names' },
+    -- `--skip-table` undoes the `-t` dadbod's filter command forces (see the
+    -- mysql spec's note); the rest yields the bare JSON document.
+    json_args = { '--skip-table', '--batch', '--raw', '--skip-column-names' },
     -- Same query_block shape as MySQL; one normalizer reads both spellings.
     parser = 'dadbod-ui.explain.parsers.mysql',
   },
