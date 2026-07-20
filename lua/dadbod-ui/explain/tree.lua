@@ -14,6 +14,10 @@
 -- attach to the wrong nodes.
 
 ---@private
+local drawer_paint = require('dadbod-ui.drawer.paint')
+---@private
+local float = require('dadbod-ui.float')
+---@private
 local mappings = require('dadbod-ui.mappings')
 ---@private
 local render = require('dadbod-ui.explain.render')
@@ -38,7 +42,7 @@ M.NS = vim.api.nvim_create_namespace('dadbod_ui_explain_tree')
 local current = nil
 
 ---@private
---- Close any float this module opened (help / node details).
+--- The float this module has open (help / node details), if any.
 local float_winid = nil
 
 ---@private
@@ -50,37 +54,17 @@ local function close_float()
 end
 
 ---@private
---- Open a centered rounded float over `lines`, closable with q/<Esc>/BufLeave.
---- The drawer's help-float recipe, shared by help and node details.
+--- Open the module's one informational float (the shared centered recipe).
 ---@param lines string[]
 ---@param title string
 local function open_float(lines, title)
   close_float()
-  local max_len = 0
-  for _, line in ipairs(lines) do
-    max_len = math.max(max_len, vim.fn.strdisplaywidth(line))
-  end
-  local width = math.min(max_len + 4, vim.o.columns - 4)
-  local height = math.min(#lines, vim.o.lines - 6)
-  local buf = vim.api.nvim_create_buf(false, true)
-  vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
-  vim.bo[buf].modifiable = false
-  vim.bo[buf].bufhidden = 'wipe'
-  float_winid = vim.api.nvim_open_win(buf, true, {
-    relative = 'editor',
-    row = math.floor((vim.o.lines - height) / 2),
-    col = math.floor((vim.o.columns - width) / 2),
-    width = width,
-    height = height,
-    border = 'rounded',
-    title = ' ' .. title .. ' ',
-    title_pos = 'center',
-    style = 'minimal',
+  float_winid = float.open(lines, {
+    title = title,
+    on_close = function()
+      float_winid = nil
+    end,
   })
-  for _, key in ipairs({ 'q', '<Esc>' }) do
-    vim.keymap.set('n', key, close_float, { buffer = buf, nowait = true, silent = true })
-  end
-  vim.api.nvim_create_autocmd('BufLeave', { buffer = buf, once = true, callback = close_float })
 end
 
 ---@private
@@ -98,12 +82,7 @@ local function paint(tree)
   bo.modifiable = false
   vim.api.nvim_buf_clear_namespace(tree.bufnr, M.NS, 0, -1)
   for i, row in ipairs(tree.rows) do
-    for _, hl in ipairs(row.highlights) do
-      vim.api.nvim_buf_set_extmark(tree.bufnr, M.NS, i - 1, hl.col_start, {
-        end_col = hl.col_end,
-        hl_group = hl.group,
-      })
-    end
+    drawer_paint.apply_line_highlights(tree.bufnr, i - 1, row.highlights, M.NS)
   end
 end
 
