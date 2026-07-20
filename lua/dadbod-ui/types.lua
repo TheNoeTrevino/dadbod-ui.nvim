@@ -150,6 +150,41 @@
 ---@field json_analyze? string  executing structured form; wrap DML safely (BEGIN/ROLLBACK) where the dialect allows
 ---@field json_args? string[]   extra client argv for raw, parseable JSON output
 
+--- One node of a normalized explain plan: the dialect-agnostic shape every
+--- plan parser targets, so the tree renderer never branches on
+--- adapter. Parsers fill the identity/estimate/actual fields (absent = the
+--- dialect or EXPLAIN mode doesn't report it); dadbod-ui.explain.plan derives
+--- the metrics fields after parse. `raw` keeps the adapter's untouched JSON for
+--- the node-detail view.
+---@class DadbodUI.PlanNode
+---@field op string            operation name (e.g. 'Seq Scan', 'Hash Left Join')
+---@field relation? string     scanned table name
+---@field alias? string        the SQL alias the planner reports for the relation
+---@field cte_name? string     referenced WITH-clause name (CTE Scan)
+---@field subplan_name? string planner-assigned subquery name ('SubPlan 1', 'InitPlan 2')
+---@field index_name? string   index used by an index/bitmap scan
+---@field startup_cost? number
+---@field total_cost? number
+---@field plan_rows? number    planner's row estimate
+---@field actual_rows? number  per-loop actual rows (ANALYZE only)
+---@field actual_time_ms? number  per-loop actual total time in ms (ANALYZE only)
+---@field loops? number
+---@field exprs [string, string][]  ordered (label, deparsed text) pairs: Filter, Index Cond, Sort Key, ...
+---@field children DadbodUI.PlanNode[]
+---@field raw table            the adapter's untouched JSON node
+---@field total_ms? number       derived: actual_time_ms * loops
+---@field exclusive_ms? number   derived: total_ms minus children's (the node's own time)
+---@field exclusive_cost? number derived: total_cost minus children's
+---@field frac? number           derived: exclusive share of the root total (time when analyzed, cost otherwise)
+---@field skew? number           derived: actual/estimated row ratio (misestimate signal)
+
+--- A parsed, annotated explain plan (dadbod-ui.explain.plan.decode).
+---@class DadbodUI.ExplainPlan
+---@field root DadbodUI.PlanNode
+---@field planning_ms? number
+---@field execution_ms? number
+---@field analyzed boolean  whether the plan carries actual (executed) measurements
+
 --- Dialect extensions to the statement classifier's shared SQL core
 --- (dadbod-ui.classifier). An empty table is meaningful: it declares "this
 --- dialect is plain SQL, the shared core applies as-is".
