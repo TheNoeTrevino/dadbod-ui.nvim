@@ -12,7 +12,8 @@
 ---
 --- The surface groups into: drawer control (`open`/`toggle`/`close`/`reveal`/
 --- `refresh`), connection management (`list`/`info`/`pick`/`add`/`remove`/
---- `rename`/`duplicate`/`set_group`/`move`/`connect`/`disconnect`), introspection
+--- `rename`/`duplicate`/`set_group`/`set_color`/`set_group_color`/`move`/
+--- `connect`/`disconnect`), introspection
 --- (`introspect`), queries (`query`/`query_sync`/`execute`/`execute_pick`/
 --- `explain`/`explain_pick`/`open_query`), export (`export`), a runtime event bus
 --- (`on`/`off`) for observing the connect/execute/cancel lifecycle, and two
@@ -98,6 +99,8 @@
 ---@field rename fun(name: string, new_name: string, new_url?: string): boolean, string|nil
 ---@field duplicate fun(name: string, new_name: string, group?: string): boolean, string|nil
 ---@field set_group fun(name: string, group: string): boolean, string|nil
+---@field set_color fun(name: string, color: string): boolean, string|nil
+---@field set_group_color fun(group: string, color: string): boolean, string|nil
 ---@field move fun(name: string, direction: 'up'|'down'): boolean, string|nil
 ---@field connect fun(name: string, cb?: DadbodUI.ApiOkCallback)
 ---@field disconnect fun(name: string): boolean, string|nil
@@ -491,7 +494,15 @@ function M.duplicate(name, new_name, group)
     return false, err
   end
   return apply_store(function(connections, list)
-    return connections.duplicate_connection(list, new_name, entry.url, group ~= nil and group or entry.group)
+    -- The clone keeps the source's own color (issue #91), mirroring the drawer's
+    -- duplicate flow.
+    return connections.duplicate_connection(
+      list,
+      new_name,
+      entry.url,
+      group ~= nil and group or entry.group,
+      entry.color
+    )
   end)
 end
 
@@ -510,6 +521,48 @@ function M.set_group(name, group)
   end
   return apply_store(function(connections, list)
     return connections.set_group(list, entry.name, entry.url, group or '', entry.group)
+  end)
+end
+
+--- Set (or clear, with `''`) the OWN hex color of `name` (issue #91): the paint
+--- the drawer and query-buffer winbar warn with, persisted on the entry in
+--- connections.json. `#rrggbb` only. Returns `false, err` for a bad color or an
+--- unknown / non-file connection (a discovered connection has nowhere to persist
+--- an own color -- color its group instead).
+---@param name string
+---@param color string  hex `#rrggbb`, or '' to clear
+---@return boolean ok
+---@return string|nil err
+function M.set_color(name, color)
+  if color ~= '' and not connections.is_hex_color(color) then
+    return false, "color must be a '#rrggbb' hex (or '' to clear)"
+  end
+  local entry, err = mutable_entry(name)
+  if entry == nil then
+    return false, err
+  end
+  return apply_store(function(conns, list)
+    return conns.set_connection_color(list, entry.name, entry.url, color, entry.group)
+  end)
+end
+
+--- Set (or clear, with `''`) `group`'s color (issue #91), stored as the group's
+--- own row in connections.json; every member without an own color inherits it,
+--- whatever its source. `#rrggbb` only. Returns `false, err` for a bad color or
+--- an empty group name.
+---@param group string
+---@param color string  hex `#rrggbb`, or '' to clear
+---@return boolean ok
+---@return string|nil err
+function M.set_group_color(group, color)
+  if group == nil or group == '' then
+    return false, 'group must be a non-empty group name'
+  end
+  if color ~= '' and not connections.is_hex_color(color) then
+    return false, "color must be a '#rrggbb' hex (or '' to clear)"
+  end
+  return apply_store(function(conns, list)
+    return conns.set_group_color(list, group, color)
   end)
 end
 
