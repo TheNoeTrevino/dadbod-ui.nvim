@@ -411,6 +411,7 @@
 ---@field drawer? DadbodUI.DrawerConfig
 ---@field query? DadbodUI.QueryConfig
 ---@field results? DadbodUI.ResultsConfig
+---@field explain? DadbodUI.ExplainConfig
 ---@field actions? table<string, DadbodUI.Action>  user-defined named actions
 ---@field buffer_name_generator? DadbodUI.BufferNameGenerator
 ---@field table_name_sorter? DadbodUI.TableNameSorter
@@ -450,6 +451,14 @@
 ---@field list_sort? 'asc'|'desc'
 ---@field query_time? DadbodUI.QueryTimeConfig
 ---@field export? DadbodUI.ExportConfig
+---@field keys? DadbodUI.Keymaps  `lhs -> action`, or `false` to disable the context
+
+--- The EXPLAIN plan-tree window (`explain`).
+---@class DadbodUI.ExplainConfig
+---@field width? integer
+---@field position? 'left'|'right'
+---@field heat? { warn: number, hot: number }  exclusive-share fractions where a node turns warm/hot
+---@field skew_threshold? number  actual/estimated row ratio that flags a misestimate
 ---@field keys? DadbodUI.Keymaps  `lhs -> action`, or `false` to disable the context
 
 --- Inline post-execute feedback (time + row count). See `query_time` in the
@@ -565,3 +574,4 @@
 ---@field drawer? DadbodUI.Drawer  the drawer instance (drawer context only)
 ---@field item? DadbodUI.Node  the node under the cursor (drawer context only)
 ---@field query? DadbodUI.Query  the query controller (query context only)
+---@field node? DadbodUI.PlanNode  the plan node under the cursor (explain-tree context only)
