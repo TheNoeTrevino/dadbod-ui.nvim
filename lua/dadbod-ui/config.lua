@@ -142,6 +142,8 @@ M.defaults = {
       ['<Leader>E'] = 'edit_bind_params',
       ['<Leader>W'] = 'save_query',
       ['<Leader>C'] = 'cancel',
+      ['<Leader>P'] = { 'explain_tree', mode = { 'n', 'v' } },
+      ['<Leader>A'] = { 'explain_tree_analyze', mode = { 'n', 'v' } },
     },
   },
 
@@ -266,6 +268,8 @@ M.builtin_actions = {
     edit_bind_params = 'Edit bind parameters',
     save_query = 'Save the current query (tmp buffers)',
     cancel = 'Cancel the running query',
+    explain_tree = 'Explain plan as a tree',
+    explain_tree_analyze = 'Explain ANALYZE plan as a tree (runs the query)',
   },
   results = {
     jump_foreign = 'Jump to the foreign key table',
@@ -308,7 +312,7 @@ M.action_order = {
     'goto_parent',
     'goto_child',
   },
-  query = { 'execute', 'edit_bind_params', 'save_query', 'cancel' },
+  query = { 'execute', 'edit_bind_params', 'save_query', 'cancel', 'explain_tree', 'explain_tree_analyze' },
   results = { 'jump_foreign', 'cell_value', 'yank_header', 'toggle_layout', 'next_page', 'prev_page', 'export' },
   explain = { 'toggle_node', 'node_details', 'close', 'help' },
 }

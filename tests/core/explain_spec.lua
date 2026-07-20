@@ -107,7 +107,7 @@ describe('explain: supports / supported_schemes', function()
   end)
 
   it('exposes the raw-output client argv for JSON capture', function()
-    assert.same({ '--no-psqlrc', '-q', '-A', '-t' }, explain.json_args('postgresql'))
+    assert.same({ '--no-psqlrc', '--set=ON_ERROR_STOP=1', '-q', '-A', '-t' }, explain.json_args('postgresql'))
     assert.same({}, explain.json_args('sqlite')) -- none needed / unsupported
   end)
 end)

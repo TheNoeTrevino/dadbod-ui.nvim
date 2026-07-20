@@ -13,6 +13,7 @@ local dbout = require('dadbod-ui.dbout')
 local paginator = require('dadbod-ui.paginator')
 local export = require('dadbod-ui.export')
 local explain = require('dadbod-ui.explain')
+local explain_run = require('dadbod-ui.explain.run')
 
 --- A last-mile SQL rewrite hook for `execute_query`/`execute_selection`. Receives
 --- the runnable SQL (a single string, after bind-param substitution) and returns
@@ -379,6 +380,38 @@ function Query:explain_query(is_visual, opts)
     if not ok then
       return notify.error(clean_execute_error(run_err))
     end
+    self.last_query = final_lines
+  end)
+end
+
+--- Explain the current query buffer (or visual selection) as an interactive
+--- plan TREE: wrap the SQL in the adapter's JSON EXPLAIN form, run it through
+--- the adapter's own client (headless -- no `.dbout` window), and open the
+--- parsed plan in the explain-tree split. The tree dual of `explain_query`,
+--- sharing its buffer read, connection and bind-parameter flow.
+--- `opts.analyze` runs the executing JSON form (rolled back for DML where the
+--- dialect allows). Requires a live connection (the client needs the resolved
+--- url); unsupported adapters surface `dadbod-ui.explain`'s user error.
+---@param is_visual? boolean
+---@param opts? DadbodUI.ExplainOpts
+---@return nil
+function Query:explain_tree(is_visual, opts)
+  local lines = self:get_lines(is_visual)
+  local entry = self.instance.dbs[vim.b.dbui_db_key_name]
+  if entry == nil then
+    return notify.error('Buffer not attached to any database')
+  end
+  if entry.conn == nil or entry.conn == '' then
+    return notify.error('Not connected. Open the connection in the drawer first.')
+  end
+  self:with_resolved_sql(lines, 'explained', function(final_lines)
+    local sql = table.concat(final_lines, '\n')
+    explain_run.open_tree({
+      scheme = entry.scheme,
+      conn = entry.conn,
+      sql = sql,
+      analyze = opts ~= nil and opts.analyze or nil,
+    })
     self.last_query = final_lines
   end)
 end

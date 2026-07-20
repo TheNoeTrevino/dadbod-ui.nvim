@@ -110,6 +110,7 @@
 ---@field explain fun(name: string, sql: string, opts?: DadbodUI.ExplainOpts|DadbodUI.ApiResultCallback, cb?: DadbodUI.ApiResultCallback)
 ---@field explain_sync fun(name: string, sql: string, opts?: DadbodUI.ExplainOpts): string[]|nil, string|nil
 ---@field explain_execute fun(name: string, sql: string, opts?: DadbodUI.ExplainOpts): boolean, string|nil
+---@field explain_tree fun(name: string, sql: string, opts?: DadbodUI.ExplainOpts): boolean, string|nil
 ---@field export fun(spec: DadbodUI.ApiExportSpec): boolean, string|nil
 ---@field on fun(event: DadbodUI.EventName, cb: fun(event: DadbodUI.HookEvent)): DadbodUI.EventHandle|nil, string|nil
 ---@field off fun(handle: DadbodUI.EventHandle): boolean
@@ -126,6 +127,8 @@ local connections = require('dadbod-ui.connections')
 local introspect = require('dadbod-ui.introspect')
 local export = require('dadbod-ui.export')
 local explain = require('dadbod-ui.explain')
+local explain_run = require('dadbod-ui.explain.run')
+local notify = require('dadbod-ui.notifications')
 local adapters = require('dadbod-ui.adapters')
 
 ---@private
@@ -763,6 +766,42 @@ function M.explain_execute(name, sql, opts)
     return false, err
   end
   return M.execute(name, explained)
+end
+
+--- Explain `sql` against `name` as an interactive plan TREE: the adapter's
+--- JSON EXPLAIN runs headlessly through its own client and the parsed plan
+--- opens in the explain-tree split (costs, est-vs-actual rows, timings, heat
+--- on the expensive nodes). Connects first if needed (non-blocking). Returns
+--- `false, err` for the synchronous pre-flight failures (unknown name,
+--- adapter without a structured plan format); async failures (connect, client,
+--- decode) surface as notifications. `{ analyze = true }` runs the executing
+--- form, rolled back for DML on adapters that allow it.
+---@param name string
+---@param sql string
+---@param opts? DadbodUI.ExplainOpts
+---@return boolean ok
+---@return string|nil err
+function M.explain_tree(name, sql, opts)
+  local entry = resolve(name)
+  if entry == nil then
+    return false, 'no connection named ' .. tostring(name)
+  end
+  if not explain.supports_json(entry.scheme) then
+    local _, err = explain.wrap(entry.scheme, sql, { format = 'json' })
+    return false, err
+  end
+  ensure_connected(entry, function(ok, err)
+    if not ok then
+      return notify.error(err)
+    end
+    explain_run.open_tree({
+      scheme = entry.scheme,
+      conn = entry.conn,
+      sql = sql,
+      analyze = opts ~= nil and opts.analyze or nil,
+    })
+  end)
+  return true
 end
 
 -- Export ---------------------------------------------------------------------

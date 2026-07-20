@@ -36,6 +36,8 @@
 ---@field execute_selection fun(transform?: DadbodUI.SqlTransform)
 ---@field explain_query fun(opts?: DadbodUI.ExplainOpts)
 ---@field explain_selection fun(opts?: DadbodUI.ExplainOpts)
+---@field explain_tree fun(opts?: DadbodUI.ExplainOpts)
+---@field explain_tree_selection fun(opts?: DadbodUI.ExplainOpts)
 ---@field export_query fun()
 ---@field export_selection fun()
 ---@field cancel_query fun()
@@ -149,6 +151,22 @@ end
 ---@return nil
 function M.explain_selection(opts)
   drawer():query():explain_query(true, opts)
+end
+
+--- Explain the current query buffer as an interactive plan TREE (JSON explain
+--- parsed and rendered, not the `.dbout` text). Backs `api.buf.explain_tree`.
+---@param opts? DadbodUI.ExplainOpts
+---@return nil
+function M.explain_tree(opts)
+  drawer():query():explain_tree(false, opts)
+end
+
+--- Explain the current visual selection as a plan tree. Backs
+--- `api.buf.explain_tree_selection`.
+---@param opts? DadbodUI.ExplainOpts
+---@return nil
+function M.explain_tree_selection(opts)
+  drawer():query():explain_tree(true, opts)
 end
 
 --- Export the current query buffer: run its SQL and write the results to a file,

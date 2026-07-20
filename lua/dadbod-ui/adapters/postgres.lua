@@ -244,8 +244,10 @@ return {
     -- `-q` suppresses the BEGIN/ROLLBACK command tags, `-A -t` drop psql's
     -- aligned-table framing (the `+` continuation gutter), `--no-psqlrc` keeps a
     -- user's psqlrc from injecting lines -- together stdout is the bare JSON
-    -- document.
-    json_args = { '--no-psqlrc', '-q', '-A', '-t' },
+    -- document. ON_ERROR_STOP makes a SQL error exit non-zero (psql otherwise
+    -- exits 0 from a piped script), so failures surface as errors, not as
+    -- unparseable output.
+    json_args = { '--no-psqlrc', '--set=ON_ERROR_STOP=1', '-q', '-A', '-t' },
     parser = 'dadbod-ui.explain.parsers.postgres',
   },
 

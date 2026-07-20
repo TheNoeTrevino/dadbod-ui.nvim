@@ -365,6 +365,12 @@ function Query:setup_buffer(entry, opts, name)
       cancel = function()
         self:cancel_query()
       end,
+      explain_tree = function(mode)
+        self:explain_tree(mode == 'v')
+      end,
+      explain_tree_analyze = function(mode)
+        self:explain_tree(mode == 'v', { analyze = true })
+      end,
     }
     if is_tmp and is_sql then
       handlers.save_query = function()
