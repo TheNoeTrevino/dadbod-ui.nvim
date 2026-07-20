@@ -13,6 +13,7 @@
 ---@field NS integer  extmark namespace, cleared and repainted on every render
 ---@field define fun()
 ---@field color_group fun(hex: string): string
+---@field winbar_color_group fun(hex: string): string
 ---@field highlights_for fun(node: DadbodUI.Node, line_text: string, icons: DadbodUI.Icons): DadbodUI.Highlight[]
 ---@field apply_line_highlights fun(bufnr: integer, lnum: integer, hls: DadbodUI.Highlight[], ns?: integer)
 
@@ -132,6 +133,24 @@ end
 function M.color_group(hex)
   local name = 'DadbodUIColor_' .. hex:sub(2)
   vim.api.nvim_set_hl(0, name, { fg = hex })
+  return name
+end
+
+--- The winbar block group for a user-assigned connection color (issue #91):
+--- `DadbodUIWinbarColor_<rrggbb>`, the hex as BACKGROUND (a solid tab that
+--- screams "prod" at the top of the query buffer, matching the other winbar
+--- blocks) with black/white text picked by luminance so the name stays legible
+--- on any color. Defined on every call, like `color_group`.
+---@param hex string  `#rrggbb`, lowercase
+---@return string
+function M.winbar_color_group(hex)
+  local r = tonumber(hex:sub(2, 3), 16)
+  local g = tonumber(hex:sub(4, 5), 16)
+  local b = tonumber(hex:sub(6, 7), 16)
+  -- Perceived luminance (ITU-R BT.601): dark text on light colors, and vice versa.
+  local fg = (0.299 * r + 0.587 * g + 0.114 * b) > 140 and '#000000' or '#ffffff'
+  local name = 'DadbodUIWinbarColor_' .. hex:sub(2)
+  vim.api.nvim_set_hl(0, name, { fg = fg, bg = hex })
   return name
 end
 
