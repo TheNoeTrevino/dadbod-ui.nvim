@@ -31,8 +31,35 @@ fi
 
 export DBUI_IT_MODE="$MODE"
 export DBUI_IT_EXTRA="${DBUI_IT_EXTRA:-0}"
+# Names the image the compose `runner` service uses; see runner-image.sh.
+# Overridable so a candidate image can be pointed at by hand (trying a registry
+# image before publishing it, pinning an older runner to bisect a golden).
+DBUI_IT_RUNNER_IMAGE="${DBUI_IT_RUNNER_IMAGE:-$("$HERE/runner-image.sh")}"
+export DBUI_IT_RUNNER_IMAGE
+
+# Get the runner image the cheapest way that works, in order: already on this
+# machine (local re-runs, and the whole point of the content-addressed tag) >
+# pull the published one > build it. The build is not a failure path -- it is
+# what a Dockerfile edit does before its image has been published.
+prepare_runner() {
+  if docker image inspect "$DBUI_IT_RUNNER_IMAGE" >/dev/null 2>&1; then
+    echo "runner image: $DBUI_IT_RUNNER_IMAGE (already local)"
+    return 0
+  fi
+  if docker pull --quiet "$DBUI_IT_RUNNER_IMAGE" >/dev/null 2>&1; then
+    echo "runner image: pulled $DBUI_IT_RUNNER_IMAGE"
+    return 0
+  fi
+  # Not published for this Dockerfile (or not for this architecture -- the
+  # published image is amd64, arm64 hosts always land here), so build it.
+  echo "runner image: $DBUI_IT_RUNNER_IMAGE not available to pull -- building"
+  "${COMPOSE[@]}" build runner
+}
+
+BUILD_LOG="$(mktemp)"
 
 cleanup() {
+  rm -f "$BUILD_LOG"
   if [[ "${DBUI_IT_KEEP:-0}" != "1" ]]; then
     # `down` without -v: the seeds are idempotent, so keeping the database
     # volumes costs nothing and keeps the test-deps volume (the thing that
@@ -46,12 +73,42 @@ cleanup() {
 }
 trap cleanup EXIT
 
-echo "==> databases"
+# The servers and the runner image have nothing to do with each other, so
+# preparing them one after the other wastes the whole of the shorter one. `up`
+# owns the network and the server containers; prepare_runner only pulls or
+# builds an image -- disjoint resources, so there is no compose-level race
+# between them.
+#
+# Its output goes to a log we replay afterwards rather than to the terminal:
+# two docker progress streams interleaved are unreadable.
+echo "==> stack (databases + runner image, in parallel)"
+prepare_runner >"$BUILD_LOG" 2>&1 &
+build_pid=$!
+
+# Without --wait: this returns once the containers are *started*, overlapping
+# the image pulls with the build. The health barrier is the --wait below, which
+# by then has nothing left to do but watch the healthchecks.
+"${COMPOSE[@]}" up -d "${SERVERS[@]}"
+
+build_status=0
+wait "$build_pid" || build_status=$?
+cat "$BUILD_LOG"
+if [[ "$build_status" != "0" ]]; then
+  echo "runner image could not be prepared" >&2
+  exit "$build_status"
+fi
+
+echo "==> waiting for databases"
 "${COMPOSE[@]}" up -d --wait "${SERVERS[@]}"
 
 echo "==> runner"
+# No --build here (unlike before): the image was built above, in parallel with
+# the servers coming up. `run` only builds when the image is missing, and it
+# never is by this point -- passing --build again would rebuild serially and
+# undo the overlap.
+#
 # --user keeps files the suite writes into the mounted repo (.tests/) owned by
 # the invoking user rather than root.
-"${COMPOSE[@]}" run --rm --build \
+"${COMPOSE[@]}" run --rm \
   --user "$(id -u):$(id -g)" \
   runner integration/run-suite.sh
