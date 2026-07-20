@@ -310,7 +310,7 @@ describe('api: connection mutation (store CRUD)', function()
 
     local bad, berr = api.set_color('billing/prod', 'red')
     assert.is_false(bad)
-    assert.is_truthy(berr and berr:find('#rrggbb'))
+    assert.is_truthy(berr and berr:find('hex color'))
   end)
 
   it('set_group_color writes the group row and members inherit it', function()

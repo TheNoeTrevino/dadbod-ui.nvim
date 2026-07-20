@@ -150,7 +150,7 @@ function Drawer:build_dbs(roots)
       roots[#roots + 1] = self:build_db(entry)
     elseif not seen_groups[group] then
       seen_groups[group] = true
-      local color = self.instance.group_colors[group:lower()]
+      local color = self.instance:group_color(group)
       local node, expanded = self:toggle_node({
         id = ids.group(group),
         type = 'group',

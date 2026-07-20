@@ -210,14 +210,12 @@ end
 ---@return DadbodUI.Instance
 function Instance:populate(inputs)
   self._inputs = inputs
-  -- Read the file store once, up front, and inject it into discover: the same
-  -- entries feed both the connection records and the group-color rows, so the
-  -- file is not parsed twice per populate. An injected `file_entries` (tests)
-  -- is honored as-is.
+  -- Resolve the file store once, up front (via `connections.store_entries`, the
+  -- single owner of the injected-vs-file fallback), and inject it into discover:
+  -- the same entries feed both the connection records and the group-color rows,
+  -- so the file is not parsed twice per populate.
   local merged = vim.tbl_extend('force', {}, inputs or {})
-  if merged.file_entries == nil then
-    merged.file_entries = connections.read_file(self.connections_path)
-  end
+  merged.file_entries = connections.store_entries(self.config, merged)
   self.group_colors = connections.group_colors(merged.file_entries)
   local previous = self.dbs
   self.dbs_list = {}
@@ -312,6 +310,15 @@ function M.disconnect(entry)
   entry.conn_error = ''
 end
 
+--- The stored color for `group`, or nil. The single reader of the
+--- lowercase-keyed `group_colors` map (matching the store's case-insensitive
+--- group rule) -- consumers go through here, never the map directly.
+---@param group string
+---@return string|nil
+function Instance:group_color(group)
+  return self.group_colors[(group or ''):lower()]
+end
+
 --- The effective color for `entry`: its own color when set, else its group's
 --- (issue #91's "a connection's own color wins over its group's"). Nil -- the
 --- default -- means "render exactly like today". Group colors apply whatever the
@@ -323,7 +330,7 @@ function Instance:connection_color(entry)
   if entry.color ~= nil then
     return entry.color
   end
-  return self.group_colors[(entry.group or ''):lower()]
+  return self:group_color(entry.group)
 end
 
 --- List connections with their connection state.

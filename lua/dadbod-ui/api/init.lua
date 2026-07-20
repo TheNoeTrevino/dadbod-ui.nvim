@@ -526,17 +526,15 @@ end
 
 --- Set (or clear, with `''`) the OWN hex color of `name` (issue #91): the paint
 --- the drawer and query-buffer winbar warn with, persisted on the entry in
---- connections.json. `#rrggbb` only. Returns `false, err` for a bad color or an
---- unknown / non-file connection (a discovered connection has nowhere to persist
---- an own color -- color its group instead).
+--- connections.json. `#rrggbb` only -- validated by the store transform, whose
+--- refusal surfaces as `false, err`. Also `false, err` for an unknown / non-file
+--- connection (a discovered connection has nowhere to persist an own color --
+--- color its group instead).
 ---@param name string
 ---@param color string  hex `#rrggbb`, or '' to clear
 ---@return boolean ok
 ---@return string|nil err
 function M.set_color(name, color)
-  if color ~= '' and not connections.is_hex_color(color) then
-    return false, "color must be a '#rrggbb' hex (or '' to clear)"
-  end
   local entry, err = mutable_entry(name)
   if entry == nil then
     return false, err
@@ -548,21 +546,15 @@ end
 
 --- Set (or clear, with `''`) `group`'s color (issue #91), stored as the group's
 --- own row in connections.json; every member without an own color inherits it,
---- whatever its source. `#rrggbb` only. Returns `false, err` for a bad color or
---- an empty group name.
+--- whatever its source. `#rrggbb` only; a bad color or empty group name is
+--- refused by the store transform and surfaces as `false, err`.
 ---@param group string
 ---@param color string  hex `#rrggbb`, or '' to clear
 ---@return boolean ok
 ---@return string|nil err
 function M.set_group_color(group, color)
-  if group == nil or group == '' then
-    return false, 'group must be a non-empty group name'
-  end
-  if color ~= '' and not connections.is_hex_color(color) then
-    return false, "color must be a '#rrggbb' hex (or '' to clear)"
-  end
   return apply_store(function(conns, list)
-    return conns.set_group_color(list, group, color)
+    return conns.set_group_color(list, group or '', color)
   end)
 end
 

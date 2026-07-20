@@ -292,6 +292,34 @@ function Controller:set_group(entry)
   end)
 end
 
+---@private
+--- The shared prompt half of both color flows (`C` on a db or group line): ask
+--- for a hex (`default` prefilled), trim, run `transform(color, store)` -- a
+--- pure store transform returning `(new_list, err)`, which owns the `#rrggbb`
+--- validation -- and commit or surface the refusal. One owner for the prompt
+--- wording and the flow, mirroring the `require_store`/`require_file_source`
+--- helper idiom.
+---@param controller DadbodUI.ConnectionsController
+---@param default string
+---@param transform fun(color: string, store: DadbodUI.FileEntry[]): DadbodUI.FileEntry[]|nil, string|nil
+---@return nil
+local function prompt_color(controller, default, transform)
+  controller.input({ prompt = 'Enter hex color (#rrggbb, empty clears): ', default = default }, function(color)
+    if color == nil then
+      return
+    end
+    local store = controller:read_store()
+    if store == nil then
+      return
+    end
+    local list, err = transform(vim.trim(color), store)
+    if list == nil then
+      return notify.error(err or 'Could not set color.')
+    end
+    controller:commit_connections(list)
+  end)
+end
+
 --- Prompt for and persist a file connection's OWN color (`C` on a db line).
 --- Hex `#rrggbb` only (self-contained in connections.json, survives colorscheme
 --- swaps); an empty entry clears it, falling back to the group color / default.
@@ -303,21 +331,10 @@ function Controller:set_connection_color(entry)
   if not require_file_source(entry, 'color') then
     return
   end
-  self.input({ prompt = 'Enter hex color (#rrggbb, empty clears): ', default = entry.color or '' }, function(color)
-    if color == nil then
-      return
-    end
-    color = vim.trim(color)
-    if color ~= '' and not connections.is_hex_color(color) then
-      return notify.error('Please enter a hex color like #ff0000, or leave empty to clear.')
-    end
-    local store = self:read_store()
-    if store == nil then
-      return
-    end
+  prompt_color(self, entry.color or '', function(color, store)
     -- Pass entry.group so the right clone is recolored when a same (name, url)
     -- exists in two groups.
-    self:commit_connections(connections.set_connection_color(store, entry.name, entry.url, color, entry.group))
+    return connections.set_connection_color(store, entry.name, entry.url, color, entry.group)
   end)
 end
 
@@ -330,20 +347,8 @@ function Controller:set_group_color(group)
   if not require_store(self) then
     return
   end
-  local current = self.instance.group_colors[group:lower()] or ''
-  self.input({ prompt = 'Enter hex color (#rrggbb, empty clears): ', default = current }, function(color)
-    if color == nil then
-      return
-    end
-    color = vim.trim(color)
-    if color ~= '' and not connections.is_hex_color(color) then
-      return notify.error('Please enter a hex color like #ff0000, or leave empty to clear.')
-    end
-    local store = self:read_store()
-    if store == nil then
-      return
-    end
-    self:commit_connections(connections.set_group_color(store, group, color))
+  prompt_color(self, self.instance:group_color(group) or '', function(color, store)
+    return connections.set_group_color(store, group, color)
   end)
 end
 
