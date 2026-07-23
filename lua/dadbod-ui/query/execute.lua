@@ -13,7 +13,6 @@ local dbout = require('dadbod-ui.dbout')
 local paginator = require('dadbod-ui.paginator')
 local export = require('dadbod-ui.export')
 local explain = require('dadbod-ui.explain')
-local explain_run = require('dadbod-ui.explain.run')
 
 --- A last-mile SQL rewrite hook for `execute_query`/`execute_selection`. Receives
 --- the runnable SQL (a single string, after bind-param substitution) and returns
@@ -410,7 +409,9 @@ function Query:explain_tree(is_visual, opts)
         local detail = entry.conn_error
         return notify.error(detail ~= nil and detail ~= '' and detail or 'connection failed')
       end
-      explain_run.open_tree({
+      -- Required here, not at module top: the tree stack (window, renderer,
+      -- float) should not load on every query-buffer setup.
+      require('dadbod-ui.explain.run').open_tree({
         scheme = entry.scheme,
         conn = entry.conn,
         sql = sql,

@@ -127,7 +127,6 @@ local connections = require('dadbod-ui.connections')
 local introspect = require('dadbod-ui.introspect')
 local export = require('dadbod-ui.export')
 local explain = require('dadbod-ui.explain')
-local explain_run = require('dadbod-ui.explain.run')
 local notify = require('dadbod-ui.notifications')
 local adapters = require('dadbod-ui.adapters')
 
@@ -798,7 +797,9 @@ function M.explain_tree(name, sql, opts)
     if not ok then
       return notify.error(err)
     end
-    explain_run.open_tree({
+    -- Required here, not at module top: the tree stack (window, renderer,
+    -- float) should not load just because the api was.
+    require('dadbod-ui.explain.run').open_tree({
       scheme = entry.scheme,
       conn = entry.conn,
       sql = sql,
