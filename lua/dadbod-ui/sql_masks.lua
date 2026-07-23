@@ -16,10 +16,8 @@
 -- lines; `--` comments end at their line. Computed over the whole statement at
 -- once so a span opened on one line correctly masks later lines.
 
----@alias DadbodUI.MaskKind false|'str'|'ident'|'comment'|'dollar'
-
 ---@class DadbodUI.SqlMasksModule
----@field build fun(lines: string[]): DadbodUI.MaskKind[][]
+---@field build fun(lines: string[]): boolean[][]
 
 ---@type DadbodUI.SqlMasksModule
 ---@diagnostic disable-next-line: missing-fields
@@ -38,13 +36,11 @@ local function dollar_open(line, i)
   return line:match('^%$%$', i) or line:match('^%$[%a_][%w_]*%$', i)
 end
 
---- Per-line byte masks over `lines`: `masks[i][j]` (1-based) is falsy when byte
---- `j` of line `i` is plain code, and otherwise names the span kind it lies in
---- (`'str'`, `'ident'`, `'comment'`, `'dollar'`). Callers that only care about
---- "code or not" test truthiness; the kind lets a consumer treat, say, quoted
---- identifiers specially without a second lexer.
+--- Per-line byte masks over `lines`: `masks[i][j]` (1-based) is true when byte
+--- `j` of line `i` lies inside a string/identifier/comment/dollar span --
+--- i.e. anywhere SQL-reading code must not match.
 ---@param lines string[]
----@return DadbodUI.MaskKind[][]
+---@return boolean[][]
 function M.build(lines)
   local masks = {}
   local in_str = false -- inside a '...' literal (carries across lines)
@@ -60,12 +56,12 @@ function M.build(lines)
       local c = line:sub(i, i)
       local c2 = line:sub(i + 1, i + 1)
       if in_line_comment then
-        mask[i] = 'comment'
+        mask[i] = true
         i = i + 1
       elseif in_block then
-        mask[i] = 'comment'
+        mask[i] = true
         if c == '*' and c2 == '/' then
-          mask[i + 1] = 'comment'
+          mask[i + 1] = true
           in_block = false
           i = i + 2
         else
@@ -76,19 +72,19 @@ function M.build(lines)
         -- the literal opening tag repeated.
         if line:sub(i, i + #dollar_tag - 1) == dollar_tag then
           for k = i, i + #dollar_tag - 1 do
-            mask[k] = 'dollar'
+            mask[k] = true
           end
           i = i + #dollar_tag
           dollar_tag = nil
         else
-          mask[i] = 'dollar'
+          mask[i] = true
           i = i + 1
         end
       elseif in_str then
-        mask[i] = 'str'
+        mask[i] = true
         if c == "'" then
           if c2 == "'" then
-            mask[i + 1] = 'str' -- doubled '' escape, still inside the string
+            mask[i + 1] = true -- doubled '' escape, still inside the string
             i = i + 2
           else
             in_str = false
@@ -98,10 +94,10 @@ function M.build(lines)
           i = i + 1
         end
       elseif in_dquote then
-        mask[i] = 'ident'
+        mask[i] = true
         if c == '"' then
           if c2 == '"' then
-            mask[i + 1] = 'ident' -- doubled "" escape, still inside the identifier
+            mask[i + 1] = true -- doubled "" escape, still inside the identifier
             i = i + 2
           else
             in_dquote = false
@@ -112,28 +108,32 @@ function M.build(lines)
         end
       elseif c == "'" then
         in_str = true
-        mask[i] = 'str'
+        mask[i] = true
         i = i + 1
       elseif c == '"' then
         in_dquote = true
-        mask[i] = 'ident'
+        mask[i] = true
         i = i + 1
-      elseif c == '$' and dollar_open(line, i) then
+      elseif c == '$' then
         local tag = dollar_open(line, i)
-        ---@cast tag string
-        dollar_tag = tag
-        for k = i, i + #tag - 1 do
-          mask[k] = 'dollar'
+        if tag ~= nil then
+          dollar_tag = tag
+          for k = i, i + #tag - 1 do
+            mask[k] = true
+          end
+          i = i + #tag
+        else
+          mask[i] = false
+          i = i + 1
         end
-        i = i + #tag
       elseif c == '-' and c2 == '-' then
         in_line_comment = true
-        mask[i] = 'comment'
+        mask[i] = true
         i = i + 1
       elseif c == '/' and c2 == '*' then
         in_block = true
-        mask[i] = 'comment'
-        mask[i + 1] = 'comment'
+        mask[i] = true
+        mask[i + 1] = true
         i = i + 2
       else
         mask[i] = false
