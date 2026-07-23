@@ -28,7 +28,7 @@
 ---@field collapsed? table<string, boolean>  row id -> hidden children
 ---@field heat? { warn: number, hot: number }  exclusive-share thresholds for the warm/hot tiers
 ---@field skew_threshold? number  actual/estimated row ratio that flags a misestimate
----@field collapsed_icon? string  fold marker for a collapsed subtree (thread the resolved icons.collapsed here)
+---@field collapsed_icon? string  fold marker for a collapsed subtree (the resolved `icons.collapsed.explain`)
 
 local M = {}
 

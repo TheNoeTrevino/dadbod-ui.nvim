@@ -18,6 +18,8 @@ local float = require('dadbod-ui.float')
 ---@private
 local highlights = require('dadbod-ui.highlights')
 ---@private
+local icons = require('dadbod-ui.icons')
+---@private
 local mappings = require('dadbod-ui.mappings')
 ---@private
 local render = require('dadbod-ui.explain.render')
@@ -92,11 +94,13 @@ end
 ---@param tree DadbodUI.ExplainTree
 ---@param keep_id? string  row id to keep the cursor on
 local function refresh(tree, keep_id)
-  local cfg = state.config().explain or {}
+  local config = state.config()
+  local cfg = config.explain or {}
   tree.rows = render.rows(tree.plan, {
     collapsed = tree.collapsed,
     heat = cfg.heat,
     skew_threshold = cfg.skew_threshold,
+    collapsed_icon = icons.resolve(config).collapsed.explain,
   })
   paint(tree)
   if keep_id ~= nil and vim.api.nvim_win_is_valid(tree.winid) then
