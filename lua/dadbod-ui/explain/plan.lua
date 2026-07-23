@@ -22,6 +22,19 @@ local adapters = require('dadbod-ui.adapters')
 
 local M = {}
 
+--- `vim.json.decode` maps JSON null to `vim.NIL`; normalize it (and wrong
+--- types) to absent so downstream `~= nil` checks mean "the field is real".
+--- Shared by every dialect parser.
+---@param value any
+---@param expected type
+---@return any
+function M.field(value, expected)
+  if type(value) ~= expected then
+    return nil
+  end
+  return value
+end
+
 ---@private
 --- Fill the derived metrics fields on every node, bottom-up. Clamped at zero:
 --- dialects don't always include every child's contribution in the parent's

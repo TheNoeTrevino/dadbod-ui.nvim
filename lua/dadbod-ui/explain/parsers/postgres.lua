@@ -47,17 +47,8 @@ local function op_name(raw)
 end
 
 ---@private
---- `vim.json.decode` maps JSON null to `vim.NIL`; normalize it (and wrong
---- types) to absent so downstream `~= nil` checks mean "the field is real".
----@param value any
----@param expected type
----@return any
-local function field(value, expected)
-  if type(value) ~= expected then
-    return nil
-  end
-  return value
-end
+--- The shared vim.NIL / wrong-type -> nil normalizer (dadbod-ui.explain.plan).
+local field = require('dadbod-ui.explain.plan').field
 
 ---@private
 ---@param raw table

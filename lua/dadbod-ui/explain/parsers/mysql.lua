@@ -99,15 +99,8 @@ local ACCESS = {
 }
 
 ---@private
----@param value any
----@param expected type
----@return any
-local function field(value, expected)
-  if type(value) ~= expected then
-    return nil
-  end
-  return value
-end
+--- The shared vim.NIL / wrong-type -> nil normalizer (dadbod-ui.explain.plan).
+local field = require('dadbod-ui.explain.plan').field
 
 ---@private
 --- Costs arrive as strings in MySQL's `cost_info`; MariaDB (>=10.11) has a
