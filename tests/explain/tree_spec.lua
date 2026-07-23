@@ -26,7 +26,7 @@ local FIXTURE = [=[
 
 local function open_fixture()
   local parsed = assert(plan.decode('postgres', FIXTURE))
-  tree.open(parsed, { scheme = 'postgres' })
+  tree.open(parsed)
   return parsed
 end
 

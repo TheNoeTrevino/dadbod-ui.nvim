@@ -7,9 +7,9 @@
 -- tree. Both entry points funnel here: the query-buffer keymap
 -- (`Query:explain_tree`) and the api verb (`api.explain_tree`).
 --
--- Errors at every stage are user-facing strings through `on_error` (defaulting
--- to a notification): unsupported adapter, client failure (the server's stderr
--- is the interesting part), unparseable output.
+-- Errors at every stage surface as user-facing notifications: unsupported
+-- adapter, client failure (the server's stderr is the interesting part),
+-- unparseable output.
 
 ---@private
 local bridge = require('dadbod-ui.bridge')
@@ -29,7 +29,6 @@ local M = {}
 ---@field conn string    the RESOLVED connection url (a live connection)
 ---@field sql string     the (bind-param substituted) SQL to explain
 ---@field analyze? boolean  run the executing JSON form (rolled back for DML where the dialect allows)
----@field on_error? fun(err: string)  defaults to a notification
 
 --- Explain `run.sql` and open the plan tree. Asynchronous: returns after
 --- spawning the client; the tree opens (or the error surfaces) from the exit
@@ -37,7 +36,7 @@ local M = {}
 ---@param run DadbodUI.ExplainTreeRun
 ---@return nil
 function M.open_tree(run)
-  local fail = run.on_error or notify.error
+  local fail = notify.error
   local wrapped, err = explain.wrap(run.scheme, run.sql, { format = 'json', analyze = run.analyze })
   if wrapped == nil then
     return fail(err)
@@ -58,7 +57,7 @@ function M.open_tree(run)
       local detail = vim.trim(result.stderr or '')
       return fail(detail ~= '' and ('explain failed: ' .. detail) or decode_err)
     end
-    tree.open(plan, { scheme = run.scheme })
+    tree.open(plan)
   end)
 end
 

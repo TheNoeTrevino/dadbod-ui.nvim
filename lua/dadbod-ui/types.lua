@@ -162,9 +162,7 @@
 ---@field relation? string     scanned table name
 ---@field alias? string        the SQL alias the planner reports for the relation
 ---@field cte_name? string     referenced WITH-clause name (CTE Scan)
----@field subplan_name? string planner-assigned subquery name ('SubPlan 1', 'InitPlan 2')
 ---@field index_name? string   index used by an index/bitmap scan
----@field startup_cost? number
 ---@field total_cost? number
 ---@field plan_rows? number    planner's row estimate
 ---@field actual_rows? number  per-loop actual rows (ANALYZE only)

@@ -70,11 +70,12 @@ local function walk(node, visit)
   end
 end
 
+---@private
 --- Fill the derived metrics (`total_ms`, `exclusive_*`, `frac`, `skew`) on
---- every node of `plan`. Called by `decode`; exposed for parsers-in-tests.
+--- every node of `plan`.
 ---@param plan DadbodUI.ExplainPlan
 ---@return DadbodUI.ExplainPlan
-function M.annotate(plan)
+local function annotate(plan)
   local root = plan.root
   compute(root)
   -- Heat denominator: real time when the plan was analyzed, planner cost
@@ -114,7 +115,7 @@ function M.decode(scheme, raw)
   if plan == nil then
     return nil, err
   end
-  return M.annotate(plan)
+  return annotate(plan)
 end
 
 return M

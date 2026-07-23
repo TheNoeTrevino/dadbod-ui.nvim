@@ -39,7 +39,6 @@ M.NS = vim.api.nvim_create_namespace('dadbod_ui_explain_tree')
 ---@field plan DadbodUI.ExplainPlan
 ---@field rows DadbodUI.ExplainRow[]
 ---@field collapsed table<string, boolean>
----@field scheme string
 ---@private
 local current = nil
 
@@ -251,9 +250,8 @@ end
 
 --- Open (or replace) the explain tree for `plan`.
 ---@param plan DadbodUI.ExplainPlan
----@param opts { scheme: string }
 ---@return nil
-function M.open(plan, opts)
+function M.open(plan)
   local bufnr, winid = ensure_window()
   current = {
     bufnr = bufnr,
@@ -261,7 +259,6 @@ function M.open(plan, opts)
     plan = plan,
     rows = {},
     collapsed = {},
-    scheme = opts.scheme,
   }
   refresh(current)
   vim.api.nvim_win_set_cursor(winid, { math.min(3, vim.api.nvim_buf_line_count(bufnr)), 0 })
