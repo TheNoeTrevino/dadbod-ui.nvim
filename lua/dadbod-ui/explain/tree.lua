@@ -73,10 +73,9 @@ end
 --- extmarks. Full repaint on purpose (see the module header).
 ---@param tree DadbodUI.ExplainTree
 local function paint(tree)
-  local lines = {}
-  for i, row in ipairs(tree.rows) do
-    lines[i] = row.line
-  end
+  local lines = vim.tbl_map(function(row)
+    return row.line
+  end, tree.rows)
   local bo = vim.bo[tree.bufnr]
   bo.modifiable = true
   vim.api.nvim_buf_set_lines(tree.bufnr, 0, -1, false, lines)
@@ -160,11 +159,12 @@ function M.node_details()
   end
   local keys = vim.tbl_keys(row.node.raw)
   table.sort(keys)
-  local lines = {}
-  for _, key in ipairs(keys) do
-    lines[#lines + 1] = string.format('%s: %s', key, detail_value(row.node.raw[key]))
-  end
-  open_float(lines, row.node.op)
+  open_float(
+    vim.tbl_map(function(key)
+      return string.format('%s: %s', key, detail_value(row.node.raw[key]))
+    end, keys),
+    row.node.op
+  )
 end
 
 --- Show the keymap help float (all contexts, same recipe as the drawer's).

@@ -82,13 +82,7 @@ end
 --- the explain tree's honest support matrix for error messages and gating.
 ---@return string[]
 function M.json_schemes()
-  local names = {}
-  for _, name in ipairs(M.supported_schemes()) do
-    if M.supports_json(name) then
-      names[#names + 1] = name
-    end
-  end
-  return names
+  return vim.tbl_filter(M.supports_json, M.supported_schemes())
 end
 
 --- Extra client argv that makes `scheme`'s CLI emit the raw JSON plan document

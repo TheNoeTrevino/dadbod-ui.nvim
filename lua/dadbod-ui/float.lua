@@ -23,10 +23,9 @@ local M = {}
 ---@param opts DadbodUI.FloatOpts
 ---@return integer winid
 function M.open(lines, opts)
-  local max_len = 0
-  for _, line in ipairs(lines) do
-    max_len = math.max(max_len, vim.fn.strdisplaywidth(line))
-  end
+  local max_len = vim.iter(lines):fold(0, function(acc, line)
+    return math.max(acc, vim.fn.strdisplaywidth(line))
+  end)
   local width = math.min(max_len + 4, vim.o.columns - 4)
   local height = math.min(#lines, vim.o.lines - 6)
 
