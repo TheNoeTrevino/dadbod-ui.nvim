@@ -174,7 +174,9 @@ local function add_children(key, op, value, children)
     end
   end
   if key == 'nested_loop' then
-    children[#children + 1] = { op = op, exprs = {}, children = items, raw = value }
+    -- Synthesized join node: the array it wraps is pure structure, so its
+    -- detail payload is empty.
+    children[#children + 1] = { op = op, exprs = {}, children = items, raw = {} }
   else
     vim.list_extend(children, items)
   end
@@ -245,6 +247,14 @@ function to_node(key, op, raw)
   table.sort(unknown)
   for _, raw_key in ipairs(unknown) do
     add_children(raw_key, prettify(raw_key), raw[raw_key], node.children)
+  end
+  -- The detail payload: the node's own keys, minus everything that became a
+  -- child above -- the detail float shows detail, never structure.
+  node.raw = {}
+  for raw_key, value in pairs(raw) do
+    if not ((KNOWN[raw_key] and type(value) == 'table') or looks_like_plan(value)) then
+      node.raw[raw_key] = value
+    end
   end
   return node
 end

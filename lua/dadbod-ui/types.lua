@@ -155,8 +155,8 @@
 --- plan parser targets, so the tree renderer never branches on
 --- adapter. Parsers fill the identity/estimate/actual fields (absent = the
 --- dialect or EXPLAIN mode doesn't report it); dadbod-ui.explain.plan derives
---- the metrics fields after parse. `raw` keeps the adapter's untouched JSON for
---- the node-detail view.
+--- the metrics fields after parse. `raw` keeps the node's own adapter keys
+--- (child/structure keys stripped by the parser) for the node-detail view.
 ---@class DadbodUI.PlanNode
 ---@field op string            operation name (e.g. 'Seq Scan', 'Hash Left Join')
 ---@field relation? string     scanned table name
@@ -170,7 +170,7 @@
 ---@field loops? number
 ---@field exprs [string, string][]  ordered (label, deparsed text) pairs: Filter, Index Cond, Sort Key, ...
 ---@field children DadbodUI.PlanNode[]
----@field raw table            the adapter's untouched JSON node
+---@field raw table            the node's own adapter keys (structure stripped) -- the detail-float payload
 ---@field total_ms? number       derived: actual_time_ms * loops
 ---@field exclusive_ms? number   derived: total_ms minus children's (the node's own time)
 ---@field exclusive_cost? number derived: total_cost minus children's

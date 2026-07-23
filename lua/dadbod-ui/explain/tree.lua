@@ -158,12 +158,7 @@ function M.node_details()
   if row == nil or row.node == nil then
     return
   end
-  local keys = {}
-  for key in pairs(row.node.raw) do
-    if key ~= 'Plans' then
-      keys[#keys + 1] = key
-    end
-  end
+  local keys = vim.tbl_keys(row.node.raw)
   table.sort(keys)
   local lines = {}
   for _, key in ipairs(keys) do

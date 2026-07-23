@@ -75,8 +75,15 @@ local function to_node(raw)
     loops = field(raw['Actual Loops'], 'number'),
     exprs = exprs,
     children = {},
-    raw = raw,
+    raw = {},
   }
+  -- The detail payload is every key except the child array -- the detail
+  -- float shows detail, never structure.
+  for key, value in pairs(raw) do
+    if key ~= 'Plans' then
+      node.raw[key] = value
+    end
+  end
   for _, child in ipairs(field(raw['Plans'], 'table') or {}) do
     node.children[#node.children + 1] = to_node(child)
   end
