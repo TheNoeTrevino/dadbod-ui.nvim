@@ -193,8 +193,16 @@ local function ensure_window()
     return current.bufnr, current.winid
   end
   local cfg = state.config().explain or {}
-  local mods = cfg.position == 'left' and 'topleft' or 'botright'
-  vim.cmd(string.format('%s vertical %dnew', mods, cfg.width or 72))
+  -- `position` picks the orientation: top/bottom split horizontally (height),
+  -- left/right split vertically (width).
+  local horizontal = cfg.position == 'top' or cfg.position == 'bottom'
+  if horizontal then
+    local mods = cfg.position == 'top' and 'topleft' or 'botright'
+    vim.cmd(string.format('%s %dnew', mods, cfg.height or 15))
+  else
+    local mods = cfg.position == 'left' and 'topleft' or 'botright'
+    vim.cmd(string.format('%s vertical %dnew', mods, cfg.width or 72))
+  end
   local winid = vim.api.nvim_get_current_win()
   local bufnr = vim.api.nvim_get_current_buf()
   local bo = vim.bo[bufnr]
@@ -207,7 +215,8 @@ local function ensure_window()
   wo.number = false
   wo.relativenumber = false
   wo.signcolumn = 'no'
-  wo.winfixwidth = true
+  wo.winfixwidth = not horizontal
+  wo.winfixheight = horizontal
   wo.wrap = false
 
   local handlers = {

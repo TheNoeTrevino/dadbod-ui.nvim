@@ -199,14 +199,17 @@ M.defaults = {
   },
 
   -- The EXPLAIN plan-tree window (`api.explain_tree` / the query-buffer
-  -- explain_tree action): a vertical split rendering EXPLAIN (FORMAT JSON) as
+  -- explain_tree action): a split rendering EXPLAIN (FORMAT JSON) as
   -- a collapsible tree. `heat` colors a node by its OWN share of the plan's
   -- time (cost for non-ANALYZE plans): `warn`/`hot` are the fractions where a
   -- node turns warm/hot. `skew_threshold` is the actual/estimated row ratio
   -- that flags a planner misestimate on the row count.
   explain = {
+    -- `position` picks the orientation: top/bottom split horizontally (using
+    -- `height`), left/right split vertically (using `width`).
+    position = 'bottom',
     width = 72,
-    position = 'right',
+    height = 15,
     heat = { warn = 0.2, hot = 0.5 },
     skew_threshold = 100,
     -- Keymaps for the explain-tree buffer, `lhs -> action`. See the `keys` note above.

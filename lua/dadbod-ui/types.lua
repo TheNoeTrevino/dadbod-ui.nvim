@@ -455,8 +455,9 @@
 
 --- The EXPLAIN plan-tree window (`explain`).
 ---@class DadbodUI.ExplainConfig
----@field width? integer
----@field position? 'left'|'right'
+---@field position? 'left'|'right'|'top'|'bottom'  left/right split vertically (width), top/bottom horizontally (height)
+---@field width? integer   column count when position is left/right
+---@field height? integer  row count when position is top/bottom
 ---@field heat? { warn: number, hot: number }  exclusive-share fractions where a node turns warm/hot
 ---@field skew_threshold? number  actual/estimated row ratio that flags a misestimate
 ---@field keys? DadbodUI.Keymaps  `lhs -> action`, or `false` to disable the context
