@@ -14,9 +14,9 @@
 -- attach to the wrong nodes.
 
 ---@private
-local drawer_paint = require('dadbod-ui.drawer.paint')
----@private
 local float = require('dadbod-ui.float')
+---@private
+local highlights = require('dadbod-ui.highlights')
 ---@private
 local mappings = require('dadbod-ui.mappings')
 ---@private
@@ -82,7 +82,7 @@ local function paint(tree)
   bo.modifiable = false
   vim.api.nvim_buf_clear_namespace(tree.bufnr, M.NS, 0, -1)
   for i, row in ipairs(tree.rows) do
-    drawer_paint.apply_line_highlights(tree.bufnr, i - 1, row.highlights, M.NS)
+    highlights.apply_line_highlights(tree.bufnr, i - 1, row.highlights, M.NS)
   end
 end
 

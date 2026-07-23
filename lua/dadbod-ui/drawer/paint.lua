@@ -9,7 +9,6 @@ local highlights = require('dadbod-ui.highlights')
 
 ---@class DadbodUI.DrawerPaint
 ---@field line_for fun(node: DadbodUI.Node): string
----@field apply_line_highlights fun(bufnr: integer, lnum: integer, hls: DadbodUI.Highlight[], ns?: integer)
 ---@field paint fun(bufnr: integer, nodes: DadbodUI.Node[], icons: DadbodUI.Icons, prev?: DadbodUI.Painted): DadbodUI.Painted
 
 --- Snapshot of the last paint of a buffer: the rendered line texts plus each
@@ -42,26 +41,6 @@ function M.line_for(node)
   local sep = node.icon ~= '' and ' ' or ''
   local trailer = node.loading_frame and (' ' .. node.loading_frame) or ''
   return indent .. node.icon .. sep .. node.label .. trailer
-end
-
---- Apply the highlight ranges for ONE line (0-based `lnum`) as extmarks --
---- in the drawer's `dadbod_ui` namespace by default, or in `ns` (the explain
---- tree paints the same `DadbodUI.Highlight` shape into its own namespace).
---- The caller is responsible for clearing the namespace over the affected
---- range first. Shared by the full `paint` and the single-line
---- `repaint_db_node` so an animated frame keeps the same colors as a full render.
----@param bufnr integer
----@param lnum integer
----@param hls DadbodUI.Highlight[]
----@param ns? integer  extmark namespace (default: the drawer's)
----@return nil
-function M.apply_line_highlights(bufnr, lnum, hls, ns)
-  for _, hl in ipairs(hls) do
-    vim.api.nvim_buf_set_extmark(bufnr, ns or highlights.NS, lnum, hl.col_start, {
-      end_col = hl.col_end,
-      hl_group = hl.group,
-    })
-  end
 end
 
 --- Paint a node list into `bufnr`: map each node to its display string (via
@@ -140,7 +119,7 @@ function M.paint(bufnr, nodes, icons, prev)
   vim.api.nvim_buf_set_lines(bufnr, prefix, old_end, false, slice)
   bo.modifiable = false
   for i = prefix + 1, #lines - suffix do
-    M.apply_line_highlights(bufnr, i - 1, highlights.highlights_for(nodes[i], lines[i], icons))
+    highlights.apply_line_highlights(bufnr, i - 1, highlights.highlights_for(nodes[i], lines[i], icons))
   end
   return painted
 end
