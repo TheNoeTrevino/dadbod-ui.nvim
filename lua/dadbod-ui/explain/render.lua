@@ -26,16 +26,12 @@
 
 ---@class DadbodUI.ExplainRenderOpts
 ---@field collapsed? table<string, boolean>  row id -> hidden children
----@field heat? { warn: number, hot: number }  exclusive-share thresholds for the warm/hot tiers
----@field skew_threshold? number  actual/estimated row ratio that flags a misestimate
----@field collapsed_icon? string  fold marker for a collapsed subtree (the resolved `icons.collapsed.explain`)
+---@field heat { warn: number, hot: number }  exclusive-share thresholds for the warm/hot tiers (config `explain.heat`)
+---@field skew_threshold number  actual/estimated row ratio that flags a misestimate (config `explain.skew_threshold`)
+---@field collapsed_icon string  fold marker for a collapsed subtree (the resolved `icons.collapsed.explain`)
 
 local M = {}
 
----@private
-local DEFAULT_HEAT = { warn = 0.2, hot = 0.5 }
----@private
-local DEFAULT_SKEW = 100
 ---@private
 --- Byte budget for the inline conditions cell; the full text lives in the
 --- node-detail float.
@@ -260,17 +256,17 @@ end
 
 --- Render an annotated plan to display rows: a summary header, a blank
 --- spacer, then one row per visible plan node. Pure -- collapse state, heat
---- thresholds and the skew flag all arrive in `opts`.
+--- thresholds, the skew flag and the fold glyph all arrive in `opts` (config
+--- owns the policy numbers; this module never restates them).
 ---@param plan DadbodUI.ExplainPlan
----@param opts? DadbodUI.ExplainRenderOpts
+---@param opts DadbodUI.ExplainRenderOpts
 ---@return DadbodUI.ExplainRow[]
 function M.rows(plan, opts)
-  opts = opts or {}
   local resolved = {
     collapsed = opts.collapsed or {},
-    heat = opts.heat or DEFAULT_HEAT,
-    skew_threshold = opts.skew_threshold or DEFAULT_SKEW,
-    collapsed_icon = opts.collapsed_icon or '▸',
+    heat = opts.heat,
+    skew_threshold = opts.skew_threshold,
+    collapsed_icon = opts.collapsed_icon,
   }
   local out = { header_row(plan), { line = '', highlights = {} } }
   emit(plan.root, '1', '', '', plan.analyzed, resolved, out)

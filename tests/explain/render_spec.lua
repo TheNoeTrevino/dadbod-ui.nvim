@@ -5,6 +5,21 @@
 local plan = require('dadbod-ui.explain.plan')
 local render = require('dadbod-ui.explain.render')
 
+--- render.rows with the config-default policy values (the renderer itself
+--- takes them as required opts; config owns the numbers in production).
+---@param parsed DadbodUI.ExplainPlan
+---@param opts? { collapsed?: table<string, boolean> }
+local function rows(parsed, opts)
+  return render.rows(
+    parsed,
+    vim.tbl_extend(
+      'keep',
+      opts or {},
+      { heat = { warn = 0.2, hot = 0.5 }, skew_threshold = 100, collapsed_icon = '▸' }
+    )
+  )
+end
+
 -- Minimal analyzed plan: Sort over a Seq Scan, with a misestimate on the scan.
 local ANALYZED = [=[
 [
@@ -71,7 +86,7 @@ end
 
 describe('explain render: rows', function()
   it('renders header, spacer, then one row per node with tree glyphs', function()
-    local rows = render.rows(plan.decode('postgres', ANALYZED))
+    local rows = rows(plan.decode('postgres', ANALYZED))
     assert.equals(4, #rows)
     assert.is_nil(rows[1].node)
     assert.is_truthy(rows[1].line:match('planning 0%.20ms'))
@@ -83,7 +98,7 @@ describe('explain render: rows', function()
   end)
 
   it('shows each node its OWN time and share, heat-tiered', function()
-    local rows = render.rows(plan.decode('postgres', ANALYZED))
+    local rows = rows(plan.decode('postgres', ANALYZED))
     local sort, scan = row_by_id(rows, '1'), row_by_id(rows, '1.1')
     -- Sort's own time is 100 - 90 = 10ms (10%); the scan holds 90ms (90%).
     assert.is_truthy(sort.line:match('10ms 10%%$'))
@@ -93,7 +108,7 @@ describe('explain render: rows', function()
   end)
 
   it('flags a misestimate with the skew marker on the rows cell', function()
-    local rows = render.rows(plan.decode('postgres', ANALYZED))
+    local rows = rows(plan.decode('postgres', ANALYZED))
     local scan = row_by_id(rows, '1.1')
     assert.is_truthy(scan.line:match('rows 1000 %(est 10 ⚠×100%)'))
     local at = scan.line:find('%(est')
@@ -103,7 +118,7 @@ describe('explain render: rows', function()
   end)
 
   it('renders inline conditions under the expr group, truncated to budget', function()
-    local rows = render.rows(plan.decode('postgres', ANALYZED))
+    local rows = rows(plan.decode('postgres', ANALYZED))
     local scan = row_by_id(rows, '1.1')
     local at = scan.line:find('Filter: %(t%.a > 5%)')
     assert.is_truthy(at)
@@ -111,7 +126,7 @@ describe('explain render: rows', function()
   end)
 
   it('falls back to cost cells (with ~estimate rows) for plain plans', function()
-    local rows = render.rows(plan.decode('postgres', PLAIN))
+    local rows = rows(plan.decode('postgres', PLAIN))
     assert.is_truthy(rows[1].line:match('estimates only'))
     local join = row_by_id(rows, '1')
     assert.is_truthy(join.line:match('rows ~50'))
@@ -121,7 +136,7 @@ describe('explain render: rows', function()
   end)
 
   it('draws continuation bars for non-last subtrees', function()
-    local rows = render.rows(plan.decode('postgres', PLAIN))
+    local rows = rows(plan.decode('postgres', PLAIN))
     -- b's scan sits under Hash (last child), whose parent lists Hash last too.
     local inner = row_by_id(rows, '1.2.1')
     assert.is_truthy(inner.line:match('^   └─ Seq Scan on b'))
@@ -131,7 +146,7 @@ describe('explain render: rows', function()
 
   it('collapses a subtree and marks the fold', function()
     local parsed = plan.decode('postgres', PLAIN)
-    local rows = render.rows(parsed, { collapsed = { ['1.2'] = true } })
+    local rows = rows(parsed, { collapsed = { ['1.2'] = true } })
     assert.is_nil(row_by_id(rows, '1.2.1')) -- hidden child
     local hash = row_by_id(rows, '1.2')
     assert.is_truthy(hash.line:match('▸ Hash'))
@@ -139,7 +154,7 @@ describe('explain render: rows', function()
 
   it('keeps highlight ranges within the line bytes', function()
     for _, fixture in ipairs({ ANALYZED, PLAIN }) do
-      for _, row in ipairs(render.rows(plan.decode('postgres', fixture))) do
+      for _, row in ipairs(rows(plan.decode('postgres', fixture))) do
         for _, hl in ipairs(row.highlights) do
           assert.is_true(hl.col_start >= 0)
           assert.is_true(hl.col_end <= #row.line)
