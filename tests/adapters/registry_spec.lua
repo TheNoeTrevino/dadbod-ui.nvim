@@ -1,7 +1,7 @@
 -- Specs for the adapter registry (dadbod-ui.adapters): alias resolution,
 -- capability enumeration, and end-to-end custom-adapter registration -- one
 -- registered spec must drive every capability module (schemas, table_helpers,
--- explain, paginator, export_adapters) with no other wiring.
+-- explain, paginator, export.adapters) with no other wiring.
 
 local adapters = require('dadbod-ui.adapters')
 
@@ -124,8 +124,8 @@ describe('adapters: custom registration drives every capability', function()
     assert.equals('select 1 LIMIT 10 OFFSET 0', paginator.paginate('duckfake2', 'select 1', 1, 10))
   end)
 
-  it('export_adapters reads the export flags', function()
-    local export_adapters = require('dadbod-ui.export_adapters')
+  it('export.adapters reads the export flags', function()
+    local export_adapters = require('dadbod-ui.export.adapters')
     assert.is_true(export_adapters.supports('duckfake'))
     assert.is_true(export_adapters.uses_stdin('duckfake2'))
     assert.same({ '--csv' }, export_adapters.extract_args('duckfake'))

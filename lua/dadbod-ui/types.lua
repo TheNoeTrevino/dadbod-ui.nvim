@@ -132,7 +132,7 @@
 --- One database adapter, registered under its canonical `name` and every
 --- `aliases` entry (dadbod-ui.adapters). The single per-scheme registry: each
 --- capability module (schemas, table_helpers, explain, paginator,
---- export_adapters) reads its data from here, so adding an adapter is one file
+--- export.adapters) reads its data from here, so adding an adapter is one file
 --- (or one `adapters.register` call) and aliasing is resolved exactly once.
 --- Every capability field is optional -- an absent field means the adapter
 --- doesn't support that feature.
@@ -325,13 +325,13 @@
 ---@field cmd string[]
 ---@field stdin? string
 
---- The canonical export intermediate (dadbod-ui.export_extract): a faithful,
+--- The canonical export intermediate (dadbod-ui.export.extract): a faithful,
 --- string-typed view of a result set parsed from a CLI's delimited output. SQL
---- NULL is the `export_formats.NULL` sentinel, never a Lua nil (arrays cannot hold
+--- NULL is the `export.formats.NULL` sentinel, never a Lua nil (arrays cannot hold
 --- nil holes, and a real NULL must be distinguishable from an empty string).
 ---@class DadbodUI.ExportData
 ---@field columns string[]   column names, in order
----@field rows table[]       each row is an array of (string | export_formats.NULL)
+---@field rows table[]       each row is an array of (string | export.formats.NULL)
 ---@field source? string     table/query name, for JSON-wrap + SQL INSERT target
 
 --- Parameters for dadbod-ui.export.export (one result export).
@@ -343,7 +343,7 @@
 ---@field path string        output file
 ---@field source? string     table/query name (JSON-wrap + SQL target)
 ---@field prefer_native? boolean  native passthrough when available (DECISION-001)
----@field format_opts? table  per-format options (see dadbod-ui.export_formats)
+---@field format_opts? table  per-format options (see dadbod-ui.export.formats)
 
 --- The `export` config block (see config defaults + specs/native-export.md §11).
 ---@class DadbodUI.ExportConfig
