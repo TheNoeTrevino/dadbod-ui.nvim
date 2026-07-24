@@ -424,11 +424,10 @@ function Query:setup_buffer(entry, opts, name)
     -- require would be circular. By the time a buffer is set up the facade is
     -- fully loaded.
     local query_mod = require('dadbod-ui.query')
-    local instance = self.instance
     local function apply()
       -- Rendered per apply (not once at setup) so a recolored connection paints
       -- its new color the next time the buffer enters a window.
-      local winbar = query_mod.connection_winbar(entry, instance:connection_color(entry))
+      local winbar = query_mod.connection_winbar(entry, self.instance:connection_color(entry))
       for _, win in ipairs(vim.fn.win_findbuf(bufnr)) do
         pcall(vim.api.nvim_set_option_value, 'winbar', winbar, { win = win })
       end
