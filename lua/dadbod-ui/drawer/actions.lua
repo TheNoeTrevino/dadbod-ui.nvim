@@ -6,6 +6,7 @@
 -- find/reveal, and sibling/parent navigation.
 
 local constants = require('dadbod-ui.constants')
+local declaration = require('dadbod-ui.declaration')
 local float = require('dadbod-ui.float')
 local bridge = require('dadbod-ui.bridge')
 local ids = require('dadbod-ui.drawer.ids')
@@ -184,21 +185,33 @@ function Drawer:set_color_line()
   end
 end
 
+--- Place the cursor on the first content node matching `predicate`
+--- (best-effort: a no-op when the drawer is closed or nothing matches) -- the
+--- shared tail of every focus/reveal verb. Returns whether the cursor landed.
+---@param predicate fun(node: DadbodUI.Node): boolean
+---@return boolean
+function Drawer:focus_node(predicate)
+  if not self:is_open() then
+    return false
+  end
+  for idx, node in ipairs(self.content) do
+    if predicate(node) then
+      pcall(vim.api.nvim_win_set_cursor, self.winid, { idx, 0 })
+      return true
+    end
+  end
+  return false
+end
+
 --- Place the cursor on the `db` node for `key_name` (best-effort). Used to keep a
 --- connection under the cursor after a reorder/paste re-renders and shuffles the
 --- line list.
 ---@param key_name string
 ---@return nil
 function Drawer:focus_db(key_name)
-  if not self:is_open() then
-    return
-  end
-  for idx, node in ipairs(self.content) do
-    if node.type == 'db' and node.key_name == key_name then
-      pcall(vim.api.nvim_win_set_cursor, self.winid, { idx, 0 })
-      return
-    end
-  end
+  self:focus_node(function(node)
+    return node.type == 'db' and node.key_name == key_name
+  end)
 end
 
 --- Place the cursor on the connection identified by (name, url), regardless of
@@ -217,23 +230,21 @@ function Drawer:focus_conn(name, url)
   for _, entry in ipairs(self.instance.dbs_list) do
     if entry.name:lower() == name:lower() and bridge.resolve(entry.url):lower() == resolved then
       target_group = entry.group or ''
-      for idx, node in ipairs(self.content) do
-        if node.type == 'db' and node.key_name == entry.key_name then
-          pcall(vim.api.nvim_win_set_cursor, self.winid, { idx, 0 })
-          return
-        end
+      if
+        self:focus_node(function(node)
+          return node.type == 'db' and node.key_name == entry.key_name
+        end)
+      then
+        return
       end
       break
     end
   end
   -- The db line isn't rendered (its group is collapsed): land on the header.
   if target_group ~= nil and target_group ~= '' then
-    for idx, node in ipairs(self.content) do
-      if node.type == 'group' and node.group == target_group then
-        pcall(vim.api.nvim_win_set_cursor, self.winid, { idx, 0 })
-        return
-      end
-    end
+    self:focus_node(function(node)
+      return node.type == 'group' and node.group == target_group
+    end)
   end
 end
 
@@ -516,16 +527,9 @@ function Drawer:reveal_buffer(entry)
   self:set_expanded(ids.db(entry.key_name), true)
   self:expand_section(entry.key_name, 'buffers')
   self:open()
-  local row = 0
-  for idx, node in ipairs(self.content) do
-    if node.type == 'buffer' and node.key_name == entry.key_name and node.file_path == bufname then
-      row = idx
-      break
-    end
-  end
-  if row > 0 then
-    pcall(vim.api.nvim_win_set_cursor, self.winid, { row, 0 })
-  end
+  self:focus_node(function(node)
+    return node.type == 'buffer' and node.key_name == entry.key_name and node.file_path == bufname
+  end)
   -- Back to the window we came from (the query buffer).
   vim.cmd('wincmd p')
 end
@@ -551,6 +555,77 @@ function Drawer:reveal_db(key_name)
     self:introspect():expand_db(entry)
   end
   self:focus_db(key_name)
+end
+
+--- Open the drawer with `table_name`'s parents expanded and the cursor on its
+--- node -- the table-level sibling of `reveal_db`. `schema` is '' for flat
+--- (schema-less) adapters. Works purely off already-introspected data: the
+--- expand chain is pre-marked (no lazy `on_expand` fires), so an entry whose
+--- tables have not landed yet simply misses the scan. Best-effort: unknown key
+--- or absent node is a quiet no-op. Returns whether the cursor landed.
+---@param key_name string
+---@param table_name string
+---@param schema string
+---@return boolean
+function Drawer:reveal_table(key_name, table_name, schema)
+  local entry = self.instance.dbs[key_name]
+  if entry == nil then
+    return false
+  end
+  self:set_expanded(ids.db(key_name), true)
+  if entry.schema_support then
+    self:expand_section(key_name, 'schemas')
+    self:set_expanded(ids.schema(key_name, schema), true)
+  else
+    self:expand_section(key_name, 'tables')
+  end
+  -- The expand flags are set above, so a fresh `open()` renders them in its own
+  -- tail paint; only an already-open drawer (which `open()` leaves untouched)
+  -- still needs an explicit render -- mirroring `reveal_db`.
+  local was_open = self:is_open()
+  self:open()
+  if was_open then
+    self:render()
+  end
+  return self:focus_node(function(node)
+    return node.type == 'table' and node.key_name == key_name and node.table == table_name and node.schema == schema
+  end)
+end
+
+--- Jump from a query buffer to the table under the cursor -- the `gd` action.
+--- Reads the reference via `declaration.candidates` (treesitter when a sql
+--- parser is installed -- resolving aliases like `u` in `u.id` -- else word
+--- matching), matches it against the buffer's connection, and reveals the
+--- table's drawer node. A connection with no introspected data yet goes
+--- through the shared controller's expand path first (spinner and re-render
+--- included), then the match retries when the metadata lands. Anything that
+--- is not a known table is a quiet no-op.
+---@return nil
+function Drawer:goto_table()
+  local entry = self.instance.dbs[vim.b.dbui_db_key_name]
+  if entry == nil then
+    return
+  end
+  local pos = vim.api.nvim_win_get_cursor(0)
+  local candidates = declaration.candidates(vim.api.nvim_get_current_buf(), pos[1] - 1, pos[2])
+  if #candidates == 0 then
+    return
+  end
+  local preferred = vim.b.dbui_schema_name
+  local function try_reveal()
+    local target = declaration.match(entry, candidates, preferred)
+    if target ~= nil then
+      self:reveal_table(entry.key_name, target.table, target.schema)
+    end
+    return target ~= nil
+  end
+  if try_reveal() or state.is_introspected(entry) then
+    return
+  end
+  -- A miss against data we may simply not have yet (a buffer adopted via
+  -- `find_buffer` connects without populating): introspect, retry on land.
+  -- A genuine miss after that stays quiet.
+  self:introspect():expand_db(entry, try_reveal)
 end
 
 --- Re-introspect the connection `key_name`: reload its saved queries and re-scan

@@ -262,3 +262,57 @@ describe('query buffers: filename extension', function()
     assert.is_nil(name:match('%.sql$'))
   end)
 end)
+
+describe('query buffers: goto_table mapping', function()
+  local d
+  before_each(function()
+    require('helper').clean_ui()
+  end)
+  after_each(function()
+    if d then
+      d:close()
+      d = nil
+    end
+  end)
+
+  it('binds gd by default and jumps to the table node in the drawer', function()
+    d = make_drawer({ qa = 'sqlite:/tmp/qa.db' })
+    d:open()
+    local entry = entry_named(d, 'qa')
+    entry.tables = { 'contacts', 'users' }
+    d:query():open({ type = 'query', key_name = entry.key_name }, 'edit')
+    local buf = vim.api.nvim_get_current_buf()
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, { 'select * from users' })
+    vim.api.nvim_win_set_cursor(0, { 1, 15 })
+
+    local map
+    for _, m in ipairs(vim.api.nvim_buf_get_keymap(buf, 'n')) do
+      if m.lhs == 'gd' then
+        map = m
+      end
+    end
+    assert.is_truthy(map)
+    map.callback()
+
+    local node = d.content[vim.api.nvim_win_get_cursor(d.winid)[1]]
+    assert.equals('table', node.type)
+    assert.equals('users', node.table)
+    pcall(vim.api.nvim_buf_delete, buf, { force = true })
+  end)
+
+  it('a user override rebinds the action away from gd', function()
+    d = make_drawer({ qa = 'sqlite:/tmp/qa.db' }, { query = { keys = { gd = false, gD = 'goto_table' } } })
+    d:open()
+    local entry = entry_named(d, 'qa')
+    d:query():open({ type = 'query', key_name = entry.key_name }, 'edit')
+    local buf = vim.api.nvim_get_current_buf()
+
+    local lhs = {}
+    for _, m in ipairs(vim.api.nvim_buf_get_keymap(buf, 'n')) do
+      lhs[m.lhs] = true
+    end
+    assert.is_nil(lhs['gd'])
+    assert.is_truthy(lhs['gD'])
+    pcall(vim.api.nvim_buf_delete, buf, { force = true })
+  end)
+end)
