@@ -251,9 +251,7 @@ function Controller:duplicate_connection(entry)
           return
         end
         -- Persist the raw typed url (see validate_url), not the resolved one.
-        -- The clone keeps the source's own color: duplicating prod into another
-        -- group shouldn't silently drop the warning paint.
-        local list, dup_err = connections.duplicate_connection(store, name, url, group, entry.color)
+        local list, dup_err = connections.duplicate_connection(store, entry, name, url, group)
         if list == nil then
           return notify.error(dup_err or 'Could not duplicate connection.')
         end
@@ -313,10 +311,14 @@ local function prompt_color(controller, default, transform)
       return
     end
     local list, err = transform(vim.trim(color), store)
-    if list == nil then
-      return notify.error(err or 'Could not set color.')
+    if err ~= nil then
+      return notify.error(err)
     end
-    controller:commit_connections(list)
+    -- (nil, nil) is a no-op (nothing matched / nothing to clear): don't rewrite
+    -- the store for a guaranteed no-change (mirrors the move flow).
+    if list ~= nil then
+      controller:commit_connections(list)
+    end
   end)
 end
 

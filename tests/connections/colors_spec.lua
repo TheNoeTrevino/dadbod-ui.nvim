@@ -1,25 +1,31 @@
 -- Specs for connection/group colors in the connections.json store (issue #91):
--- the hex validator, color-carrying discovery records, group-color rows
+-- hex normalization, color-carrying discovery records, group-color rows
 -- (`{ group, color }`, no url), the set_connection_color / set_group_color
 -- transforms, and color preservation through the existing CRUD transforms.
 
 local connections = require('dadbod-ui.connections')
 
-describe('connections: is_hex_color', function()
-  it('accepts #rrggbb in either case', function()
-    assert.is_true(connections.is_hex_color('#ff0000'))
-    assert.is_true(connections.is_hex_color('#FF8800'))
+describe('connections: hex color normalization', function()
+  -- The validator is module-private; its accept/reject matrix is observable
+  -- through group_colors (a row with an invalid color reads as uncolored).
+  local function stored(color)
+    return connections.group_colors({ { group = 'g', color = color } }).g
+  end
+
+  it('accepts #rrggbb in either case, lowercased', function()
+    assert.equals('#ff0000', stored('#ff0000'))
+    assert.equals('#ff8800', stored('#FF8800'))
   end)
 
   it('rejects everything else', function()
-    assert.is_false(connections.is_hex_color('ff0000')) -- no hash
-    assert.is_false(connections.is_hex_color('#f00')) -- 3-digit
-    assert.is_false(connections.is_hex_color('#ff00zz')) -- non-hex
-    assert.is_false(connections.is_hex_color('#ff000000')) -- too long
-    assert.is_false(connections.is_hex_color('red'))
-    assert.is_false(connections.is_hex_color(''))
-    assert.is_false(connections.is_hex_color(nil))
-    assert.is_false(connections.is_hex_color(0xff0000))
+    assert.is_nil(stored('ff0000')) -- no hash
+    assert.is_nil(stored('#f00')) -- 3-digit
+    assert.is_nil(stored('#ff00zz')) -- non-hex
+    assert.is_nil(stored('#ff000000')) -- too long
+    assert.is_nil(stored('red'))
+    assert.is_nil(stored(''))
+    assert.is_nil(stored(nil))
+    assert.is_nil(stored(0xff0000))
   end)
 end)
 
@@ -94,9 +100,10 @@ describe('connections: set_connection_color', function()
     assert.is_truthy(err and err:find('hex color'))
   end)
 
-  it('is a no-op when nothing matches', function()
-    local out = connections.set_connection_color(base, 'nope', 'sqlite:/tmp/a.db', '#ff0000')
-    assert.same(base, out)
+  it('is a (nil, nil) no-op when nothing matches, like move_connection', function()
+    local out, err = connections.set_connection_color(base, 'nope', 'sqlite:/tmp/a.db', '#ff0000')
+    assert.is_nil(out)
+    assert.is_nil(err)
   end)
 end)
 
@@ -124,6 +131,12 @@ describe('connections: set_group_color', function()
     assert.equals(2, #base) -- input untouched
   end)
 
+  it('clearing a group with no row is a (nil, nil) no-op', function()
+    local out, err = connections.set_group_color({ { name = 'db', url = 'sqlite:/tmp/a.db' } }, 'prod', '')
+    assert.is_nil(out)
+    assert.is_nil(err)
+  end)
+
   it('refuses an invalid color or empty group with (nil, err)', function()
     local base = { { group = 'prod', color = '#ff0000' } }
     local out1, err1 = connections.set_group_color(base, 'prod', 'red')
@@ -142,9 +155,10 @@ describe('connections: colors survive the existing CRUD transforms', function()
     assert.equals('#ff0000', out[1].color)
   end)
 
-  it('duplicate carries the source color when given one', function()
-    local out = connections.duplicate_connection({}, 'clone', 'sqlite:/tmp/a.db', 'pi', '#ff0000')
-    assert.equals('#ff0000', out[1].color)
+  it('duplicate carries the source color onto the clone', function()
+    local source = { name = 'prod', url = 'sqlite:/tmp/a.db', color = '#ff0000' }
+    local out = connections.duplicate_connection({ source }, source, 'clone', 'sqlite:/tmp/a.db', 'pi')
+    assert.equals('#ff0000', out[2].color)
   end)
 
   it('set_group keeps the entry color', function()

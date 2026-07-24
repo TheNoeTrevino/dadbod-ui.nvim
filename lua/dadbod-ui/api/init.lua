@@ -494,15 +494,7 @@ function M.duplicate(name, new_name, group)
     return false, err
   end
   return apply_store(function(connections, list)
-    -- The clone keeps the source's own color (issue #91), mirroring the drawer's
-    -- duplicate flow.
-    return connections.duplicate_connection(
-      list,
-      new_name,
-      entry.url,
-      group ~= nil and group or entry.group,
-      entry.color
-    )
+    return connections.duplicate_connection(list, entry, new_name, entry.url, group ~= nil and group or entry.group)
   end)
 end
 
@@ -554,7 +546,7 @@ end
 ---@return string|nil err
 function M.set_group_color(group, color)
   return apply_store(function(conns, list)
-    return conns.set_group_color(list, group or '', color)
+    return conns.set_group_color(list, group, color)
   end)
 end
 

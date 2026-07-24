@@ -210,17 +210,14 @@ end
 ---@return DadbodUI.Instance
 function Instance:populate(inputs)
   self._inputs = inputs
-  -- Resolve the file store once, up front (via `connections.store_entries`, the
-  -- single owner of the injected-vs-file fallback), and inject it into discover:
-  -- the same entries feed both the connection records and the group-color rows,
-  -- so the file is not parsed twice per populate.
-  local merged = vim.tbl_extend('force', {}, inputs or {})
-  merged.file_entries = connections.store_entries(self.config, merged)
-  self.group_colors = connections.group_colors(merged.file_entries)
+  -- One store parse feeds both the connection records and the group-color map
+  -- (`connections.snapshot` owns that single-parse rule).
+  local records, group_colors = connections.snapshot(self.config, inputs)
+  self.group_colors = group_colors
   local previous = self.dbs
   self.dbs_list = {}
   self.dbs = {}
-  for i, record in ipairs(connections.discover(self.config, merged)) do
+  for i, record in ipairs(records) do
     -- An unchanged connection (same key_name and url) keeps its existing entry
     -- as-is: the static metadata is a pure function of (url, config) and the
     -- interactive state (live handle, introspected schemas/tables)
