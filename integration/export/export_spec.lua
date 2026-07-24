@@ -14,7 +14,7 @@
 --   DBUI_IT_{PG,MYSQL,MARIADB,SQLITE}_URL  per-adapter connection urls ('' = skip)
 
 local export = require('dadbod-ui.export')
-local adapters = require('dadbod-ui.export_adapters')
+local adapters = require('dadbod-ui.export.adapters')
 local config = require('dadbod-ui.config')
 
 local MODE = vim.env.DBUI_IT_MODE or 'check'

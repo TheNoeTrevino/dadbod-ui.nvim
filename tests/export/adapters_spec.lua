@@ -1,12 +1,12 @@
--- Specs for dadbod-ui.export_adapters: the export capability matrix (§4) +
+-- Specs for dadbod-ui.export.adapters: the export capability matrix (§4) +
 -- Appendix A argv. Pure data + small accessors, modelled on paginator_spec.
 
-local adapters = require('dadbod-ui.export_adapters')
+local adapters = require('dadbod-ui.export.adapters')
 
 -- The OS null device the adapter uses to skip sqlite's rc file (matches the module).
 local NULLDEV = vim.fn.has('win32') == 1 and 'NUL' or '/dev/null'
 
-describe('export_adapters.supports', function()
+describe('adapters.supports', function()
   it('supports postgres, mysql/mariadb, sqlite under raw + canonical names', function()
     for _, s in ipairs({ 'postgres', 'postgresql', 'mysql', 'mariadb', 'sqlite', 'sqlite3' }) do
       assert.is_true(adapters.supports(s), s .. ' should be supported')
@@ -20,7 +20,7 @@ describe('export_adapters.supports', function()
   end)
 end)
 
-describe('export_adapters.formats_for', function()
+describe('adapters.formats_for', function()
   it('offers every format for a supported adapter', function()
     assert.are.same({ 'csv', 'json', 'markdown', 'html', 'xml', 'sql', 'tsv' }, adapters.formats_for('postgres'))
   end)
@@ -36,7 +36,7 @@ describe('export_adapters.formats_for', function()
   end)
 end)
 
-describe('export_adapters.extract_args + uses_stdin (Appendix A)', function()
+describe('adapters.extract_args + uses_stdin (Appendix A)', function()
   it('postgres extracts with --no-psqlrc --csv -c, query as arg', function()
     assert.are.same({ '--no-psqlrc', '--csv', '-c' }, adapters.extract_args('postgres'))
     assert.is_false(adapters.uses_stdin('postgres'))
@@ -58,7 +58,7 @@ describe('export_adapters.extract_args + uses_stdin (Appendix A)', function()
   end)
 end)
 
-describe('export_adapters.native_args + is_native (§4 matrix)', function()
+describe('adapters.native_args + is_native (§4 matrix)', function()
   it('sqlite emits csv/json natively (NOT markdown/html: not reproducible across versions)', function()
     assert.are.same({ '-init', NULLDEV, '-csv', '-header' }, adapters.native_args('sqlite', 'csv'))
     assert.are.same({ '-init', NULLDEV, '-json' }, adapters.native_args('sqlite', 'json'))

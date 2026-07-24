@@ -131,7 +131,7 @@ answer "cannot tell" instead of guessing.
 
 `dbout/` - result buffers: `init.lua` (wiring), `winbar.lua`, `pagination.lua`, `cells.lua` (folds + cell/FK nav), `ctx.lua` (shared state).
 
-`export.lua` - native CLI result export orchestration, with `export_formats.lua` (pure formatters), `export_extract.lua` (output parsing) and `export_adapters.lua` (capability access over the adapter specs).
+`export/` - native CLI result export: `init.lua` (orchestration), `formats.lua` (pure formatters), `extract.lua` (output parsing) and `adapters.lua` (capability access over the adapter specs).
 
 ### Requires
 
