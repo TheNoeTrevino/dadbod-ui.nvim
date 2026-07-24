@@ -42,6 +42,7 @@ local function base_set(nerd)
         procedures = col,
         routine_schema = col,
         group = col,
+        explain = col, -- the explain tree's fold marker (bare: it sits mid-line)
       },
       saved_query = '*',
       new_query = '+',
@@ -78,6 +79,7 @@ local function base_set(nerd)
       procedures = col .. ' 󰡱',
       routine_schema = col .. ' 󰙅',
       group = col .. ' 󰉋',
+      explain = col, -- the explain tree's fold marker (bare: it sits mid-line)
     },
     saved_query = '  ',
     new_query = '  󰓰',

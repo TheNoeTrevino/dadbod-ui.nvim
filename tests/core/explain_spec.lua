@@ -55,6 +55,25 @@ describe('explain: wrap', function()
     end
   end)
 
+  it('wraps the structured JSON form when opts.format is json', function()
+    assert.equals('EXPLAIN (FORMAT JSON) select 1', explain.wrap('postgresql', 'select 1', { format = 'json' }))
+    -- The executing JSON form runs inside a rolled-back transaction so a DML
+    -- statement under analysis never commits.
+    local analyzed = explain.wrap('postgres', 'delete from t', { format = 'json', analyze = true })
+    assert.is_truthy(analyzed:match('^BEGIN;'))
+    assert.is_truthy(analyzed:match('EXPLAIN %(ANALYZE, BUFFERS, FORMAT JSON%) delete from t'))
+    assert.is_truthy(analyzed:match('ROLLBACK;$'))
+  end)
+
+  it('errors on the JSON form for text-only EXPLAIN dialects', function()
+    for _, scheme in ipairs({ 'sqlite', 'clickhouse', 'oracle' }) do
+      local sql, err = explain.wrap(scheme, 'select 1', { format = 'json' })
+      assert.is_nil(sql)
+      assert.is_truthy(err and err:match('JSON explain plan is not supported'))
+      assert.is_truthy(err and err:match('supported:'))
+    end
+  end)
+
   it('errors (nil, err) for an unsupported adapter and lists the supported ones', function()
     for _, scheme in ipairs({ 'sqlserver', 'bigquery', 'mongodb', 'no_such_adapter' }) do
       local sql, err = explain.wrap(scheme, 'select 1')
@@ -77,6 +96,33 @@ describe('explain: supports / supported_schemes', function()
   it('lists the supported schemes sorted (canonical adapter names)', function()
     local schemes = explain.supported_schemes()
     assert.same({ 'clickhouse', 'mariadb', 'mysql', 'oracle', 'postgres', 'sqlite' }, schemes)
+  end)
+
+  it('gates the structured JSON form separately from text EXPLAIN', function()
+    assert.is_true(explain.supports_json('postgres'))
+    assert.is_true(explain.supports_json('postgresql')) -- alias resolves
+    assert.is_true(explain.supports_json('mysql'))
+    assert.is_true(explain.supports_json('mariadb'))
+    assert.is_false(explain.supports_json('sqlite')) -- text-only EXPLAIN
+    assert.is_false(explain.supports_json('sqlserver')) -- no EXPLAIN at all
+    assert.same({ 'mariadb', 'mysql', 'postgres' }, explain.json_schemes())
+  end)
+
+  it('rejects JSON analyze where the dialect has no executing JSON form', function()
+    -- MySQL's EXPLAIN ANALYZE emits TREE text, never JSON; MariaDB has
+    -- ANALYZE FORMAT=JSON.
+    local sql, err = explain.wrap('mysql', 'select 1', { format = 'json', analyze = true })
+    assert.is_nil(sql)
+    assert.is_truthy(err and err:match('JSON EXPLAIN ANALYZE is not supported'))
+    assert.equals(
+      'ANALYZE FORMAT=JSON select 1',
+      explain.wrap('mariadb', 'select 1', { format = 'json', analyze = true })
+    )
+  end)
+
+  it('exposes the raw-output client argv for JSON capture', function()
+    assert.same({ '--no-psqlrc', '--set=ON_ERROR_STOP=1', '-q', '-A', '-t' }, explain.json_args('postgresql'))
+    assert.same({}, explain.json_args('sqlite')) -- none needed / unsupported
   end)
 end)
 

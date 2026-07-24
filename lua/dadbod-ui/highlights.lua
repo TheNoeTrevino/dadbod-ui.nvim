@@ -13,12 +13,32 @@
 ---@field NS integer  extmark namespace, cleared and repainted on every render
 ---@field define fun()
 ---@field highlights_for fun(node: DadbodUI.Node, line_text: string, icons: DadbodUI.Icons): DadbodUI.Highlight[]
+---@field apply_line_highlights fun(bufnr: integer, lnum: integer, hls: DadbodUI.Highlight[], ns?: integer)
 
 ---@type DadbodUI.HighlightsModule
 ---@diagnostic disable-next-line: missing-fields
 local M = {}
 
 M.NS = vim.api.nvim_create_namespace('dadbod_ui')
+
+--- Apply the highlight ranges for ONE line (0-based `lnum`) as extmarks -- in
+--- the drawer's `dadbod_ui` namespace by default, or in `ns` (the explain tree
+--- paints the same `DadbodUI.Highlight` shape into its own namespace). The
+--- caller is responsible for clearing the namespace over the affected range
+--- first.
+---@param bufnr integer
+---@param lnum integer
+---@param hls DadbodUI.Highlight[]
+---@param ns? integer  extmark namespace (default: `M.NS`)
+---@return nil
+function M.apply_line_highlights(bufnr, lnum, hls, ns)
+  for _, hl in ipairs(hls) do
+    vim.api.nvim_buf_set_extmark(bufnr, ns or M.NS, lnum, hl.col_start, {
+      end_col = hl.col_end,
+      hl_group = hl.group,
+    })
+  end
+end
 
 ---@private
 -- Node type -> the highlight group for its icon column. Anything not listed
@@ -54,6 +74,21 @@ function M.define()
   link('DadbodUIHelpKey', 'String')
   link('DadbodUIConnectionSource', 'Comment')
   link('DadbodUIQueryTime', 'Comment') -- post-execute time/row summary (query-buffer ghost text)
+
+  -- Explain-tree groups: structure dim, content plain, and a cold->hot ramp for
+  -- a node's share of the plan (the renderer picks the tier; see
+  -- explain/render.lua). All default links so themes/users override freely.
+  link('DadbodUIExplainTree', 'NonText') -- branch glyphs + cell separators
+  link('DadbodUIExplainOp', 'Statement') -- operation name (Seq Scan, Hash Join)
+  link('DadbodUIExplainTarget', 'Constant') -- 'on orders o' / 'using users_pkey'
+  link('DadbodUIExplainExpr', 'Comment') -- inline Filter/Cond/Key text
+  link('DadbodUIExplainRows', 'Number')
+  link('DadbodUIExplainSkew', 'WarningMsg') -- estimate-vs-actual misjudgment flag
+  link('DadbodUIExplainCold', 'Comment')
+  link('DadbodUIExplainMild', 'Normal')
+  link('DadbodUIExplainWarm', 'WarningMsg')
+  link('DadbodUIExplainHot', 'ErrorMsg')
+  link('DadbodUIExplainSummary', 'Comment') -- the planning/execution header line
 
   local light = vim.o.background == 'light'
   vim.api.nvim_set_hl(0, 'DadbodUIConnectionOk', { default = true, fg = light and '#00AA00' or '#88FF88' })

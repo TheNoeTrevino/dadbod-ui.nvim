@@ -6,6 +6,7 @@
 -- find/reveal, and sibling/parent navigation.
 
 local constants = require('dadbod-ui.constants')
+local float = require('dadbod-ui.float')
 local bridge = require('dadbod-ui.bridge')
 local ids = require('dadbod-ui.drawer.ids')
 local utils = require('dadbod-ui.utils')
@@ -35,56 +36,13 @@ function Drawer:toggle_help()
 
   -- Built from each context's `keys` map so the help window and the live keymaps
   -- can never drift; disabled (`false`) keys are already filtered out.
-  local lines = mappings.help_lines(self.config)
-  local max_len = vim.iter(lines):fold(0, function(acc, line)
-    return math.max(acc, #line)
-  end)
-
-  local width = math.min(max_len + 4, vim.o.columns - 4)
-  local height = #lines
-  local row = math.floor((vim.o.lines - height) / 2)
-  local col = math.floor((vim.o.columns - width) / 2)
-
-  local buf = vim.api.nvim_create_buf(false, true)
-  vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
-  vim.bo[buf].modifiable = false
-  vim.bo[buf].readonly = true
-  vim.bo[buf].bufhidden = 'wipe'
-
-  local winid = vim.api.nvim_open_win(buf, true, {
-    relative = 'editor',
-    row = row,
-    col = col,
-    width = width,
-    height = height,
-    border = 'rounded',
-    title = ' Help ',
-    title_pos = 'center',
-    style = 'minimal',
-  })
-  self.help_winid = winid
-
-  local function close()
-    if vim.api.nvim_win_is_valid(winid) then
-      vim.api.nvim_win_close(winid, true)
-    end
-    self.help_winid = nil
-  end
-
-  for _, key in ipairs({ 'q', '<Esc>', '?' }) do
-    vim.keymap.set('n', key, close, { buffer = buf, nowait = true, silent = true })
-  end
-
-  vim.api.nvim_create_autocmd('BufLeave', {
-    buffer = buf,
-    once = true,
-    callback = function()
-      -- window may already be gone if a keymap closed it
-      pcall(vim.api.nvim_win_close, winid, true)
+  self.help_winid = float.open(mappings.help_lines(self.config), {
+    title = 'Help',
+    close_keys = { 'q', '<Esc>', '?' },
+    on_close = function()
       self.help_winid = nil
     end,
   })
-
   return self
 end
 

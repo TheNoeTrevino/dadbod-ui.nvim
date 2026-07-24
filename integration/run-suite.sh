@@ -18,7 +18,11 @@ MODE="${DBUI_IT_MODE:-check}"
 export DBUI_IT_GOLDEN_DIR="$HERE/golden"
 export DBUI_IT_PG_URL="postgres://dbui:dbui@${DBUI_IT_PG_HOST}:${DBUI_IT_PG_PORT}/dbui"
 export DBUI_IT_MYSQL_URL="mysql://dbui:dbui@${DBUI_IT_MYSQL_HOST}:${DBUI_IT_MYSQL_PORT}/dbui"
-export DBUI_IT_MARIADB_URL="mysql://dbui:dbui@${DBUI_IT_MARIADB_HOST}:${DBUI_IT_MARIADB_PORT}/dbui"
+# mariadb:// (not mysql://): dadbod has a native mariadb adapter using the
+# same client binary/flags, and dadbod-ui's mariadb spec carries capabilities
+# the mysql one doesn't (ANALYZE FORMAT=JSON for the explain tree) -- the
+# suite must exercise the adapter the scheme actually selects.
+export DBUI_IT_MARIADB_URL="mariadb://dbui:dbui@${DBUI_IT_MARIADB_HOST}:${DBUI_IT_MARIADB_PORT}/dbui"
 
 SQLITE_TMP="$(mktemp -d)"
 trap 'rm -rf "$SQLITE_TMP"' EXIT

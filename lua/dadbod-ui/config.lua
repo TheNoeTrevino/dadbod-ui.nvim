@@ -142,6 +142,8 @@ M.defaults = {
       ['<Leader>E'] = 'edit_bind_params',
       ['<Leader>W'] = 'save_query',
       ['<Leader>C'] = 'cancel',
+      ['<Leader>P'] = { 'explain_tree', mode = { 'n', 'v' } },
+      ['<Leader>A'] = { 'explain_tree_analyze', mode = { 'n', 'v' } },
     },
   },
 
@@ -196,6 +198,29 @@ M.defaults = {
     },
   },
 
+  -- The EXPLAIN plan-tree window (`api.explain_tree` / the query-buffer
+  -- explain_tree action): a split rendering EXPLAIN (FORMAT JSON) as
+  -- a collapsible tree. `heat` colors a node by its OWN share of the plan's
+  -- time (cost for non-ANALYZE plans): `warn`/`hot` are the fractions where a
+  -- node turns warm/hot. `skew_threshold` is the actual/estimated row ratio
+  -- that flags a planner misestimate on the row count.
+  explain = {
+    -- `position` picks the orientation: top/bottom split horizontally (using
+    -- `height`), left/right split vertically (using `width`).
+    position = 'bottom',
+    width = 72,
+    height = 15,
+    heat = { warn = 0.2, hot = 0.5 },
+    skew_threshold = 100,
+    -- Keymaps for the explain-tree buffer, `lhs -> action`. See the `keys` note above.
+    keys = {
+      ['<CR>'] = 'toggle_node',
+      ['K'] = 'node_details',
+      ['q'] = 'close',
+      ['?'] = 'help',
+    },
+  },
+
   -- User-defined named actions, referenced by name from a context's `keys` map
   -- (e.g. `drawer = { keys = { Y = 'yank_url' } }`). Each is a function receiving
   -- a per-context action context (see `DadbodUI.*ActionContext`), or a
@@ -213,6 +238,7 @@ M.contexts = {
   { group = 'drawer', title = 'Drawer' },
   { group = 'query', title = 'Query Buffer' },
   { group = 'results', title = 'DB Results' },
+  { group = 'explain', title = 'Explain Tree' },
 }
 
 -- Built-in action id -> help description, per context. A key in a context's
@@ -245,6 +271,8 @@ M.builtin_actions = {
     edit_bind_params = 'Edit bind parameters',
     save_query = 'Save the current query (tmp buffers)',
     cancel = 'Cancel the running query',
+    explain_tree = 'Explain plan as a tree',
+    explain_tree_analyze = 'Explain ANALYZE plan as a tree (runs the query)',
   },
   results = {
     jump_foreign = 'Jump to the foreign key table',
@@ -254,6 +282,12 @@ M.builtin_actions = {
     next_page = 'Next page of results',
     prev_page = 'Previous page of results',
     export = 'Export result to a file',
+  },
+  explain = {
+    toggle_node = 'Collapse/expand the plan subtree',
+    node_details = 'Show the full node detail (float)',
+    close = 'Close the explain tree',
+    help = 'Toggle this help window',
   },
 }
 
@@ -281,8 +315,9 @@ M.action_order = {
     'goto_parent',
     'goto_child',
   },
-  query = { 'execute', 'edit_bind_params', 'save_query', 'cancel' },
+  query = { 'execute', 'edit_bind_params', 'save_query', 'cancel', 'explain_tree', 'explain_tree_analyze' },
   results = { 'jump_foreign', 'cell_value', 'yank_header', 'toggle_layout', 'next_page', 'prev_page', 'export' },
+  explain = { 'toggle_node', 'node_details', 'close', 'help' },
 }
 
 ---@private

@@ -40,6 +40,8 @@ familiar workflow, but API-first, deeply configurable, and typed to the teeth.
 - Paginated result buffers
   - don't bomb your ran, keep things quick and responsive
 - Inline query timing and row counts, right where you executed
+- An interactive EXPLAIN plan tree (postgres, mysql, mariadb)
+  - costs, estimated vs actual rows, timings, expensive nodes highlighted
 - Native CLI export to CSV / TSV / JSON (and consistent Lua formatters as a fallback)
 - A connection picker backed by `snacks.nvim`, `telescope.nvim`, or `fzf-lua`
 - Fully remappable, per-buffer keymaps - and your own named actions
@@ -189,6 +191,11 @@ local rows, err = api.query_sync('dev', 'select 1')  -- blocking dual for script
 api.execute('dev', 'select * from users')            -- run through :DB, open .dbout
 api.open_query('dev')                                -- fresh scratch buffer bound to dev
 api.buf.switch('prod')                               -- reassign the current query buffer
+
+-- The EXPLAIN plan tree (also on <Leader>P / <Leader>A in a query buffer):
+api.explain_tree('dev', 'select * from users order by created_at')
+api.buf.explain_tree()                               -- current query buffer
+api.buf.explain_tree({ analyze = true })             -- real timings; DML rolls back
 ```
 
 ### Introspection

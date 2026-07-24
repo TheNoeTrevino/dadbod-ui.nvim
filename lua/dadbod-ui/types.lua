@@ -129,12 +129,60 @@
 ---@field aliases? string[]  other url schemes that resolve to this adapter (e.g. 'postgresql')
 ---@field schema? fun(config?: DadbodUI.Config): DadbodUI.SchemaAdapter  introspection SQL + parsers + dbout metadata
 ---@field table_helpers? table<string, string>|fun(config: DadbodUI.Config): table<string, string>  helper name -> SQL template
----@field explain? { plain: string, analyze?: string }  EXPLAIN templates ({sql} placeholder)
+---@field explain? DadbodUI.ExplainTemplates  EXPLAIN templates ({sql} placeholder)
 ---@field pagination? 'limit_offset'|'limit_comma'  LIMIT clause style (absent: no pagination)
 ---@field statements? DadbodUI.StatementPatterns  dialect keywords for the statement classifier; ABSENT means the dialect is not SQL (mongodb) and classify() answers "cannot tell" instead of guessing
 ---@field export? { stdin: boolean, extract: string[], native: table<string, string[]> }  CLI export flags
 ---@field db_path_lists_tables? boolean  a url naming a database in its path lists tables directly instead of schemas (mysql/mariadb)
 ---@field normalize_tables? fun(raw: string[]): string[]  clean dadbod's raw `tables` output (sqlite splitting, mysql header filter)
+
+--- An adapter's EXPLAIN forms, all carrying the literal `{sql}` placeholder.
+--- `plain`/`analyze` produce the human-readable text plan (dadbod-ui.explain's
+--- original capability). The `json` pair produces the machine-readable plan the
+--- explain tree renders; adapters without a structured plan format simply omit
+--- them. `json_args` is the extra CLI argv that makes the client emit the raw
+--- JSON document instead of its human table framing (psql's `-Aqt`), mirroring
+--- how `SchemaAdapter.args` keeps introspection output parseable.
+---@class DadbodUI.ExplainTemplates
+---@field plain string
+---@field analyze? string  executing form with real timings; absent when the dialect has none
+---@field json? string     structured-plan form (e.g. EXPLAIN (FORMAT JSON))
+---@field json_analyze? string  executing structured form; wrap DML safely (BEGIN/ROLLBACK) where the dialect allows
+---@field json_args? string[]   extra client argv for raw, parseable JSON output
+---@field parser? string    module path of the dialect's plan parser (explain/parsers/*); json support = template AND parser
+
+--- One node of a normalized explain plan: the dialect-agnostic shape every
+--- plan parser targets, so the tree renderer never branches on
+--- adapter. Parsers fill the identity/estimate/actual fields (absent = the
+--- dialect or EXPLAIN mode doesn't report it); dadbod-ui.explain.plan derives
+--- the metrics fields after parse. `raw` keeps the node's own adapter keys
+--- (child/structure keys stripped by the parser) for the node-detail view.
+---@class DadbodUI.PlanNode
+---@field op string            operation name (e.g. 'Seq Scan', 'Hash Left Join')
+---@field relation? string     scanned table name
+---@field alias? string        the SQL alias the planner reports for the relation
+---@field cte_name? string     referenced WITH-clause name (CTE Scan)
+---@field index_name? string   index used by an index/bitmap scan
+---@field total_cost? number
+---@field plan_rows? number    planner's row estimate
+---@field actual_rows? number  per-loop actual rows (ANALYZE only)
+---@field actual_time_ms? number  per-loop actual total time in ms (ANALYZE only)
+---@field loops? number
+---@field exprs [string, string][]  ordered (label, deparsed text) pairs: Filter, Index Cond, Sort Key, ...
+---@field children DadbodUI.PlanNode[]
+---@field raw table            the node's own adapter keys (structure stripped) -- the detail-float payload
+---@field total_ms? number       derived: actual_time_ms * loops
+---@field exclusive_ms? number   derived: total_ms minus children's (the node's own time)
+---@field exclusive_cost? number derived: total_cost minus children's
+---@field frac? number           derived: exclusive share of the root total (time when analyzed, cost otherwise)
+---@field skew? number           derived: actual/estimated row ratio (misestimate signal)
+
+--- A parsed, annotated explain plan (dadbod-ui.explain.plan.decode).
+---@class DadbodUI.ExplainPlan
+---@field root DadbodUI.PlanNode
+---@field planning_ms? number
+---@field execution_ms? number
+---@field analyzed boolean  whether the plan carries actual (executed) measurements
 
 --- Dialect extensions to the statement classifier's shared SQL core
 --- (dadbod-ui.classifier). An empty table is meaningful: it declares "this
@@ -361,6 +409,7 @@
 ---@field drawer? DadbodUI.DrawerConfig
 ---@field query? DadbodUI.QueryConfig
 ---@field results? DadbodUI.ResultsConfig
+---@field explain? DadbodUI.ExplainConfig
 ---@field actions? table<string, DadbodUI.Action>  user-defined named actions
 ---@field buffer_name_generator? DadbodUI.BufferNameGenerator
 ---@field table_name_sorter? DadbodUI.TableNameSorter
@@ -400,6 +449,15 @@
 ---@field list_sort? 'asc'|'desc'
 ---@field query_time? DadbodUI.QueryTimeConfig
 ---@field export? DadbodUI.ExportConfig
+---@field keys? DadbodUI.Keymaps  `lhs -> action`, or `false` to disable the context
+
+--- The EXPLAIN plan-tree window (`explain`).
+---@class DadbodUI.ExplainConfig
+---@field position? 'left'|'right'|'top'|'bottom'  left/right split vertically (width), top/bottom horizontally (height)
+---@field width? integer   column count when position is left/right
+---@field height? integer  row count when position is top/bottom
+---@field heat? { warn: number, hot: number }  exclusive-share fractions where a node turns warm/hot
+---@field skew_threshold? number  actual/estimated row ratio that flags a misestimate
 ---@field keys? DadbodUI.Keymaps  `lhs -> action`, or `false` to disable the context
 
 --- Inline post-execute feedback (time + row count). See `query_time` in the
@@ -515,3 +573,4 @@
 ---@field drawer? DadbodUI.Drawer  the drawer instance (drawer context only)
 ---@field item? DadbodUI.Node  the node under the cursor (drawer context only)
 ---@field query? DadbodUI.Query  the query controller (query context only)
+---@field node? DadbodUI.PlanNode  the plan node under the cursor (explain-tree context only)

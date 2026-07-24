@@ -234,7 +234,22 @@ return {
     ['Primary Keys'] = "SELECT * FROM information_schema.table_constraints WHERE constraint_type = 'PRIMARY KEY' AND table_schema = '{schema}' AND table_name = '{table}'",
   },
 
-  explain = { plain = 'EXPLAIN {sql}', analyze = 'EXPLAIN ANALYZE {sql}' },
+  explain = {
+    plain = 'EXPLAIN {sql}',
+    analyze = 'EXPLAIN ANALYZE {sql}',
+    json = 'EXPLAIN (FORMAT JSON) {sql}',
+    -- ANALYZE executes the statement, so the JSON form runs inside a rolled-back
+    -- transaction: analyzing a DML statement must never commit its effects.
+    json_analyze = 'BEGIN; EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) {sql}; ROLLBACK;',
+    -- `-q` suppresses the BEGIN/ROLLBACK command tags, `-A -t` drop psql's
+    -- aligned-table framing (the `+` continuation gutter), `--no-psqlrc` keeps a
+    -- user's psqlrc from injecting lines -- together stdout is the bare JSON
+    -- document. ON_ERROR_STOP makes a SQL error exit non-zero (psql otherwise
+    -- exits 0 from a piped script), so failures surface as errors, not as
+    -- unparseable output.
+    json_args = { '--no-psqlrc', '--set=ON_ERROR_STOP=1', '-q', '-A', '-t' },
+    parser = 'dadbod-ui.explain.parsers.postgres',
+  },
 
   pagination = 'limit_offset',
 

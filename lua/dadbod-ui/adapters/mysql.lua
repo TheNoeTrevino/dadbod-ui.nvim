@@ -91,7 +91,18 @@ return {
     ['Primary Keys'] = "SELECT * FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS WHERE TABLE_SCHEMA = '{schema}' AND TABLE_NAME = '{table}' AND CONSTRAINT_TYPE = 'PRIMARY KEY'",
   },
 
-  explain = { plain = 'EXPLAIN {sql}', analyze = 'EXPLAIN ANALYZE {sql}' },
+  explain = {
+    plain = 'EXPLAIN {sql}',
+    analyze = 'EXPLAIN ANALYZE {sql}',
+    -- No json_analyze: MySQL's EXPLAIN ANALYZE emits TREE text, never JSON.
+    json = 'EXPLAIN FORMAT=JSON {sql}',
+    -- dadbod's filter command forces `-t` (boxed table output), which would
+    -- frame the JSON in `|` borders; `--skip-table` (later flag wins) undoes
+    -- it. `--batch --raw` then prints the JSON cell verbatim (no \n escaping)
+    -- and `--skip-column-names` drops the header row.
+    json_args = { '--skip-table', '--batch', '--raw', '--skip-column-names' },
+    parser = 'dadbod-ui.explain.parsers.mysql',
+  },
 
   pagination = 'limit_comma',
 
