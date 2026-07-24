@@ -315,6 +315,53 @@ describe('table_scripts: sqlserver columns fetch + builders', function()
   end)
 end)
 
+describe('table_scripts: sqlserver CREATE To (assembled from sys catalogs)', function()
+  it('the query renders marker rows from every catalog section, untruncated', function()
+    local act = action('sqlserver', 'CREATE To')
+    local sql = act.query('dbo', 'users', 'table')
+    assert.same({ '-y', '0', '-Q' }, act.args) -- raw mode: long definitions survive
+    for _, marker in ipairs({
+      'sys.computed_columns',
+      'sys.identity_columns',
+      'sys.default_constraints',
+      'sys.key_constraints',
+      'sys.check_constraints',
+      'sys.foreign_keys',
+      'STRING_AGG',
+      'i.is_primary_key = 0 AND i.is_unique_constraint = 0', -- constraint-backed indexes excluded
+      'i.filter_definition',
+      'ORDER BY sect, seq',
+    }) do
+      assert.is_truthy(sql:find(marker, 1, true), 'missing query fragment: ' .. marker)
+    end
+  end)
+
+  it('parse keeps marker rows and build joins body + index statements', function()
+    local rows = {
+      'B|[id] int IDENTITY(100,5) NOT NULL',
+      'B|[slug] AS (lower([email])) PERSISTED',
+      '', -- sqlcmd noise drops
+      'B|CONSTRAINT [pk_users] PRIMARY KEY CLUSTERED ([id])',
+      'X|CREATE NONCLUSTERED INDEX [ix_u] ON [dbo].[users] ([email] DESC) INCLUDE ([total]) WHERE ([total]>(10));',
+    }
+    local act = action('sqlserver', 'CREATE To')
+    assert.equals(
+      'CREATE TABLE [dbo].[users] (\n'
+        .. '    [id] int IDENTITY(100,5) NOT NULL,\n'
+        .. '    [slug] AS (lower([email])) PERSISTED,\n'
+        .. '    CONSTRAINT [pk_users] PRIMARY KEY CLUSTERED ([id])\n'
+        .. ');\n\n'
+        .. 'CREATE NONCLUSTERED INDEX [ix_u] ON [dbo].[users] ([email] DESC) INCLUDE ([total]) WHERE ([total]>(10));',
+      act.build({ schema = 'dbo', name = 'users', kind = 'table', data = act.parse(rows) })
+    )
+  end)
+
+  it('an empty fetch yields nil (unknown table -> could not script)', function()
+    local act = action('sqlserver', 'CREATE To')
+    assert.is_nil(act.build({ schema = 'dbo', name = 'ghost', kind = 'table', data = act.parse({ '' }) }))
+  end)
+end)
+
 describe('table_scripts: produce orchestration', function()
   local bridge = require('dadbod-ui.bridge')
   local real_run_many = bridge.run_many

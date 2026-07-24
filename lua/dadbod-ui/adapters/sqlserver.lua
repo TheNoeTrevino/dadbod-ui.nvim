@@ -383,12 +383,188 @@ local function writable(cols)
 end
 
 ---@private
--- Every query-backed action fetches the same column rows; `build` receives them
--- as `ctx.data`. An empty fetch (unknown table) yields nil -> the generic
--- "Could not script" notification.
+-- The `CREATE TABLE` input, rendered line-by-line server-side as `marker|text`
+-- rows (SSMS itself assembles client-side; there is no sqlserver counterpart
+-- of `SHOW CREATE TABLE`): `B|` rows are body items (columns, then PK/unique,
+-- check and FK constraints -- ordered by section, then declaration order) and
+-- `X|` rows are complete secondary-index statements. Lua only joins them.
+-- Column lists aggregate via `STRING_AGG ... WITHIN GROUP` (SQL Server 2017+).
+-- At the good-enough depth agreed on issue #90: identity seed/increment,
+-- computed columns, named defaults, referential actions (`NO ACTION`
+-- suppressed), included columns and filtered indexes -- filegroups,
+-- partitioning, compression, collations and triggers stay out of scope.
+-- PK/unique-backing indexes are excluded from the index section (their
+-- constraint already declares them).
+---@param schema string
+---@param name string
+---@return string
+local function create_to_query(schema, name)
+  local object_id = string.format("OBJECT_ID('%s')", parse.sql_squote(qualify(schema, name)))
+  return table.concat({
+    'SET NOCOUNT ON;',
+    'SELECT line FROM (',
+    -- columns: computed render as `name AS (expr) [PERSISTED]`, everything else
+    -- as type + IDENTITY(seed,increment) + named DEFAULT + NULL/NOT NULL
+    '  SELECT 1 AS sect, CAST(c.column_id AS int) AS seq,',
+    "    'B|' + CASE WHEN cc.definition IS NOT NULL THEN",
+    "      QUOTENAME(c.name) + ' AS ' + cc.definition COLLATE DATABASE_DEFAULT + CASE WHEN cc.is_persisted = 1 THEN ' PERSISTED' ELSE '' END",
+    '    ELSE',
+    "      QUOTENAME(c.name) + ' ' + t.name",
+    "      + CASE WHEN t.name IN ('varchar','char','varbinary','nvarchar','nchar')",
+    "          THEN '(' + CASE WHEN c.max_length = -1 THEN 'MAX'",
+    "            ELSE CAST(COLUMNPROPERTY(c.object_id, c.name, 'charmaxlen') AS varchar) END + ')'",
+    "        WHEN t.name IN ('decimal','numeric')",
+    "          THEN '(' + CAST(c.precision AS varchar) + ',' + CAST(c.scale AS varchar) + ')'",
+    "        WHEN t.name IN ('datetime2','datetimeoffset','time')",
+    "          THEN '(' + CAST(c.scale AS varchar) + ')'",
+    "        ELSE '' END",
+    "      + CASE WHEN c.is_identity = 1 THEN ' IDENTITY('",
+    "          + CAST(ISNULL(CAST(ic.seed_value AS bigint), 1) AS varchar(20)) + ','",
+    "          + CAST(ISNULL(CAST(ic.increment_value AS bigint), 1) AS varchar(20)) + ')' ELSE '' END",
+    "      + ISNULL(' CONSTRAINT ' + QUOTENAME(dc.name) + ' DEFAULT ' + dc.definition COLLATE DATABASE_DEFAULT, '')",
+    "      + CASE WHEN c.is_nullable = 1 THEN ' NULL' ELSE ' NOT NULL' END",
+    '    END AS line',
+    '  FROM sys.columns c',
+    '  JOIN sys.types t ON t.user_type_id = c.user_type_id',
+    '  LEFT JOIN sys.computed_columns cc ON cc.object_id = c.object_id AND cc.column_id = c.column_id',
+    '  LEFT JOIN sys.identity_columns ic ON ic.object_id = c.object_id AND ic.column_id = c.column_id',
+    '  LEFT JOIN sys.default_constraints dc ON dc.parent_object_id = c.object_id AND dc.parent_column_id = c.column_id',
+    '  WHERE c.object_id = ' .. object_id,
+    '  UNION ALL',
+    -- PK / unique constraints, their backing index shape preserved
+    '  SELECT 2, kc.unique_index_id,',
+    "    'B|CONSTRAINT ' + QUOTENAME(kc.name)",
+    "    + CASE kc.type WHEN 'PK' THEN ' PRIMARY KEY ' ELSE ' UNIQUE ' END",
+    "    + CASE WHEN i.type = 1 THEN 'CLUSTERED' ELSE 'NONCLUSTERED' END",
+    "    + ' (' + (SELECT STRING_AGG(QUOTENAME(COL_NAME(ic2.object_id, ic2.column_id))",
+    "        + CASE WHEN ic2.is_descending_key = 1 THEN ' DESC' ELSE '' END, ', ')",
+    '        WITHIN GROUP (ORDER BY ic2.key_ordinal)',
+    '      FROM sys.index_columns ic2',
+    "      WHERE ic2.object_id = kc.parent_object_id AND ic2.index_id = kc.unique_index_id) + ')'",
+    '  FROM sys.key_constraints kc',
+    '  JOIN sys.indexes i ON i.object_id = kc.parent_object_id AND i.index_id = kc.unique_index_id',
+    '  WHERE kc.parent_object_id = ' .. object_id,
+    '  UNION ALL',
+    -- check constraints, definition verbatim
+    "  SELECT 3, ck.object_id, 'B|CONSTRAINT ' + QUOTENAME(ck.name) + ' CHECK ' + ck.definition COLLATE DATABASE_DEFAULT",
+    '  FROM sys.check_constraints ck WHERE ck.parent_object_id = ' .. object_id,
+    '  UNION ALL',
+    -- foreign keys; ON DELETE/UPDATE emitted only when the action is not NO ACTION
+    '  SELECT 4, fk.object_id,',
+    "    'B|CONSTRAINT ' + QUOTENAME(fk.name) + ' FOREIGN KEY ('",
+    "    + (SELECT STRING_AGG(QUOTENAME(COL_NAME(fkc.parent_object_id, fkc.parent_column_id)), ', ')",
+    '        WITHIN GROUP (ORDER BY fkc.constraint_column_id)',
+    '      FROM sys.foreign_key_columns fkc WHERE fkc.constraint_object_id = fk.object_id)',
+    "    + ') REFERENCES ' + QUOTENAME(SCHEMA_NAME(rt.schema_id)) + '.' + QUOTENAME(rt.name) + ' ('",
+    "    + (SELECT STRING_AGG(QUOTENAME(COL_NAME(fkc.referenced_object_id, fkc.referenced_column_id)), ', ')",
+    '        WITHIN GROUP (ORDER BY fkc.constraint_column_id)',
+    "      FROM sys.foreign_key_columns fkc WHERE fkc.constraint_object_id = fk.object_id) + ')'",
+    '    + CASE WHEN fk.delete_referential_action <> 0',
+    "        THEN ' ON DELETE ' + REPLACE(fk.delete_referential_action_desc, '_', ' ') ELSE '' END",
+    '    + CASE WHEN fk.update_referential_action <> 0',
+    "        THEN ' ON UPDATE ' + REPLACE(fk.update_referential_action_desc, '_', ' ') ELSE '' END",
+    '  FROM sys.foreign_keys fk',
+    '  JOIN sys.tables rt ON rt.object_id = fk.referenced_object_id',
+    '  WHERE fk.parent_object_id = ' .. object_id,
+    '  UNION ALL',
+    -- secondary indexes as complete statements (PK/unique-backing excluded)
+    '  SELECT 5, i.index_id,',
+    "    'X|CREATE ' + CASE WHEN i.is_unique = 1 THEN 'UNIQUE ' ELSE '' END",
+    "    + CASE WHEN i.type = 1 THEN 'CLUSTERED' ELSE 'NONCLUSTERED' END + ' INDEX ' + QUOTENAME(i.name)",
+    "    + ' ON " .. qualify(schema, name):gsub("'", "''") .. " ('",
+    '    + (SELECT STRING_AGG(QUOTENAME(COL_NAME(ic3.object_id, ic3.column_id))',
+    "        + CASE WHEN ic3.is_descending_key = 1 THEN ' DESC' ELSE '' END, ', ')",
+    '        WITHIN GROUP (ORDER BY ic3.key_ordinal)',
+    '      FROM sys.index_columns ic3',
+    "      WHERE ic3.object_id = i.object_id AND ic3.index_id = i.index_id AND ic3.is_included_column = 0) + ')'",
+    "    + ISNULL(' INCLUDE (' + (SELECT STRING_AGG(QUOTENAME(COL_NAME(ic4.object_id, ic4.column_id)), ', ')",
+    '        WITHIN GROUP (ORDER BY ic4.index_column_id)',
+    '      FROM sys.index_columns ic4',
+    "      WHERE ic4.object_id = i.object_id AND ic4.index_id = i.index_id AND ic4.is_included_column = 1) + ')', '')",
+    "    + ISNULL(' WHERE ' + i.filter_definition COLLATE DATABASE_DEFAULT, '')",
+    "    + ';'",
+    '  FROM sys.indexes i',
+    '  WHERE i.object_id = ' .. object_id,
+    '    AND i.is_primary_key = 0 AND i.is_unique_constraint = 0 AND i.type > 0 AND i.name IS NOT NULL',
+    ') x ORDER BY sect, seq',
+  }, '\n')
+end
+
+---@private
+-- One `marker|text` row of `create_to_query`.
+---@class DadbodUI.SqlserverCreateRow
+---@field marker 'B'|'X'
+---@field text string
+
+---@private
+-- Keep the `B|`/`X|` rows, split marker from text; sqlcmd noise drops.
+---@param lines string[]
+---@return DadbodUI.SqlserverCreateRow[]
+local function parse_create_rows(lines)
+  local out = {}
+  for _, line in ipairs(lines) do
+    local marker, text = line:match('^([BX])|(.*)$')
+    if marker then
+      out[#out + 1] = { marker = marker, text = text }
+    end
+  end
+  return out
+end
+
+---@private
+-- Join the body rows into the parenthesized CREATE TABLE and append the index
+-- statements, blank-line separated.
+---@param ctx DadbodUI.ScriptCtx
+---@return string|nil
+local function create_table_statement(ctx)
+  local body = vim.tbl_filter(function(row)
+    return row.marker == 'B'
+  end, ctx.data)
+  if #body == 0 then
+    return nil
+  end
+  local indexes = vim.tbl_filter(function(row)
+    return row.marker == 'X'
+  end, ctx.data)
+  local out = string.format(
+    'CREATE TABLE %s (\n    %s\n);',
+    qualify(ctx.schema, ctx.name),
+    table.concat(
+      vim.tbl_map(function(row)
+        return row.text
+      end, body),
+      ',\n    '
+    )
+  )
+  if #indexes > 0 then
+    out = out
+      .. '\n\n'
+      .. table.concat(
+        vim.tbl_map(function(row)
+          return row.text
+        end, indexes),
+        '\n'
+      )
+  end
+  return out
+end
+
+---@private
+-- Every query-backed action fetches the same column rows (CREATE To fetches
+-- its marker rows instead, under the untruncated `definition_args` raw mode --
+-- a long check/computed definition would otherwise be cut at sqlcmd's 256-char
+-- display width); `build` receives the parse as `ctx.data`. An empty fetch
+-- (unknown table) yields nil -> the generic "Could not script" notification.
 ---@type DadbodUI.ScriptActions
 local table_scripts = {
   actions = {
+    {
+      label = 'CREATE To',
+      query = create_to_query,
+      args = definition_args,
+      parse = parse_create_rows,
+      build = create_table_statement,
+    },
     {
       label = 'DROP To',
       ---@param ctx DadbodUI.ScriptCtx
