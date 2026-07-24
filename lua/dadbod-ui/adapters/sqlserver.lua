@@ -277,6 +277,204 @@ local routine_scripts = {
   },
 }
 
+-- Table "Script As" ----------------------------------------------------------
+--
+-- Same fetch-then-assemble shape as the routine actions: the column-list
+-- actions read structured rows from `sys.columns` under the adapter's default
+-- pipe-separated args and build the statement in Lua. Shared conventions match
+-- the other adapters: `INSERT To`/`UPDATE To` exclude identity, computed and
+-- rowversion columns (the server supplies their values), `UPDATE To`/`DELETE
+-- To` key their WHERE on the primary key with a `<condition>` placeholder
+-- fallback, values are `:name` binds with the type as a trailing comment.
+
+---@private
+-- The live columns in declared order: name, rendered type (length via
+-- `COLUMNPROPERTY(..., 'charmaxlen')`, which already reports characters -- no
+-- manual nvarchar byte-halving), the server-supplied flags, and primary-key
+-- membership via the PK index.
+---@param schema string
+---@param name string
+---@return string
+local function table_columns_query(schema, name)
+  return table.concat({
+    'SET NOCOUNT ON;',
+    'SELECT c.name,',
+    "  t.name + CASE WHEN t.name IN ('varchar','char','varbinary','nvarchar','nchar')",
+    "      THEN '(' + CASE WHEN c.max_length = -1 THEN 'MAX'",
+    "        ELSE CAST(COLUMNPROPERTY(c.object_id, c.name, 'charmaxlen') AS varchar) END + ')'",
+    "    WHEN t.name IN ('decimal','numeric')",
+    "      THEN '(' + CAST(c.precision AS varchar) + ',' + CAST(c.scale AS varchar) + ')'",
+    "    WHEN t.name IN ('datetime2','datetimeoffset','time')",
+    "      THEN '(' + CAST(c.scale AS varchar) + ')'",
+    "    ELSE '' END,",
+    '  c.is_identity, c.is_computed,',
+    "  CASE WHEN t.name IN ('timestamp','rowversion') THEN 1 ELSE 0 END,",
+    '  CASE WHEN ic.column_id IS NOT NULL THEN 1 ELSE 0 END',
+    'FROM sys.columns c',
+    'JOIN sys.types t ON t.user_type_id = c.user_type_id',
+    'LEFT JOIN sys.indexes pk ON pk.object_id = c.object_id AND pk.is_primary_key = 1',
+    'LEFT JOIN sys.index_columns ic ON ic.object_id = c.object_id AND ic.index_id = pk.index_id AND ic.column_id = c.column_id',
+    string.format("WHERE c.object_id = OBJECT_ID('%s')", parse.sql_squote(qualify(schema, name))),
+    'ORDER BY c.column_id',
+  }, '\n')
+end
+
+---@private
+-- One fetched column. `generated` covers everything the server supplies itself
+-- (identity, computed, rowversion) -- excluded from INSERT/UPDATE.
+---@class DadbodUI.SqlserverColumn
+---@field name string
+---@field type string
+---@field pk boolean
+---@field generated boolean
+
+---@private
+-- Parse the pipe-separated `table_columns_query` rows into structured columns.
+---@param lines string[]
+---@return DadbodUI.SqlserverColumn[]
+local function parse_table_columns(lines)
+  local out = {}
+  for _, line in ipairs(lines) do
+    if not parse.blank(line) then
+      local f = vim.split(line, '|', { plain = true })
+      local cname = vim.trim(f[1] or '')
+      if cname ~= '' then
+        out[#out + 1] = {
+          name = cname,
+          type = vim.trim(f[2] or ''),
+          generated = vim.trim(f[3] or '') == '1' or vim.trim(f[4] or '') == '1' or vim.trim(f[5] or '') == '1',
+          pk = vim.trim(f[6] or '') == '1',
+        }
+      end
+    end
+  end
+  return out
+end
+
+---@private
+-- The `WHERE` body keyed on the primary key, or the placeholder fallback. The
+-- fallbacks annotate with block comments: a `--` comment would swallow the
+-- statement's trailing `;`.
+---@param cols DadbodUI.SqlserverColumn[]
+---@return string
+local function where_by_pk(cols)
+  local keys = vim.tbl_filter(function(c)
+    return c.pk
+  end, cols)
+  if #keys == 0 then
+    return '<condition>  /* no primary key */'
+  end
+  return table.concat(
+    vim.tbl_map(function(c)
+      return string.format('[%s] = :%s', parse.sql_bracket(c.name), c.name)
+    end, keys),
+    '\n  AND '
+  )
+end
+
+---@private
+-- The columns the user supplies values for: everything server-generated drops.
+---@param cols DadbodUI.SqlserverColumn[]
+---@return DadbodUI.SqlserverColumn[]
+local function writable(cols)
+  return vim.tbl_filter(function(c)
+    return not c.generated
+  end, cols)
+end
+
+---@private
+-- Every query-backed action fetches the same column rows; `build` receives them
+-- as `ctx.data`. An empty fetch (unknown table) yields nil -> the generic
+-- "Could not script" notification.
+---@type DadbodUI.ScriptActions
+local table_scripts = {
+  actions = {
+    {
+      label = 'DROP To',
+      ---@param ctx DadbodUI.ScriptCtx
+      build = function(ctx)
+        return string.format('DROP TABLE %s;', qualify(ctx.schema, ctx.name))
+      end,
+    },
+    {
+      label = 'SELECT To',
+      query = table_columns_query,
+      parse = parse_table_columns,
+      ---@param ctx DadbodUI.ScriptCtx
+      build = function(ctx)
+        if #ctx.data == 0 then
+          return nil
+        end
+        local names = vim.tbl_map(function(c)
+          return string.format('[%s]', parse.sql_bracket(c.name))
+        end, ctx.data)
+        return string.format('SELECT %s\nFROM %s;', table.concat(names, '\n     , '), qualify(ctx.schema, ctx.name))
+      end,
+    },
+    {
+      label = 'INSERT To',
+      query = table_columns_query,
+      parse = parse_table_columns,
+      ---@param ctx DadbodUI.ScriptCtx
+      build = function(ctx)
+        local cols = writable(ctx.data)
+        if #cols == 0 then
+          return nil
+        end
+        local names = vim.tbl_map(function(c)
+          return string.format('[%s]', parse.sql_bracket(c.name))
+        end, cols)
+        local values = vim.tbl_map(function(c)
+          return string.format(':%s  -- %s', c.name, c.type)
+        end, cols)
+        return string.format(
+          'INSERT INTO %s (\n    %s\n) VALUES (\n    %s\n);',
+          qualify(ctx.schema, ctx.name),
+          table.concat(names, '\n  , '),
+          table.concat(values, '\n  , ')
+        )
+      end,
+    },
+    {
+      label = 'UPDATE To',
+      query = table_columns_query,
+      parse = parse_table_columns,
+      ---@param ctx DadbodUI.ScriptCtx
+      build = function(ctx)
+        if #ctx.data == 0 then
+          return nil
+        end
+        local sets = vim.tbl_map(
+          function(c)
+            return string.format('[%s] = :%s  -- %s', parse.sql_bracket(c.name), c.name, c.type)
+          end,
+          vim.tbl_filter(function(c)
+            return not c.pk
+          end, writable(ctx.data))
+        )
+        return string.format(
+          'UPDATE %s\nSET %s\nWHERE %s;',
+          qualify(ctx.schema, ctx.name),
+          #sets > 0 and table.concat(sets, '\n  , ') or '<column> = :value  /* no updatable columns */',
+          where_by_pk(ctx.data)
+        )
+      end,
+    },
+    {
+      label = 'DELETE To',
+      query = table_columns_query,
+      parse = parse_table_columns,
+      ---@param ctx DadbodUI.ScriptCtx
+      build = function(ctx)
+        if #ctx.data == 0 then
+          return nil
+        end
+        return string.format('DELETE FROM %s\nWHERE %s;', qualify(ctx.schema, ctx.name), where_by_pk(ctx.data))
+      end,
+    },
+  },
+}
+
 ---@type DadbodUI.Adapter
 return {
   name = 'sqlserver',
@@ -314,6 +512,7 @@ return {
         return string.format("SELECT OBJECT_DEFINITION(OBJECT_ID('%s'))", parse.sql_squote(qualify(schema, name)))
       end,
       routine_scripts = routine_scripts,
+      table_scripts = table_scripts,
       foreign_key_query = foreign_key_query,
       select_foreign_key_query = 'select * from %s.%s where %s = %s',
       cell_line_number = 2,

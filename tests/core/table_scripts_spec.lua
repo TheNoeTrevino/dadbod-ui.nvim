@@ -207,6 +207,73 @@ describe('table_scripts: mysql columns fetch + builders', function()
   end)
 end)
 
+describe('table_scripts: sqlserver columns fetch + builders', function()
+  -- Synthetic pipe-separated rows of the columns query: an identity pk, two
+  -- plain columns, a computed column and a rowversion stamp.
+  local rows = {
+    'id|int|1|0|0|1',
+    'email|nvarchar(80)|0|0|0|0',
+    'total|decimal(10,2)|0|0|0|0',
+    'slug|nvarchar(80)|0|1|0|0',
+    'stamp|rowversion|0|0|1|0',
+  }
+
+  local function cols()
+    return action('sqlserver', 'SELECT To').parse(rows)
+  end
+
+  it('the columns query resolves via a bracket-quoted OBJECT_ID', function()
+    local sql = action('sqlserver', 'SELECT To').query('dbo', 'my]t', 'table')
+    assert.is_truthy(sql:find("OBJECT_ID('[dbo].[my]]t]')", 1, true))
+    assert.is_truthy(sql:find("COLUMNPROPERTY(c.object_id, c.name, 'charmaxlen')", 1, true))
+    assert.is_nil(action('sqlserver', 'SELECT To').args) -- keeps the pipe-separated framing
+  end)
+
+  it('parse splits pipe rows into name/type/pk/generated', function()
+    local parsed = cols()
+    assert.equals(5, #parsed)
+    assert.same({ name = 'id', type = 'int', pk = true, generated = true }, parsed[1])
+    assert.same({ name = 'total', type = 'decimal(10,2)', pk = false, generated = false }, parsed[3])
+    assert.same({ name = 'stamp', type = 'rowversion', pk = false, generated = true }, parsed[5])
+  end)
+
+  it('SELECT To lists every column from the qualified table', function()
+    assert.equals(
+      'SELECT [id]\n     , [email]\n     , [total]\n     , [slug]\n     , [stamp]\nFROM [dbo].[users];',
+      build('sqlserver', 'SELECT To', { schema = 'dbo', name = 'users', kind = 'table', data = cols() })
+    )
+  end)
+
+  it('INSERT To binds writable columns only (no identity/computed/rowversion)', function()
+    assert.equals(
+      'INSERT INTO [dbo].[users] (\n    [email]\n  , [total]\n) VALUES (\n'
+        .. '    :email  -- nvarchar(80)\n  , :total  -- decimal(10,2)\n);',
+      build('sqlserver', 'INSERT To', { schema = 'dbo', name = 'users', kind = 'table', data = cols() })
+    )
+  end)
+
+  it('UPDATE To sets writable non-key columns and keys the WHERE on the pk', function()
+    assert.equals(
+      'UPDATE [dbo].[users]\nSET [email] = :email  -- nvarchar(80)\n'
+        .. '  , [total] = :total  -- decimal(10,2)\nWHERE [id] = :id;',
+      build('sqlserver', 'UPDATE To', { schema = 'dbo', name = 'users', kind = 'table', data = cols() })
+    )
+  end)
+
+  it('DELETE To falls back to the placeholder condition without a pk', function()
+    local nopk = action('sqlserver', 'SELECT To').parse({ 'msg|text|0|0|0|0' })
+    assert.equals(
+      'DELETE FROM [dbo].[logs]\nWHERE <condition>  /* no primary key */;',
+      build('sqlserver', 'DELETE To', { schema = 'dbo', name = 'logs', kind = 'table', data = nopk })
+    )
+  end)
+
+  it('DROP To builds from the names alone; an empty fetch yields nil', function()
+    assert.equals('DROP TABLE [dbo].[users];', build('sqlserver', 'DROP To', { schema = 'dbo', name = 'users' }))
+    assert.is_nil(build('sqlserver', 'SELECT To', { schema = 'dbo', name = 'ghost', data = {} }))
+  end)
+end)
+
 describe('table_scripts: produce orchestration', function()
   local bridge = require('dadbod-ui.bridge')
   local real_run_many = bridge.run_many
