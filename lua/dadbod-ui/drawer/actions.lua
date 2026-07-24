@@ -6,8 +6,10 @@
 -- find/reveal, and sibling/parent navigation.
 
 local constants = require('dadbod-ui.constants')
+local declaration = require('dadbod-ui.declaration')
 local float = require('dadbod-ui.float')
 local bridge = require('dadbod-ui.bridge')
+local introspect = require('dadbod-ui.introspect')
 local ids = require('dadbod-ui.drawer.ids')
 local utils = require('dadbod-ui.utils')
 local notify = require('dadbod-ui.notifications')
@@ -551,6 +553,101 @@ function Drawer:reveal_db(key_name)
     self:introspect():expand_db(entry)
   end
   self:focus_db(key_name)
+end
+
+--- Open the drawer with `table_name`'s parents expanded and the cursor on its
+--- node -- the table-level sibling of `reveal_db`. `schema` is '' for flat
+--- (schema-less) adapters. Works purely off already-introspected data: the
+--- expand chain is pre-marked (no lazy `on_expand` fires), so an entry whose
+--- tables have not landed yet simply misses the scan. Best-effort: unknown key
+--- or absent node is a quiet no-op. Returns whether the cursor landed.
+---@param key_name string
+---@param table_name string
+---@param schema string
+---@return boolean
+function Drawer:reveal_table(key_name, table_name, schema)
+  local entry = self.instance.dbs[key_name]
+  if entry == nil then
+    return false
+  end
+  self:set_expanded(ids.db(key_name), true)
+  if entry.schema_support then
+    self:expand_section(key_name, 'schemas')
+    self:set_expanded(ids.schema(key_name, schema), true)
+  else
+    self:expand_section(key_name, 'tables')
+  end
+  self:open()
+  self:render()
+  for idx, node in ipairs(self.content) do
+    if node.type == 'table' and node.key_name == key_name and node.table == table_name and node.schema == schema then
+      pcall(vim.api.nvim_win_set_cursor, self.winid, { idx, 0 })
+      return true
+    end
+  end
+  return false
+end
+
+--- Jump from a query buffer to the table under the cursor -- the `gd` action.
+--- Reads the reference via `declaration.candidates` (treesitter when a sql
+--- parser is installed -- resolving aliases like `u` in `u.id` -- else word
+--- matching), matches it against the buffer's connection, and reveals the
+--- table's drawer node. A connection with no introspected data yet is
+--- introspected first (a private one-shot controller, so the drawer's shared
+--- one keeps its render semantics), then the match retried. Anything that is
+--- not a known table is a quiet no-op.
+---@return nil
+function Drawer:goto_table()
+  local key = vim.b.dbui_db_key_name
+  local entry = (type(key) == 'string' and key ~= '') and self.instance.dbs[key] or nil
+  if entry == nil then
+    return
+  end
+  local text = table.concat(vim.api.nvim_buf_get_lines(0, 0, -1, false), '\n')
+  local pos = vim.api.nvim_win_get_cursor(0)
+  local candidates = declaration.candidates(text, pos[1] - 1, pos[2])
+  if #candidates == 0 then
+    return
+  end
+  local preferred = vim.b.dbui_schema_name
+  local target = declaration.match(entry, candidates, preferred)
+  if target ~= nil then
+    self:reveal_table(entry.key_name, target.table, target.schema)
+    return
+  end
+  -- No hit -- but against data we may simply not have yet (a buffer adopted via
+  -- `find_buffer` connects without populating). Empty tables AND schemas is the
+  -- "never introspected" proxy; populate once, then retry on the landing
+  -- render. A genuine miss after that stays quiet.
+  if #entry.tables > 0 or #entry.schemas.list > 0 then
+    return
+  end
+  local fired = false
+  local ctrl = introspect.new({
+    config = self.config,
+    connector = self.connector,
+    async_connector = self.async_connector,
+    render = function()
+      if fired then
+        return
+      end
+      fired = true
+      self:render()
+      local found = declaration.match(entry, candidates, preferred)
+      if found ~= nil then
+        self:reveal_table(entry.key_name, found.table, found.schema)
+      end
+    end,
+  })
+  if is_connected(entry) then
+    ctrl:populate(entry)
+  else
+    ctrl:connect_async(entry, function()
+      if is_connected(entry) then
+        ctrl:populate(entry)
+      end
+    end)
+  end
 end
 
 --- Re-introspect the connection `key_name`: reload its saved queries and re-scan
