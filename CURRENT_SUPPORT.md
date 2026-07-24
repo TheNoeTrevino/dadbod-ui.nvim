@@ -24,7 +24,7 @@ If the plugin DOES support something, and this doc says it does not, then this d
 | Routine definition      |    ✅     |    ✅     |    ✅     |    ❌     |  ✅   |   ✅   |     ⬜     |    ⬜    |  ❌   |   ❌   |    ⬜     |   ⬜   |   ⬜   |  ⬜   |   ⬜    |
 | **DDL Scripting**       |           |           |           |           |       |        |            |          |       |        |           |        |        |       |         |
 | Script As - routines    |   ✅ 4    |    ⬜     |    ⬜     |    ❌     | ✅ 6  |   ⬜   |     ⬜     |    ⬜    |  ❌   |   ❌   |    ⬜     |   ⬜   |   ⬜   |  ⬜   |   ⬜    |
-| Script As - tables      |    ⬜     |    ⬜     |    ⬜     |    ⬜     |  ⬜   |   ⬜   |     ⬜     |    ⬜    |  ❌   |   ⬜   |    ⬜     |   ⬜   |   ⬜   |  ⬜   |   ⬜    |
+| Script As - tables      |   ✅ 6    |   ✅ 6    |   ✅ 6    |    ⬜     | ✅ 6  |   ⬜   |     ⬜     |    ⬜    |  ❌   |   ⬜   |    ⬜     |   ⬜   |   ⬜   |  ⬜   |   ⬜    |
 | **Query buffers**       |           |           |           |           |       |        |            |          |       |        |           |        |        |       |         |
 | Table helpers           |   ✅ 6    |   ✅ 5    |   ✅ 5    |   ✅ 5    | ✅ 8  |  ✅ 6  |    ✅ 2    |   ✅ 2   | ✅ 1  |   ⬜   |    ⬜     |   ⬜   |   ⬜   |  ⬜   |   ⬜    |
 | EXPLAIN                 |    ✅     |    ✅     |    ✅     |    ✅     |  ⬜   |   ✅   |     ✅     |    ⬜    |  ⬜   |   ⬜   |    ⬜     |   ⬜   |   ⬜   |  ⬜   |   ⬜    |
