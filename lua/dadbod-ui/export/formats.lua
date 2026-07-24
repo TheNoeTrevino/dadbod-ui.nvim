@@ -1,7 +1,7 @@
 -- Pure result formatters over the canonical export data
 --
 -- Turns a `DadbodUI.ExportData` (faithful, string-typed rows parsed from a CLI's
--- delimited output -- see `dadbod-ui.export_extract`) into a serialized document
+-- delimited output -- see `dadbod-ui.export.extract`) into a serialized document
 -- in a target format. Every function here is PURE: `(data, opts) -> string`, no
 -- Neovim buffers and no database, so the whole module is exhaustively unit-tested
 -- against the fixtures in `specs/native-export.md` §5.
@@ -82,7 +82,7 @@ end
 -- Empty-string-safe truthiness: '' is truthy in Lua, which would otherwise
 -- defeat an `a or b` fallback chain (e.g. `opts.table or data.source or
 -- 'exported_table'`) when the empty string is passed explicitly. Exposed on `M`
--- so the (vim-free) transform paths in `export.lua` share this one definition
+-- so the (vim-free) transform paths in `dadbod-ui.export` share this one definition
 -- rather than re-inlining the check.
 ---@param s any
 ---@return string?
