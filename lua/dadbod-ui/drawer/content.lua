@@ -157,9 +157,9 @@ function Drawer:build_dbs(roots)
         label = self.show_details and (group .. ' (Group)') or group,
         default = self.config.drawer.expand_groups,
         detail = self.show_details or nil,
-        -- A stored group color paints the group NAME (color_len bytes of the
-        -- label -- the `(Group)` details suffix keeps its dim style).
-        extra = { group = group, color = color, color_len = color and #group or nil },
+        -- A stored group color paints the group NAME (the first name_len bytes
+        -- of the label -- the `(Group)` details suffix keeps its dim style).
+        extra = { group = group, color = color, name_len = #group },
       })
       if expanded then
         node.children = vim
@@ -257,9 +257,9 @@ function Drawer:build_db(entry)
     detail = self.show_details or nil,
     extra = {
       -- The effective color (own over group) paints the connection NAME: the
-      -- first color_len bytes of the label, leaving glyphs/suffixes alone.
+      -- first name_len bytes of the label, leaving glyphs/suffixes alone.
       color = color,
-      color_len = color and #entry.name or nil,
+      name_len = #entry.name,
       loading_frame = entry.loading and (self.loading_frames[entry.key_name] or spinners.dots[1]) or nil,
       -- on_expand runs the lazy introspection only on the opening flip;
       -- on_collapse stops a mid-load animation so no timer leaks and no stale

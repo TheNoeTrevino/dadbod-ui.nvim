@@ -49,7 +49,7 @@ end
 describe('drawer colors: highlight ranges', function()
   it('paints exactly the name prefix of a colored db label', function()
     local node =
-      { type = 'db', icon = '▸', label = 'orders ' .. icons.connection_ok, color = '#ff0000', color_len = #'orders' }
+      { type = 'db', icon = '▸', label = 'orders ' .. icons.connection_ok, color = '#ff0000', name_len = #'orders' }
     local hl = by_group(hls_of(node), 'DadbodUIColor_ff0000')
     assert.is_not_nil(hl)
     -- The name starts right after the icon + separator space.
@@ -61,7 +61,7 @@ describe('drawer colors: highlight ranges', function()
   end)
 
   it('starts at the first non-space when the node has no icon', function()
-    local node = { type = 'db', icon = '', label = 'orders', level = 1, color = '#00ff00', color_len = #'orders' }
+    local node = { type = 'db', icon = '', label = 'orders', level = 1, color = '#00ff00', name_len = #'orders' }
     local hl = by_group(hls_of(node), 'DadbodUIColor_00ff00')
     assert.is_not_nil(hl)
     assert.equals(INDENT, hl.col_start)
@@ -77,7 +77,7 @@ describe('drawer colors: highlight ranges', function()
 
   it('colors a group node name but not its (Group) details suffix', function()
     local node =
-      { type = 'group', icon = '▸', label = 'prod (Group)', detail = true, color = '#ff8800', color_len = #'prod' }
+      { type = 'group', icon = '▸', label = 'prod (Group)', detail = true, color = '#ff8800', name_len = #'prod' }
     local hls = hls_of(node)
     local hl = by_group(hls, 'DadbodUIColor_ff8800')
     assert.is_not_nil(hl)
@@ -104,10 +104,10 @@ describe('drawer colors: content builder', function()
     local group_node = nodes[1]
     assert.equals('group', group_node.type)
     assert.equals('#aa0000', group_node.color)
-    assert.equals(#'prod', group_node.color_len)
+    assert.equals(#'prod', group_node.name_len)
     local members = group_node.children
     assert.equals('#ff0000', members[1].color) -- own color wins
-    assert.equals(#'orders', members[1].color_len)
+    assert.equals(#'orders', members[1].name_len)
     assert.equals('#aa0000', members[2].color) -- inherited from the group
   end)
 
@@ -115,14 +115,16 @@ describe('drawer colors: content builder', function()
     local d = make_drawer({ { name = 'plain', url = 'sqlite:/tmp/plain.db' } })
     local nodes = d:build_content()
     assert.is_nil(nodes[1].color)
-    assert.is_nil(nodes[1].color_len)
+    -- name_len is stamped unconditionally (it is just the name's byte length);
+    -- only `color` decides whether anything gets painted.
+    assert.equals(#'plain', nodes[1].name_len)
   end)
 end)
 
 describe('drawer colors: paint diff', function()
   it('repaints a line whose only change is its color', function()
     local bufnr = vim.api.nvim_create_buf(false, true)
-    local node = { type = 'db', icon = '▸', label = 'orders', level = 0, color = '#ff0000', color_len = #'orders' }
+    local node = { type = 'db', icon = '▸', label = 'orders', level = 0, color = '#ff0000', name_len = #'orders' }
     local painted = painter.paint(bufnr, { node }, icons)
     local function color_marks()
       return vim.tbl_filter(function(mark)

@@ -14,6 +14,7 @@
 ---@field define fun()
 ---@field color_group fun(hex: string): string
 ---@field winbar_color_group fun(hex: string): string
+---@field paint_key fun(node: DadbodUI.Node): string
 ---@field highlights_for fun(node: DadbodUI.Node, line_text: string, icons: DadbodUI.Icons): DadbodUI.Highlight[]
 ---@field apply_line_highlights fun(bufnr: integer, lnum: integer, hls: DadbodUI.Highlight[], ns?: integer)
 
@@ -154,6 +155,18 @@ function M.winbar_color_group(hex)
   return name
 end
 
+--- The incremental-paint identity of a node's HIGHLIGHTS: every node field
+--- `highlights_for` reads that can change without changing the rendered line
+--- text (a recolor, say, changes only the marks). The painter diffs
+--- `(line text, paint_key)` pairs, so keeping this next to `highlights_for`
+--- means a new highlight-affecting field gets added to both in one place --
+--- omitted here, it would leave stale extmarks on lines whose text didn't move.
+---@param node DadbodUI.Node
+---@return string
+function M.paint_key(node)
+  return node.type .. '\0' .. node.icon .. (node.detail and '\0d' or '') .. (node.color and ('\0' .. node.color) or '')
+end
+
 --- The highlight ranges for one painted line. Pure: derives every byte column
 --- from `node` and the already-rendered `line_text` (so multibyte nerd-font
 --- glyphs are measured with `#`, never re-escaped into a regex). `icons` supplies
@@ -194,28 +207,24 @@ function M.highlights_for(node, line_text, icons)
     end
   end
 
-  -- A user-assigned connection/group color paints the leading `color_len` bytes
+  -- A user-assigned connection/group color paints the leading `name_len` bytes
   -- of the label (the connection/group NAME -- never the status glyph or the
   -- `(…)` details suffix, which keep their own groups). The label starts right
   -- after the icon + its separator space; with no icon it starts at the first
   -- non-space (the indent is spaces only).
-  if node.color ~= nil and node.color_len ~= nil then
+  if node.color ~= nil then
     local label_start
-    if node.icon ~= '' then
-      if icon_start ~= nil then
-        label_start = icon_start - 1 + #node.icon + 1
-      end
-    else
+    if icon_start ~= nil then
+      label_start = icon_start - 1 + #node.icon + 1
+    elseif node.icon == '' then
       local s = line_text:find('%S')
-      if s ~= nil then
-        label_start = s - 1
-      end
+      label_start = s ~= nil and s - 1 or nil
     end
     if label_start ~= nil then
       hls[#hls + 1] = {
         group = M.color_group(node.color),
         col_start = label_start,
-        col_end = label_start + node.color_len,
+        col_end = label_start + node.name_len,
       }
     end
   end
