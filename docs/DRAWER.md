@@ -56,15 +56,16 @@ over group, resolved by `Instance:connection_color`) is stamped on the node
 as `color` at build time (`name_len` gives the name's byte length), and
 `highlights_for` paints exactly the name prefix of the label - status
 glyphs and the `(…)` details suffix keep their own groups. The highlight
-groups are dynamic `DadbodUIColor_<rrggbb>` definitions, re-set at render
-time so they survive a `:colorscheme` reset. The same color also paints
-the query-buffer winbar block (see `query/init.lua`'s `connection_winbar`),
-as a background with black/white text picked by luminance; its group is
-(re)defined when the winbar is applied (buffer setup / BufWinEnter), so
-after a `:colorscheme` it recovers the next time the buffer enters a
-window - the same lifetime the default `DadbodUIWinbarConnection` block
-already has. No color set means every one of these surfaces renders
-exactly like before.
+groups are dynamic `DadbodUIColor_<rrggbb>` definitions, defined once per
+colorscheme generation: a `ColorScheme` autocmd in `highlights.lua` drops
+the memo, so after a `:colorscheme` reset each group is re-defined by the
+next paint (drawer) or winbar apply (buffer setup / BufWinEnter) that uses
+it. The same color also paints the query-buffer winbar block (see
+`query/init.lua`'s `connection_winbar`), as a background with black/white
+text picked by luminance - after a `:colorscheme` it recovers the next
+time the buffer enters a window, the same lifetime the default
+`DadbodUIWinbarConnection` block already has. No color set means every one
+of these surfaces renders exactly like before.
 
 ## Lazy introspection
 

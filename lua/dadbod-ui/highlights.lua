@@ -122,37 +122,63 @@ function M.define()
   hl('DadbodUIWinbarConnection', { link = 'DadbodUIWinbar' })
 end
 
+-- The dynamic color groups already defined this "colorscheme generation":
+-- `color_group`/`winbar_color_group` run in per-line paint paths (every colored
+-- line of every repaint, every spinner frame), so the `nvim_set_hl` call is
+-- made once per group and skipped thereafter. A `:colorscheme` wipes highlight
+-- definitions, so the autocmd empties the memo and the next paint/winbar apply
+-- re-defines whatever colors are actually on screen.
+---@type table<string, boolean>
+local defined = {}
+vim.api.nvim_create_autocmd('ColorScheme', {
+  group = vim.api.nvim_create_augroup('dadbod_ui_color_cache', { clear = true }),
+  callback = function()
+    defined = {}
+  end,
+})
+
+---@private
+--- Define `name` via `opts` once per colorscheme generation (see `defined`).
+---@param name string
+---@param opts vim.api.keyset.highlight
+---@return string name
+local function define_once(name, opts)
+  if not defined[name] then
+    defined[name] = true
+    vim.api.nvim_set_hl(0, name, opts)
+  end
+  return name
+end
+
 --- The foreground highlight group for a user-assigned connection/group color
---- (issue #91): `DadbodUIColor_<rrggbb>`, defined (idempotently, concrete `fg`)
---- on every call -- these groups are derived from connections.json data, not the
---- colorscheme, so re-defining at render time keeps them alive across a
---- `:colorscheme` reset without an autocmd. `hex` must be a store-validated
---- `#rrggbb` (dadbod-ui.connections normalizes case and drops invalid values
---- before a color ever reaches a node).
+--- (issue #91): `DadbodUIColor_<rrggbb>`, defined with a concrete `fg` -- these
+--- groups are derived from connections.json data, not the colorscheme. `hex`
+--- must be a store-validated `#rrggbb` (dadbod-ui.connections normalizes case
+--- and drops invalid values before a color ever reaches a node).
 ---@param hex string  `#rrggbb`, lowercase
 ---@return string
 function M.color_group(hex)
-  local name = 'DadbodUIColor_' .. hex:sub(2)
-  vim.api.nvim_set_hl(0, name, { fg = hex })
-  return name
+  return define_once('DadbodUIColor_' .. hex:sub(2), { fg = hex })
 end
 
 --- The winbar block group for a user-assigned connection color (issue #91):
 --- `DadbodUIWinbarColor_<rrggbb>`, the hex as BACKGROUND (a solid tab that
 --- screams "prod" at the top of the query buffer, matching the other winbar
 --- blocks) with black/white text picked by luminance so the name stays legible
---- on any color. Defined on every call, like `color_group`.
+--- on any color.
 ---@param hex string  `#rrggbb`, lowercase
 ---@return string
 function M.winbar_color_group(hex)
+  local name = 'DadbodUIWinbarColor_' .. hex:sub(2)
+  if defined[name] then
+    return name
+  end
   local r = tonumber(hex:sub(2, 3), 16)
   local g = tonumber(hex:sub(4, 5), 16)
   local b = tonumber(hex:sub(6, 7), 16)
   -- Perceived luminance (ITU-R BT.601): dark text on light colors, and vice versa.
   local fg = (0.299 * r + 0.587 * g + 0.114 * b) > 140 and '#000000' or '#ffffff'
-  local name = 'DadbodUIWinbarColor_' .. hex:sub(2)
-  vim.api.nvim_set_hl(0, name, { fg = fg, bg = hex })
-  return name
+  return define_once(name, { fg = fg, bg = hex })
 end
 
 --- The incremental-paint identity of a node's HIGHLIGHTS: every node field
