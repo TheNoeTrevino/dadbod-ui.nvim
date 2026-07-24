@@ -288,10 +288,24 @@ local routine_scripts = {
 -- fallback, values are `:name` binds with the type as a trailing comment.
 
 ---@private
--- The live columns in declared order: name, rendered type (length via
--- `COLUMNPROPERTY(..., 'charmaxlen')`, which already reports characters -- no
--- manual nvarchar byte-halving), the server-supplied flags, and primary-key
--- membership via the PK index.
+-- The type-length suffix (`(80)`, `(MAX)`, `(10,2)`, `(3)`) for a `sys.columns
+-- c` / `sys.types t` row, shared by the column fetch and `CREATE To`.
+-- `COLUMNPROPERTY(..., 'charmaxlen')` already reports characters -- no manual
+-- nvarchar byte-halving.
+local type_suffix_sql = table.concat({
+  "CASE WHEN t.name IN ('varchar','char','varbinary','nvarchar','nchar')",
+  "    THEN '(' + CASE WHEN c.max_length = -1 THEN 'MAX'",
+  "      ELSE CAST(COLUMNPROPERTY(c.object_id, c.name, 'charmaxlen') AS varchar) END + ')'",
+  "  WHEN t.name IN ('decimal','numeric')",
+  "    THEN '(' + CAST(c.precision AS varchar) + ',' + CAST(c.scale AS varchar) + ')'",
+  "  WHEN t.name IN ('datetime2','datetimeoffset','time')",
+  "    THEN '(' + CAST(c.scale AS varchar) + ')'",
+  "  ELSE '' END",
+}, '\n')
+
+---@private
+-- The live columns in declared order: name, rendered type, the server-supplied
+-- flags, and primary-key membership via the PK index.
 ---@param schema string
 ---@param name string
 ---@return string
@@ -299,14 +313,7 @@ local function table_columns_query(schema, name)
   return table.concat({
     'SET NOCOUNT ON;',
     'SELECT c.name,',
-    "  t.name + CASE WHEN t.name IN ('varchar','char','varbinary','nvarchar','nchar')",
-    "      THEN '(' + CASE WHEN c.max_length = -1 THEN 'MAX'",
-    "        ELSE CAST(COLUMNPROPERTY(c.object_id, c.name, 'charmaxlen') AS varchar) END + ')'",
-    "    WHEN t.name IN ('decimal','numeric')",
-    "      THEN '(' + CAST(c.precision AS varchar) + ',' + CAST(c.scale AS varchar) + ')'",
-    "    WHEN t.name IN ('datetime2','datetimeoffset','time')",
-    "      THEN '(' + CAST(c.scale AS varchar) + ')'",
-    "    ELSE '' END,",
+    '  t.name + ' .. type_suffix_sql .. ',',
     '  c.is_identity, c.is_computed,',
     "  CASE WHEN t.name IN ('timestamp','rowversion') THEN 1 ELSE 0 END,",
     '  CASE WHEN ic.column_id IS NOT NULL THEN 1 ELSE 0 END',
@@ -333,22 +340,21 @@ end
 ---@param lines string[]
 ---@return DadbodUI.SqlserverColumn[]
 local function parse_table_columns(lines)
-  local out = {}
-  for _, line in ipairs(lines) do
-    if not parse.blank(line) then
+  return vim
+    .iter(lines)
+    :map(function(line)
       local f = vim.split(line, '|', { plain = true })
-      local cname = vim.trim(f[1] or '')
-      if cname ~= '' then
-        out[#out + 1] = {
-          name = cname,
-          type = vim.trim(f[2] or ''),
-          generated = vim.trim(f[3] or '') == '1' or vim.trim(f[4] or '') == '1' or vim.trim(f[5] or '') == '1',
-          pk = vim.trim(f[6] or '') == '1',
-        }
-      end
-    end
-  end
-  return out
+      return {
+        name = vim.trim(f[1] or ''),
+        type = vim.trim(f[2] or ''),
+        generated = vim.trim(f[3] or '') == '1' or vim.trim(f[4] or '') == '1' or vim.trim(f[5] or '') == '1',
+        pk = vim.trim(f[6] or '') == '1',
+      }
+    end)
+    :filter(function(c)
+      return c.name ~= ''
+    end)
+    :totable()
 end
 
 ---@private
@@ -399,7 +405,10 @@ end
 ---@param name string
 ---@return string
 local function create_to_query(schema, name)
-  local object_id = string.format("OBJECT_ID('%s')", parse.sql_squote(qualify(schema, name)))
+  -- The squoted bracket-quoted name serves both as the `OBJECT_ID` literal and
+  -- inside the index statements' `ON` string literal below.
+  local qualified = parse.sql_squote(qualify(schema, name))
+  local object_id = string.format("OBJECT_ID('%s')", qualified)
   return table.concat({
     'SET NOCOUNT ON;',
     'SELECT line FROM (',
@@ -410,14 +419,7 @@ local function create_to_query(schema, name)
     "      QUOTENAME(c.name) + ' AS ' + cc.definition COLLATE DATABASE_DEFAULT + CASE WHEN cc.is_persisted = 1 THEN ' PERSISTED' ELSE '' END",
     '    ELSE',
     "      QUOTENAME(c.name) + ' ' + t.name",
-    "      + CASE WHEN t.name IN ('varchar','char','varbinary','nvarchar','nchar')",
-    "          THEN '(' + CASE WHEN c.max_length = -1 THEN 'MAX'",
-    "            ELSE CAST(COLUMNPROPERTY(c.object_id, c.name, 'charmaxlen') AS varchar) END + ')'",
-    "        WHEN t.name IN ('decimal','numeric')",
-    "          THEN '(' + CAST(c.precision AS varchar) + ',' + CAST(c.scale AS varchar) + ')'",
-    "        WHEN t.name IN ('datetime2','datetimeoffset','time')",
-    "          THEN '(' + CAST(c.scale AS varchar) + ')'",
-    "        ELSE '' END",
+    '      + ' .. type_suffix_sql,
     "      + CASE WHEN c.is_identity = 1 THEN ' IDENTITY('",
     "          + CAST(ISNULL(CAST(ic.seed_value AS bigint), 1) AS varchar(20)) + ','",
     "          + CAST(ISNULL(CAST(ic.increment_value AS bigint), 1) AS varchar(20)) + ')' ELSE '' END",
@@ -471,7 +473,7 @@ local function create_to_query(schema, name)
     '  SELECT 5, i.index_id,',
     "    'X|CREATE ' + CASE WHEN i.is_unique = 1 THEN 'UNIQUE ' ELSE '' END",
     "    + CASE WHEN i.type = 1 THEN 'CLUSTERED' ELSE 'NONCLUSTERED' END + ' INDEX ' + QUOTENAME(i.name)",
-    "    + ' ON " .. qualify(schema, name):gsub("'", "''") .. " ('",
+    "    + ' ON " .. qualified .. " ('",
     '    + (SELECT STRING_AGG(QUOTENAME(COL_NAME(ic3.object_id, ic3.column_id))',
     "        + CASE WHEN ic3.is_descending_key = 1 THEN ' DESC' ELSE '' END, ', ')",
     '        WITHIN GROUP (ORDER BY ic3.key_ordinal)',
@@ -501,14 +503,13 @@ end
 ---@param lines string[]
 ---@return DadbodUI.SqlserverCreateRow[]
 local function parse_create_rows(lines)
-  local out = {}
-  for _, line in ipairs(lines) do
-    local marker, text = line:match('^([BX])|(.*)$')
-    if marker then
-      out[#out + 1] = { marker = marker, text = text }
-    end
-  end
-  return out
+  return vim
+    .iter(lines)
+    :map(function(line)
+      local marker, text = line:match('^([BX])|(.*)$')
+      return marker and { marker = marker, text = text } or nil
+    end)
+    :totable()
 end
 
 ---@private
@@ -517,36 +518,23 @@ end
 ---@param ctx DadbodUI.ScriptCtx
 ---@return string|nil
 local function create_table_statement(ctx)
-  local body = vim.tbl_filter(function(row)
-    return row.marker == 'B'
-  end, ctx.data)
+  local function texts(marker)
+    return vim
+      .iter(ctx.data)
+      :filter(function(row)
+        return row.marker == marker
+      end)
+      :map(function(row)
+        return row.text
+      end)
+      :totable()
+  end
+  local body, indexes = texts('B'), texts('X')
   if #body == 0 then
     return nil
   end
-  local indexes = vim.tbl_filter(function(row)
-    return row.marker == 'X'
-  end, ctx.data)
-  local out = string.format(
-    'CREATE TABLE %s (\n    %s\n);',
-    qualify(ctx.schema, ctx.name),
-    table.concat(
-      vim.tbl_map(function(row)
-        return row.text
-      end, body),
-      ',\n    '
-    )
-  )
-  if #indexes > 0 then
-    out = out
-      .. '\n\n'
-      .. table.concat(
-        vim.tbl_map(function(row)
-          return row.text
-        end, indexes),
-        '\n'
-      )
-  end
-  return out
+  return string.format('CREATE TABLE %s (\n    %s\n);', qualify(ctx.schema, ctx.name), table.concat(body, ',\n    '))
+    .. (#indexes > 0 and '\n\n' .. table.concat(indexes, '\n') or '')
 end
 
 ---@private

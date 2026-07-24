@@ -352,7 +352,7 @@ describe('routine_scripts: drawer rendering', function()
   it('sqlserver: a routine expands to Script As -> the six SSMS actions', function()
     local entry = render_routine('CaRS', 'sqlserver://h/db', 'dbo')
     d:set_expanded(ids.routine(entry.key_name, 'dbo', 'do_thing'), true)
-    d:set_expanded(ids.routine_script_as(entry.key_name, 'dbo', 'do_thing'), true)
+    d:set_expanded(ids.script_as(ids.routine(entry.key_name, 'dbo', 'do_thing')), true)
     d:render()
     for _, label in ipairs({
       'Script As',
@@ -370,7 +370,7 @@ describe('routine_scripts: drawer rendering', function()
   it('postgres: a routine expands to Script As -> the four postgres actions (no ALTER)', function()
     local entry = render_routine('dev', 'postgres://h/dev', 'public')
     d:set_expanded(ids.routine(entry.key_name, 'public', 'do_thing'), true)
-    d:set_expanded(ids.routine_script_as(entry.key_name, 'public', 'do_thing'), true)
+    d:set_expanded(ids.script_as(ids.routine(entry.key_name, 'public', 'do_thing')), true)
     d:render()
     for _, label in ipairs({ 'Script As', 'CREATE OR REPLACE To', 'DROP To', 'DROP And CREATE To', 'EXECUTE To' }) do
       assert.is_truthy(has_line(d, label), 'missing drawer line: ' .. label)

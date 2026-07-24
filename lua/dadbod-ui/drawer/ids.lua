@@ -67,22 +67,13 @@ function M.routine(key_name, schema, name)
   return M.section(key_name, 'routines') .. '/' .. schema .. '/' .. name
 end
 
---- The "Script As" node under a routine (SSMS-style DDL scripting submenu).
----@param key_name string
----@param schema string
----@param name string
+--- The "Script As" submenu node (SSMS-style DDL scripting) under a scriptable
+--- object: its parent node's id plus a fixed suffix, whatever the object kind
+--- (routine, table).
+---@param parent_id string
 ---@return string
-function M.routine_script_as(key_name, schema, name)
-  return M.routine(key_name, schema, name) .. '/script_as'
-end
-
---- The "Script As" node under a table (same submenu, table actions).
----@param key_name string
----@param schema string
----@param table_name string
----@return string
-function M.table_script_as(key_name, schema, table_name)
-  return M.table(key_name, schema, table_name) .. '/script_as'
+function M.script_as(parent_id)
+  return parent_id .. '/script_as'
 end
 
 return M

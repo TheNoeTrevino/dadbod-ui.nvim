@@ -246,10 +246,8 @@ end
 -- The `WHERE <pk> = :pk AND ...` aggregate shared by UPDATE/DELETE, degrading
 -- to a placeholder condition when the table has no primary key. The fallbacks
 -- annotate with block comments: a `--` comment would swallow the trailing `;`.
-local where_by_pk = table.concat({
-  "COALESCE(string_agg(quote_ident(a.attname) || ' = :' || a.attname, E'\\n  AND ' ORDER BY a.attnum)",
-  "       FILTER (WHERE pk.is_pk), '<condition>  /* no primary key */')",
-}, '\n  ')
+local where_by_pk = [[COALESCE(string_agg(quote_ident(a.attname) || ' = :' || a.attname, E'\n  AND ' ORDER BY a.attnum)
+         FILTER (WHERE pk.is_pk), '<condition>  /* no primary key */')]]
 
 ---@private
 -- `UPDATE schema.table SET <non-key cols> WHERE <pk cols>;` -- key columns move

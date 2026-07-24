@@ -486,8 +486,9 @@ function Drawer:build_routine(entry, routine, schema)
   end
   node.children = {
     self:script_as_node(entry, entry.routine_scripts, {
-      id = ids.routine_script_as(entry.key_name, schema, routine.name),
-      type = 'routine_script',
+      id = ids.script_as(node.id),
+      type = 'routine_script_as',
+      leaf_type = 'routine_script',
       icon = 'procedures',
       schema = schema,
       name = routine.name,
@@ -504,12 +505,12 @@ end
 --- as the generic node->connection link the drawer's action context reads.
 ---@param entry DadbodUI.ConnectionEntry
 ---@param capability DadbodUI.ScriptActions
----@param opts { id: string, type: string, icon: string, schema: string, name: string, kind: string }
+---@param opts { id: string, type: string, leaf_type: string, icon: string, schema: string, name: string, kind: string }
 ---@return DadbodUI.Node
 function Drawer:script_as_node(entry, capability, opts)
   local script_node, expanded = self:toggle_node({
     id = opts.id,
-    type = opts.type .. '_as',
+    type = opts.type,
     icon = opts.icon,
     label = 'Script As',
     key_name = entry.key_name,
@@ -521,7 +522,7 @@ function Drawer:script_as_node(entry, capability, opts)
         return {
           label = action.label,
           icon = self.icons[opts.icon],
-          type = opts.type,
+          type = opts.leaf_type,
           action = 'activate',
           key_name = entry.key_name,
           on_activate = function()
@@ -647,8 +648,9 @@ function Drawer:build_tables(list, entry, schema)
             node.children,
             1,
             self:script_as_node(entry, entry.table_scripts, {
-              id = ids.table_script_as(entry.key_name, schema, table_name),
-              type = 'table_script',
+              id = ids.script_as(node.id),
+              type = 'table_script_as',
+              leaf_type = 'table_script',
               icon = 'tables',
               schema = schema,
               name = table_name,

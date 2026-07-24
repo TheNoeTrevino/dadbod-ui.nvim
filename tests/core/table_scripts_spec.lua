@@ -433,7 +433,7 @@ describe('table_scripts: drawer rendering', function()
 
   it('a table with the capability expands to Script As ahead of its helpers', function()
     local entry = render_table({ actions = { { label = 'FAKE To' } } })
-    d:set_expanded(ids.table_script_as(entry.key_name, 'public', 'users'), true)
+    d:set_expanded(ids.script_as(ids.table(entry.key_name, 'public', 'users')), true)
     d:render()
     assert.is_truthy(has_line(d, 'Script As'))
     assert.is_truthy(has_line(d, 'FAKE To'))
@@ -452,7 +452,7 @@ describe('table_scripts: drawer rendering', function()
 
   it("an action leaf's on_activate dispatches to script_as.run with kind 'table'", function()
     local entry = render_table({ actions = { { label = 'FAKE To' } } })
-    d:set_expanded(ids.table_script_as(entry.key_name, 'public', 'users'), true)
+    d:set_expanded(ids.script_as(ids.table(entry.key_name, 'public', 'users')), true)
     d:render()
     local real_run = script_as.run
     local got
