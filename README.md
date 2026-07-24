@@ -60,6 +60,11 @@ familiar workflow, but API-first, deeply configurable, and typed to the teeth.
   [fzf-lua](https://github.com/ibhagwan/fzf-lua) - connection picker. _(optional)_
 - [nvim-notify](https://github.com/rcarriga/nvim-notify) - prettier
   notifications. _(optional)_
+- a treesitter `sql` parser (e.g. via
+  [nvim-treesitter](https://github.com/nvim-treesitter/nvim-treesitter)) - lets
+  `gd` (jump to the table under the cursor) resolve aliases like `u` in
+  `u.id` and schema-qualified names precisely; without it a plain word match
+  still handles `users` and `public.users`. _(optional)_
 
 ## Installation
 
