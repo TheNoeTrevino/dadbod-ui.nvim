@@ -29,6 +29,26 @@ local function make_drawer(g_dbs, overrides)
   return d
 end
 
+local function caps(scheme)
+  return schemas.get(scheme).table_scripts
+end
+
+--- The action whose menu label is `label` on `scheme` (order-independent lookup).
+local function action(scheme, label)
+  for _, a in ipairs(caps(scheme).actions) do
+    if a.label == label then
+      return a
+    end
+  end
+end
+
+--- Build the DDL for `scheme`'s `label` action from a context (applying the
+--- generic `build` default for query-only actions that define none).
+local function build(scheme, label, ctx)
+  local act = action(scheme, label)
+  return (act.build or script_as.fetched)(ctx)
+end
+
 local function entry_named(d, name)
   for _, record in ipairs(d.instance.dbs_list) do
     if record.name == name then
@@ -54,6 +74,108 @@ local function node_labeled(d, label)
     return node.label == label
   end)
 end
+
+describe('table_scripts: capability presence + action set', function()
+  it('postgres exposes table_scripts; unported adapters do not', function()
+    for _, scheme in ipairs({ 'sqlite', 'oracle', 'clickhouse', 'bigquery', 'mongodb' }) do
+      assert.is_nil(caps(scheme), scheme .. ' has no table_scripts')
+    end
+    local labels = vim.tbl_map(function(a)
+      return a.label
+    end, caps('postgres').actions)
+    assert.same({ 'DROP To', 'SELECT To', 'INSERT To', 'UPDATE To', 'DELETE To' }, labels)
+  end)
+end)
+
+describe('table_scripts: postgres queries (built server-side)', function()
+  it('SELECT To aggregates quoted column names over the live attributes', function()
+    local sql = action('postgres', 'SELECT To').query('public', 'users')
+    assert.is_truthy(sql:find('string_agg(quote_ident(a.attname)', 1, true))
+    assert.is_truthy(sql:find('NOT a.attisdropped', 1, true))
+    assert.is_truthy(sql:find("n.nspname = 'public' AND c.relname = 'users'", 1, true))
+  end)
+
+  it('INSERT To binds each column with its type, excluding identity/generated', function()
+    local sql = action('postgres', 'INSERT To').query('public', 'users')
+    assert.is_truthy(sql:find('format_type(a.atttypid, a.atttypmod)', 1, true))
+    assert.is_truthy(sql:find("a.attidentity = '' AND a.attgenerated = ''", 1, true))
+  end)
+
+  it('UPDATE To sets non-key columns and keys the WHERE on the primary key', function()
+    local sql = action('postgres', 'UPDATE To').query('public', 'users')
+    assert.is_truthy(sql:find('FILTER (WHERE NOT pk.is_pk', 1, true))
+    assert.is_truthy(sql:find('FILTER (WHERE pk.is_pk)', 1, true))
+    assert.is_truthy(sql:find('i.indisprimary AND a.attnum = ANY(i.indkey)', 1, true))
+    assert.is_truthy(sql:find('no primary key', 1, true)) -- PK-less fallback
+  end)
+
+  it('DELETE To keys the WHERE on the primary key with the same fallback', function()
+    local sql = action('postgres', 'DELETE To').query('public', 'users')
+    assert.is_truthy(sql:find("'DELETE FROM '", 1, true))
+    assert.is_truthy(sql:find('FILTER (WHERE pk.is_pk)', 1, true))
+  end)
+
+  it('quotes embedded in identifiers stay inside the literals', function()
+    local sql = action('postgres', 'SELECT To').query('pub', "we'ird")
+    assert.is_truthy(sql:find("c.relname = 'we''ird'", 1, true))
+  end)
+end)
+
+describe('table_scripts: postgres builders', function()
+  it('DROP To builds a quoted DROP TABLE from the names alone', function()
+    assert.equals(
+      'DROP TABLE "public"."users";',
+      build('postgres', 'DROP To', { schema = 'public', name = 'users', kind = 'table' })
+    )
+    assert.equals(
+      'DROP TABLE "pu""b"."t";',
+      build('postgres', 'DROP To', { schema = 'pu"b', name = 't', kind = 'table' })
+    )
+  end)
+end)
+
+describe('table_scripts: produce orchestration', function()
+  local bridge = require('dadbod-ui.bridge')
+  local real_run_many = bridge.run_many
+  local d
+  after_each(function()
+    bridge.run_many = real_run_many
+    if d then
+      d:close()
+      d = nil
+    end
+  end)
+
+  it('query-less DROP builds synchronously; query actions pass server text through', function()
+    d = make_drawer({ dev = 'postgres://h/dev' })
+    local entry = entry_named(d, 'dev')
+    local called = 0
+    bridge.run_many = function()
+      called = called + 1
+    end
+    local got
+    script_as.produce(
+      { entry = entry, schema = 'public', name = 'users', kind = 'table', action = action('postgres', 'DROP To') },
+      function(text)
+        got = text
+      end
+    )
+    assert.equals(0, called) -- never touched the database
+    assert.equals('DROP TABLE "public"."users";', got)
+
+    entry.conn = entry.url -- pretend connected
+    bridge.run_many = function(_specs, on_done)
+      on_done({ { code = 0, stdout = 'SELECT id\nFROM public.users;\n', stderr = '' } })
+    end
+    script_as.produce(
+      { entry = entry, schema = 'public', name = 'users', kind = 'table', action = action('postgres', 'SELECT To') },
+      function(text)
+        got = text
+      end
+    )
+    assert.equals('SELECT id\nFROM public.users;', got)
+  end)
+end)
 
 describe('table_scripts: drawer rendering', function()
   local d

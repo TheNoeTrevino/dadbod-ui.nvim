@@ -163,6 +163,151 @@ local routine_scripts = {
   },
 }
 
+-- Table "Script As" -----------------------------------------------------------
+--
+-- Same shape as the routine actions: every statement is built server-side (the
+-- catalog renders identifiers via `quote_ident` and types via `format_type`, so
+-- no Lua string assembly), except the name-only DROP. `INSERT To`/`UPDATE To`
+-- exclude identity and generated columns (the server supplies their values);
+-- `UPDATE To`/`DELETE To` key their WHERE on the primary key, degrading to a
+-- `<condition>` placeholder on a PK-less table.
+
+---@private
+-- The rendered `schema.table` identifier expression shared by the builders.
+local qualified_table = "quote_ident(n.nspname) || '.' || quote_ident(c.relname)"
+
+---@private
+-- The (schema, name) relation joined to its live columns: `c` the relation, `n`
+-- its namespace, `a` the attributes in `attnum` order (dropped and system
+-- attributes excluded). `with_pk` adds a lateral `pk.is_pk` per attribute
+-- (member of the primary-key index) for the UPDATE/DELETE WHERE aggregates.
+-- `extra_where` narrows the attribute set (e.g. INSERT excluding identity /
+-- generated columns). Identifiers are escaped for the single-quoted literals.
+---@param schema string
+---@param name string
+---@param opts? { with_pk?: boolean, extra_where?: string }
+---@return string
+local function columns_source(schema, name, opts)
+  opts = opts or {}
+  local lines = {
+    'FROM pg_catalog.pg_class c',
+    'JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace',
+    'JOIN pg_catalog.pg_attribute a ON a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped',
+  }
+  if opts.with_pk then
+    lines[#lines + 1] = 'CROSS JOIN LATERAL (SELECT EXISTS ('
+    lines[#lines + 1] = '  SELECT FROM pg_catalog.pg_index i'
+    lines[#lines + 1] = '  WHERE i.indrelid = c.oid AND i.indisprimary AND a.attnum = ANY(i.indkey)'
+    lines[#lines + 1] = ') AS is_pk) pk'
+  end
+  lines[#lines + 1] =
+    string.format("WHERE n.nspname = '%s' AND c.relname = '%s'", parse.sql_squote(schema), parse.sql_squote(name))
+  if opts.extra_where then
+    lines[#lines + 1] = '  ' .. opts.extra_where
+  end
+  lines[#lines + 1] = 'GROUP BY n.nspname, c.relname'
+  return table.concat(lines, '\n')
+end
+
+---@private
+-- `SELECT <every column>\nFROM schema.table;`
+---@param schema string
+---@param name string
+---@return string
+local function select_to_query(schema, name)
+  return table.concat({
+    "SELECT 'SELECT '",
+    "  || string_agg(quote_ident(a.attname), E'\\n     , ' ORDER BY a.attnum)",
+    "  || E'\\nFROM ' || " .. qualified_table .. " || ';'",
+    columns_source(schema, name),
+  }, '\n')
+end
+
+---@private
+-- `INSERT INTO schema.table (cols) VALUES (:col -- type, ...);` -- identity and
+-- generated columns are excluded (the server supplies their values), each value
+-- a `:name` bind placeholder with its type as a trailing comment (same
+-- convention as the routine `EXECUTE To` stubs).
+---@param schema string
+---@param name string
+---@return string
+local function insert_to_query(schema, name)
+  return table.concat({
+    "SELECT 'INSERT INTO ' || " .. qualified_table .. " || E' (\\n    '",
+    "  || string_agg(quote_ident(a.attname), E'\\n  , ' ORDER BY a.attnum)",
+    "  || E'\\n) VALUES (\\n    '",
+    "  || string_agg(':' || a.attname || '  -- ' || format_type(a.atttypid, a.atttypmod), E'\\n  , ' ORDER BY a.attnum)",
+    "  || E'\\n);'",
+    columns_source(schema, name, { extra_where = "AND a.attidentity = '' AND a.attgenerated = ''" }),
+  }, '\n')
+end
+
+---@private
+-- The `WHERE <pk> = :pk AND ...` aggregate shared by UPDATE/DELETE, degrading
+-- to a placeholder condition when the table has no primary key. The fallbacks
+-- annotate with block comments: a `--` comment would swallow the trailing `;`.
+local where_by_pk = table.concat({
+  "COALESCE(string_agg(quote_ident(a.attname) || ' = :' || a.attname, E'\\n  AND ' ORDER BY a.attnum)",
+  "       FILTER (WHERE pk.is_pk), '<condition>  /* no primary key */')",
+}, '\n  ')
+
+---@private
+-- `UPDATE schema.table SET <non-key cols> WHERE <pk cols>;` -- key columns move
+-- to the WHERE, identity/generated columns are excluded from the SET.
+---@param schema string
+---@param name string
+---@return string
+local function update_to_query(schema, name)
+  return table.concat({
+    "SELECT 'UPDATE ' || " .. qualified_table,
+    "  || E'\\nSET ' || COALESCE(",
+    "       string_agg(quote_ident(a.attname) || ' = :' || a.attname || '  -- ' || format_type(a.atttypid, a.atttypmod),",
+    "                  E'\\n  , ' ORDER BY a.attnum)",
+    "         FILTER (WHERE NOT pk.is_pk AND a.attidentity = '' AND a.attgenerated = ''),",
+    "       '<column> = :value  /* no updatable columns */')",
+    "  || E'\\nWHERE ' || " .. where_by_pk,
+    "  || ';'",
+    columns_source(schema, name, { with_pk = true }),
+  }, '\n')
+end
+
+---@private
+-- `DELETE FROM schema.table WHERE <pk cols>;`
+---@param schema string
+---@param name string
+---@return string
+local function delete_to_query(schema, name)
+  return table.concat({
+    "SELECT 'DELETE FROM ' || " .. qualified_table,
+    "  || E'\\nWHERE ' || " .. where_by_pk,
+    "  || ';'",
+    columns_source(schema, name, { with_pk = true }),
+  }, '\n')
+end
+
+---@private
+-- Query-less: `DROP TABLE "schema"."name";` built from the names alone, no
+-- round-trip.
+---@param ctx DadbodUI.ScriptCtx
+---@return string
+local function drop_table_statement(ctx)
+  return string.format('DROP TABLE "%s"."%s";', parse.sql_dquote(ctx.schema), parse.sql_dquote(ctx.name))
+end
+
+---@private
+-- Like the routine actions, every query-backed action needs no `build`/`parse`:
+-- the statement text arrives finished from the server.
+---@type DadbodUI.ScriptActions
+local table_scripts = {
+  actions = {
+    { label = 'DROP To', build = drop_table_statement },
+    { label = 'SELECT To', query = select_to_query },
+    { label = 'INSERT To', query = insert_to_query },
+    { label = 'UPDATE To', query = update_to_query },
+    { label = 'DELETE To', query = delete_to_query },
+  },
+}
+
 ---@private
 local foreign_key_query = [[
 SELECT ccu.table_name AS foreign_table_name, ccu.column_name AS foreign_column_name, ccu.table_schema as foreign_table_schema
@@ -207,6 +352,7 @@ return {
       procedures_query = procedures_query,
       routine_definition = routine_definition,
       routine_scripts = routine_scripts,
+      table_scripts = table_scripts,
       foreign_key_query = foreign_key_query,
       select_foreign_key_query = 'select * from "%s"."%s" where "%s" = %s',
       cell_line_number = 2,
