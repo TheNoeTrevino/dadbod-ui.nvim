@@ -100,6 +100,7 @@ opts = {
       ["<Leader>E"] = "edit_bind_params",  -- Edit bind parameters
       ["<Leader>W"] = "save_query",        -- Save the current query (tmp buffers)
       ["<Leader>C"] = "cancel",            -- Cancel the running query
+      ["gd"] = "goto_table",               -- Jump to the table under the cursor in the drawer
     },
   },
 
