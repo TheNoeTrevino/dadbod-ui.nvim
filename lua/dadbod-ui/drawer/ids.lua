@@ -76,4 +76,13 @@ function M.routine_script_as(key_name, schema, name)
   return M.routine(key_name, schema, name) .. '/script_as'
 end
 
+--- The "Script As" node under a table (same submenu, table actions).
+---@param key_name string
+---@param schema string
+---@param table_name string
+---@return string
+function M.table_script_as(key_name, schema, table_name)
+  return M.table(key_name, schema, table_name) .. '/script_as'
+end
+
 return M

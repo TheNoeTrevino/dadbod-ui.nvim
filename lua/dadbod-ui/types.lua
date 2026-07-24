@@ -214,6 +214,7 @@
 ---@field tables_procedures_query? string  same shape as `procedures_query`, scoped to the connected database -- used on the tables-only path (e.g. mysql url naming a database) so routines from other schemas don't leak in. Falls back to `procedures_query` when absent.
 ---@field routine_definition? fun(schema: string, name: string, kind: string): string  SQL that renders one routine's DDL/source (identifiers escaped)
 ---@field routine_scripts? DadbodUI.ScriptActions  SSMS-style "Script As" capability for routines (absent => routine nodes open the definition query instead)
+---@field table_scripts? DadbodUI.ScriptActions  SSMS-style "Script As" capability for tables (absent => table nodes list only their helpers)
 ---@field parse_results? fun(results: string[], min_len: integer): any[]
 ---@field default_scheme? string
 ---@field quote? boolean  whether the adapter quotes identifiers (postgres/oracle/clickhouse do; mysql/sqlserver do not)
@@ -266,6 +267,7 @@
 ---@field routines DadbodUI.RoutinesNode  stored procedures / functions for this connection
 ---@field routine_support boolean  does the adapter expose stored procedures/functions
 ---@field routine_scripts? DadbodUI.ScriptActions  the adapter's "Script As" capability for routines (nil => plain open-definition routine leaves)
+---@field table_scripts? DadbodUI.ScriptActions  the adapter's "Script As" capability for tables (nil => helper leaves only)
 ---@field buffers string[]  open query buffers for this connection (full file paths)
 ---@field saved_queries string[]  persisted saved-query file paths under save_path
 
@@ -297,7 +299,7 @@
 ---@class DadbodUI.Node
 ---@field label string
 ---@field icon string
----@field type string  'group'|'db'|'query'|'schemas'|'tables'|'schema'|'table'|'table_helper'|'routines'|'routine_schema'|'routine'|'routine_script_as'|'routine_script'|'buffer'|'saved_query'|'buffers'|'saved_queries'|'dbout'|'dbout_list'|'help'|'add_connection'|...
+---@field type string  'group'|'db'|'query'|'schemas'|'tables'|'schema'|'table'|'table_helper'|'routines'|'routine_schema'|'routine'|'routine_script_as'|'routine_script'|'table_script_as'|'table_script'|'buffer'|'saved_query'|'buffers'|'saved_queries'|'dbout'|'dbout_list'|'help'|'add_connection'|...
 ---@field action string  'toggle'|'open'|'activate'|'noaction'
 ---@field id? string  stable expand-map id (drawer/ids.lua); present on every toggle node
 ---@field children? DadbodUI.Node[]  built only when the node is expanded

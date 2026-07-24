@@ -163,6 +163,9 @@ local function make_entry(record, save_path, config, tmp_location)
     -- exposes one. Its presence turns each routine node into a scripting submenu
     -- instead of a plain open-the-definition leaf; nil adapters keep the leaf.
     routine_scripts = scheme_info.routine_scripts,
+    -- The table counterpart: its presence adds a "Script As" submenu to every
+    -- table node (ahead of the helper leaves); nil adapters list helpers only.
+    table_scripts = scheme_info.table_scripts,
     quote = scheme_info.quote == true,
     default_scheme = scheme_info.default_scheme or '',
     filetype = resolve_filetype(record.url, scheme_info),
