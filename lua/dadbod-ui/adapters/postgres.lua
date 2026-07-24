@@ -153,13 +153,204 @@ end
 ---@private
 -- Every postgres action builds its statement server-side, so it needs no `build`
 -- -- the generic default (return the fetched, `M.text`-reassembled result) applies.
----@type DadbodUI.RoutineScripts
+---@type DadbodUI.ScriptActions
 local routine_scripts = {
   actions = {
     { label = 'CREATE OR REPLACE To', query = routine_definition },
     { label = 'DROP To', query = drop_query },
     { label = 'DROP And CREATE To', query = drop_and_create_query },
     { label = 'EXECUTE To', query = execute_query },
+  },
+}
+
+-- Table "Script As" -----------------------------------------------------------
+--
+-- Same shape as the routine actions: every statement is built server-side (the
+-- catalog renders identifiers via `quote_ident` and types via `format_type`, so
+-- no Lua string assembly), except the name-only DROP. `INSERT To`/`UPDATE To`
+-- exclude identity and generated columns (the server supplies their values);
+-- `UPDATE To`/`DELETE To` key their WHERE on the primary key, degrading to a
+-- `<condition>` placeholder on a PK-less table.
+
+---@private
+-- The rendered `schema.table` identifier expression shared by the builders.
+local qualified_table = "quote_ident(n.nspname) || '.' || quote_ident(c.relname)"
+
+---@private
+-- The (schema, name) relation joined to its live columns: `c` the relation, `n`
+-- its namespace, `a` the attributes in `attnum` order (dropped and system
+-- attributes excluded). `with_pk` adds a lateral `pk.is_pk` per attribute
+-- (member of the primary-key index) for the UPDATE/DELETE WHERE aggregates.
+-- `extra_where` narrows the attribute set (e.g. INSERT excluding identity /
+-- generated columns). Identifiers are escaped for the single-quoted literals.
+---@param schema string
+---@param name string
+---@param opts? { with_pk?: boolean, extra_where?: string }
+---@return string
+local function columns_source(schema, name, opts)
+  opts = opts or {}
+  local lines = {
+    'FROM pg_catalog.pg_class c',
+    'JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace',
+    'JOIN pg_catalog.pg_attribute a ON a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped',
+  }
+  if opts.with_pk then
+    lines[#lines + 1] = 'CROSS JOIN LATERAL (SELECT EXISTS ('
+    lines[#lines + 1] = '  SELECT FROM pg_catalog.pg_index i'
+    lines[#lines + 1] = '  WHERE i.indrelid = c.oid AND i.indisprimary AND a.attnum = ANY(i.indkey)'
+    lines[#lines + 1] = ') AS is_pk) pk'
+  end
+  lines[#lines + 1] =
+    string.format("WHERE n.nspname = '%s' AND c.relname = '%s'", parse.sql_squote(schema), parse.sql_squote(name))
+  if opts.extra_where then
+    lines[#lines + 1] = '  ' .. opts.extra_where
+  end
+  lines[#lines + 1] = 'GROUP BY n.nspname, c.relname'
+  return table.concat(lines, '\n')
+end
+
+---@private
+-- `SELECT <every column>\nFROM schema.table;`
+---@param schema string
+---@param name string
+---@return string
+local function select_to_query(schema, name)
+  return table.concat({
+    "SELECT 'SELECT '",
+    "  || string_agg(quote_ident(a.attname), E'\\n     , ' ORDER BY a.attnum)",
+    "  || E'\\nFROM ' || " .. qualified_table .. " || ';'",
+    columns_source(schema, name),
+  }, '\n')
+end
+
+---@private
+-- `INSERT INTO schema.table (cols) VALUES (:col -- type, ...);` -- identity and
+-- generated columns are excluded (the server supplies their values), each value
+-- a `:name` bind placeholder with its type as a trailing comment (same
+-- convention as the routine `EXECUTE To` stubs).
+---@param schema string
+---@param name string
+---@return string
+local function insert_to_query(schema, name)
+  return table.concat({
+    "SELECT 'INSERT INTO ' || " .. qualified_table .. " || E' (\\n    '",
+    "  || string_agg(quote_ident(a.attname), E'\\n  , ' ORDER BY a.attnum)",
+    "  || E'\\n) VALUES (\\n    '",
+    "  || string_agg(':' || a.attname || '  -- ' || format_type(a.atttypid, a.atttypmod), E'\\n  , ' ORDER BY a.attnum)",
+    "  || E'\\n);'",
+    columns_source(schema, name, { extra_where = "AND a.attidentity = '' AND a.attgenerated = ''" }),
+  }, '\n')
+end
+
+---@private
+-- The `WHERE <pk> = :pk AND ...` aggregate shared by UPDATE/DELETE, degrading
+-- to a placeholder condition when the table has no primary key. The fallbacks
+-- annotate with block comments: a `--` comment would swallow the trailing `;`.
+local where_by_pk = [[COALESCE(string_agg(quote_ident(a.attname) || ' = :' || a.attname, E'\n  AND ' ORDER BY a.attnum)
+         FILTER (WHERE pk.is_pk), '<condition>  /* no primary key */')]]
+
+---@private
+-- `UPDATE schema.table SET <non-key cols> WHERE <pk cols>;` -- key columns move
+-- to the WHERE, identity/generated columns are excluded from the SET.
+---@param schema string
+---@param name string
+---@return string
+local function update_to_query(schema, name)
+  return table.concat({
+    "SELECT 'UPDATE ' || " .. qualified_table,
+    "  || E'\\nSET ' || COALESCE(",
+    "       string_agg(quote_ident(a.attname) || ' = :' || a.attname || '  -- ' || format_type(a.atttypid, a.atttypmod),",
+    "                  E'\\n  , ' ORDER BY a.attnum)",
+    "         FILTER (WHERE NOT pk.is_pk AND a.attidentity = '' AND a.attgenerated = ''),",
+    "       '<column> = :value  /* no updatable columns */')",
+    "  || E'\\nWHERE ' || " .. where_by_pk,
+    "  || ';'",
+    columns_source(schema, name, { with_pk = true }),
+  }, '\n')
+end
+
+---@private
+-- `DELETE FROM schema.table WHERE <pk cols>;`
+---@param schema string
+---@param name string
+---@return string
+local function delete_to_query(schema, name)
+  return table.concat({
+    "SELECT 'DELETE FROM ' || " .. qualified_table,
+    "  || E'\\nWHERE ' || " .. where_by_pk,
+    "  || ';'",
+    columns_source(schema, name, { with_pk = true }),
+  }, '\n')
+end
+
+---@private
+-- The whole `CREATE TABLE` rendered server-side, at the good-enough depth
+-- agreed on issue #90: column definitions (types via `format_type`, identity /
+-- generated / defaults via `pg_get_expr`, NOT NULL), every table constraint
+-- via `pg_get_constraintdef` (PK, unique, check, FK -- named, inline), then
+-- the secondary indexes via `pg_get_indexdef` as separate statements.
+-- Constraint-backed indexes are excluded (their constraint already declares
+-- them). Deliberately out of scope: partitioning, storage parameters,
+-- collations, triggers, inheritance; serial columns render as their
+-- `DEFAULT nextval(...)` truth rather than the serial pseudo-type. A view /
+-- matview node yields no pg_attrdef-joined row set worth scripting here: the
+-- query returns its columns but no storage DDL applies -- acceptable, the
+-- result is still a runnable CREATE TABLE snapshot of the shape.
+---@param schema string
+---@param name string
+---@return string
+local function create_to_query(schema, name)
+  return table.concat({
+    "SELECT 'CREATE TABLE ' || " .. qualified_table .. " || E' (\\n'",
+    -- column definitions, in attnum order
+    "  || (SELECT string_agg('    ' || quote_ident(a.attname) || ' ' || format_type(a.atttypid, a.atttypmod)",
+    "        || CASE WHEN a.attidentity = 'a' THEN ' GENERATED ALWAYS AS IDENTITY'",
+    "                WHEN a.attidentity = 'd' THEN ' GENERATED BY DEFAULT AS IDENTITY'",
+    "                WHEN a.attgenerated = 's' THEN ' GENERATED ALWAYS AS (' || pg_get_expr(d.adbin, d.adrelid) || ') STORED'",
+    "                WHEN d.adbin IS NOT NULL THEN ' DEFAULT ' || pg_get_expr(d.adbin, d.adrelid)",
+    "                ELSE '' END",
+    "        || CASE WHEN a.attnotnull THEN ' NOT NULL' ELSE '' END, E',\\n' ORDER BY a.attnum)",
+    '      FROM pg_catalog.pg_attribute a',
+    '      LEFT JOIN pg_catalog.pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum',
+    '      WHERE a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped)',
+    -- named table constraints, PK first, then unique / check / FK
+    "  || COALESCE((SELECT E',\\n' || string_agg('    CONSTRAINT ' || quote_ident(con.conname) || ' ' || pg_get_constraintdef(con.oid),",
+    "        E',\\n' ORDER BY array_position(ARRAY['p','u','c','f'], con.contype::text), con.conname)",
+    '      FROM pg_catalog.pg_constraint con',
+    "      WHERE con.conrelid = c.oid AND con.contype IN ('p','u','c','f')), '')",
+    "  || E'\\n);'",
+    -- secondary indexes as separate statements; constraint-backed ones excluded
+    "  || COALESCE((SELECT E'\\n\\n' || string_agg(pg_get_indexdef(i.indexrelid) || ';', E'\\n' ORDER BY i.indexrelid)",
+    '      FROM pg_catalog.pg_index i',
+    '      WHERE i.indrelid = c.oid AND NOT i.indisprimary',
+    "        AND NOT EXISTS (SELECT FROM pg_catalog.pg_constraint k WHERE k.conindid = i.indexrelid)), '')",
+    'FROM pg_catalog.pg_class c',
+    'JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace',
+    string.format("WHERE n.nspname = '%s' AND c.relname = '%s'", parse.sql_squote(schema), parse.sql_squote(name)),
+  }, '\n')
+end
+
+---@private
+-- Query-less: `DROP TABLE "schema"."name";` built from the names alone, no
+-- round-trip.
+---@param ctx DadbodUI.ScriptCtx
+---@return string
+local function drop_table_statement(ctx)
+  return string.format('DROP TABLE "%s"."%s";', parse.sql_dquote(ctx.schema), parse.sql_dquote(ctx.name))
+end
+
+---@private
+-- Like the routine actions, every query-backed action needs no `build`/`parse`:
+-- the statement text arrives finished from the server.
+---@type DadbodUI.ScriptActions
+local table_scripts = {
+  actions = {
+    { label = 'CREATE To', query = create_to_query },
+    { label = 'DROP To', build = drop_table_statement },
+    { label = 'SELECT To', query = select_to_query },
+    { label = 'INSERT To', query = insert_to_query },
+    { label = 'UPDATE To', query = update_to_query },
+    { label = 'DELETE To', query = delete_to_query },
   },
 }
 
@@ -207,6 +398,7 @@ return {
       procedures_query = procedures_query,
       routine_definition = routine_definition,
       routine_scripts = routine_scripts,
+      table_scripts = table_scripts,
       foreign_key_query = foreign_key_query,
       select_foreign_key_query = 'select * from "%s"."%s" where "%s" = %s',
       cell_line_number = 2,

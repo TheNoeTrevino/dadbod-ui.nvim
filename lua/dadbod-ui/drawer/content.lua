@@ -19,7 +19,7 @@ local spinner = require('dadbod-ui.spinner')
 local spinners = require('dadbod-ui.spinners')
 local table_helpers = require('dadbod-ui.table_helpers')
 local state = require('dadbod-ui.state')
-local routine_script = require('dadbod-ui.routine_script')
+local script_as = require('dadbod-ui.script_as')
 local dbout = require('dadbod-ui.dbout')
 
 ---@private
@@ -450,7 +450,7 @@ end
 --- Adapters exposing a "Script As" capability (`entry.routine_scripts`, SSMS-
 --- style) render the routine as a toggle expanding to a `Script As` node whose
 --- leaves each script the routine (CREATE / ALTER / DROP / ...) into a chosen
---- destination -- see `dadbod-ui.routine_script`. Adapters without it keep the
+--- destination -- see `dadbod-ui.script_as`. Adapters without it keep the
 --- plain leaf: its `content` (the adapter's pre-built DDL/source query) rides
 --- along so the `open` action reuses the table-helper open path verbatim --
 --- opening it fills a query buffer with the definition SQL to run.
@@ -484,34 +484,53 @@ function Drawer:build_routine(entry, routine, schema)
   if not expanded then
     return node
   end
-  local script_node, script_expanded = self:toggle_node({
-    id = ids.routine_script_as(entry.key_name, schema, routine.name),
-    type = 'routine_script_as',
-    icon = 'procedures',
+  node.children = {
+    self:script_as_node(entry, entry.routine_scripts, {
+      id = ids.script_as(node.id),
+      type = 'routine_script_as',
+      leaf_type = 'routine_script',
+      icon = 'procedures',
+      schema = schema,
+      name = routine.name,
+      kind = routine.kind,
+    }),
+  }
+  return node
+end
+
+--- Build a "Script As" submenu toggle: one `activate` leaf per scripting action
+--- of `capability` (an adapter's `routine_scripts` / `table_scripts`). Each leaf's
+--- `on_activate` carries the whole behavior (and closes over the object's
+--- schema/name/kind), so it needs no `table`/`schema` payload; `key_name` stays
+--- as the generic node->connection link the drawer's action context reads.
+---@param entry DadbodUI.ConnectionEntry
+---@param capability DadbodUI.ScriptActions
+---@param opts { id: string, type: string, leaf_type: string, icon: string, schema: string, name: string, kind: string }
+---@return DadbodUI.Node
+function Drawer:script_as_node(entry, capability, opts)
+  local script_node, expanded = self:toggle_node({
+    id = opts.id,
+    type = opts.type,
+    icon = opts.icon,
     label = 'Script As',
     key_name = entry.key_name,
   })
-  node.children = { script_node }
-  if script_expanded then
+  if expanded then
     script_node.children = vim
-      .iter(entry.routine_scripts.actions)
+      .iter(capability.actions)
       :map(function(action)
-        -- An `activate` leaf: `on_activate` carries the whole behavior (and closes
-        -- over the routine's schema/name), so -- unlike the `open`-node routine
-        -- leaf -- it needs no `table`/`schema` payload; `key_name` stays as the
-        -- generic node->connection link the drawer's action context reads.
         return {
           label = action.label,
-          icon = self.icons.procedures,
-          type = 'routine_script',
+          icon = self.icons[opts.icon],
+          type = opts.leaf_type,
           action = 'activate',
           key_name = entry.key_name,
           on_activate = function()
-            routine_script.run({
+            script_as.run({
               entry = entry,
-              schema = schema,
-              name = routine.name,
-              kind = routine.kind,
+              schema = opts.schema,
+              name = opts.name,
+              kind = opts.kind,
               action = action,
               query = self:query(),
             })
@@ -520,7 +539,7 @@ function Drawer:build_routine(entry, routine, schema)
       end)
       :totable()
   end
-  return node
+  return script_node
 end
 
 --- Build the Procedures section: stored procedures + functions. Returns nil
@@ -622,6 +641,23 @@ function Drawer:build_tables(list, entry, schema)
             }
           end)
           :totable()
+        -- The scripting submenu leads the children: the helper order is
+        -- user-configurable, so pinning Script As first keeps it findable.
+        if entry.table_scripts ~= nil then
+          table.insert(
+            node.children,
+            1,
+            self:script_as_node(entry, entry.table_scripts, {
+              id = ids.script_as(node.id),
+              type = 'table_script_as',
+              leaf_type = 'table_script',
+              icon = 'tables',
+              schema = schema,
+              name = table_name,
+              kind = 'table',
+            })
+          )
+        end
       end
       return node
     end)

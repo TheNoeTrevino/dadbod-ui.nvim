@@ -99,7 +99,7 @@ local constraints_query = table.concat({
 --
 -- The drawer turns each stored procedure/function into a "Script As" submenu
 -- (CREATE / ALTER / CREATE OR ALTER / DROP / DROP And CREATE / EXECUTE). The
--- generic flow lives in `dadbod-ui.routine_script`; everything SQL-Server
+-- generic flow lives in `dadbod-ui.script_as`; everything SQL-Server
 -- specific -- the source + parameter queries, their output parsers, and the
 -- text transforms -- lives here so the capability is one file per adapter.
 
@@ -131,7 +131,7 @@ end
 
 ---@private
 -- `DROP PROCEDURE`/`DROP FUNCTION [schema].[name]` for the routine in `ctx`.
----@param ctx DadbodUI.RoutineScriptCtx
+---@param ctx DadbodUI.ScriptCtx
 ---@return string
 local function drop_statement(ctx)
   return string.format('DROP %s %s', parse.routine_verb(ctx.kind), qualify(ctx.schema, ctx.name))
@@ -218,7 +218,7 @@ end
 -- per parameter (procedures) or a scalar `SELECT name(:arg, ...)` (functions).
 -- The `:param` placeholders drive dadbod-ui's bind-param prompt on execute; each
 -- parameter's type rides along as a comment. `ctx.data` is the parsed parameters.
----@param ctx DadbodUI.RoutineScriptCtx
+---@param ctx DadbodUI.ScriptCtx
 ---@return string
 local function execute_statement(ctx)
   local qualified = qualify(ctx.schema, ctx.name)
@@ -240,7 +240,7 @@ local function execute_statement(ctx)
 end
 
 ---@private
----@type DadbodUI.RoutineScripts
+---@type DadbodUI.ScriptActions
 local routine_scripts = {
   actions = {
     -- CREATE To needs no `build`: the fetched definition is the script (the
@@ -274,6 +274,368 @@ local routine_scripts = {
     -- EXECUTE To keeps the adapter args: `parse_params` needs their
     -- pipe-separated, whitespace-trimmed row formatting.
     { label = 'EXECUTE To', query = params_query, parse = parse_params, build = execute_statement },
+  },
+}
+
+-- Table "Script As" ----------------------------------------------------------
+--
+-- Same fetch-then-assemble shape as the routine actions: the column-list
+-- actions read structured rows from `sys.columns` under the adapter's default
+-- pipe-separated args and build the statement in Lua. Shared conventions match
+-- the other adapters: `INSERT To`/`UPDATE To` exclude identity, computed and
+-- rowversion columns (the server supplies their values), `UPDATE To`/`DELETE
+-- To` key their WHERE on the primary key with a `<condition>` placeholder
+-- fallback, values are `:name` binds with the type as a trailing comment.
+
+---@private
+-- The type-length suffix (`(80)`, `(MAX)`, `(10,2)`, `(3)`) for a `sys.columns
+-- c` / `sys.types t` row, shared by the column fetch and `CREATE To`.
+-- `COLUMNPROPERTY(..., 'charmaxlen')` already reports characters -- no manual
+-- nvarchar byte-halving.
+local type_suffix_sql = table.concat({
+  "CASE WHEN t.name IN ('varchar','char','varbinary','nvarchar','nchar')",
+  "    THEN '(' + CASE WHEN c.max_length = -1 THEN 'MAX'",
+  "      ELSE CAST(COLUMNPROPERTY(c.object_id, c.name, 'charmaxlen') AS varchar) END + ')'",
+  "  WHEN t.name IN ('decimal','numeric')",
+  "    THEN '(' + CAST(c.precision AS varchar) + ',' + CAST(c.scale AS varchar) + ')'",
+  "  WHEN t.name IN ('datetime2','datetimeoffset','time')",
+  "    THEN '(' + CAST(c.scale AS varchar) + ')'",
+  "  ELSE '' END",
+}, '\n')
+
+---@private
+-- The live columns in declared order: name, rendered type, the server-supplied
+-- flags, and primary-key membership via the PK index.
+---@param schema string
+---@param name string
+---@return string
+local function table_columns_query(schema, name)
+  return table.concat({
+    'SET NOCOUNT ON;',
+    'SELECT c.name,',
+    '  t.name + ' .. type_suffix_sql .. ',',
+    '  c.is_identity, c.is_computed,',
+    "  CASE WHEN t.name IN ('timestamp','rowversion') THEN 1 ELSE 0 END,",
+    '  CASE WHEN ic.column_id IS NOT NULL THEN 1 ELSE 0 END',
+    'FROM sys.columns c',
+    'JOIN sys.types t ON t.user_type_id = c.user_type_id',
+    'LEFT JOIN sys.indexes pk ON pk.object_id = c.object_id AND pk.is_primary_key = 1',
+    'LEFT JOIN sys.index_columns ic ON ic.object_id = c.object_id AND ic.index_id = pk.index_id AND ic.column_id = c.column_id',
+    string.format("WHERE c.object_id = OBJECT_ID('%s')", parse.sql_squote(qualify(schema, name))),
+    'ORDER BY c.column_id',
+  }, '\n')
+end
+
+---@private
+-- One fetched column. `generated` covers everything the server supplies itself
+-- (identity, computed, rowversion) -- excluded from INSERT/UPDATE.
+---@class DadbodUI.SqlserverColumn
+---@field name string
+---@field type string
+---@field pk boolean
+---@field generated boolean
+
+---@private
+-- Parse the pipe-separated `table_columns_query` rows into structured columns.
+---@param lines string[]
+---@return DadbodUI.SqlserverColumn[]
+local function parse_table_columns(lines)
+  return vim
+    .iter(lines)
+    :map(function(line)
+      local f = vim.split(line, '|', { plain = true })
+      return {
+        name = vim.trim(f[1] or ''),
+        type = vim.trim(f[2] or ''),
+        generated = vim.trim(f[3] or '') == '1' or vim.trim(f[4] or '') == '1' or vim.trim(f[5] or '') == '1',
+        pk = vim.trim(f[6] or '') == '1',
+      }
+    end)
+    :filter(function(c)
+      return c.name ~= ''
+    end)
+    :totable()
+end
+
+---@private
+-- The `WHERE` body keyed on the primary key, or the placeholder fallback. The
+-- fallbacks annotate with block comments: a `--` comment would swallow the
+-- statement's trailing `;`.
+---@param cols DadbodUI.SqlserverColumn[]
+---@return string
+local function where_by_pk(cols)
+  local keys = vim.tbl_filter(function(c)
+    return c.pk
+  end, cols)
+  if #keys == 0 then
+    return '<condition>  /* no primary key */'
+  end
+  return table.concat(
+    vim.tbl_map(function(c)
+      return string.format('[%s] = :%s', parse.sql_bracket(c.name), c.name)
+    end, keys),
+    '\n  AND '
+  )
+end
+
+---@private
+-- The columns the user supplies values for: everything server-generated drops.
+---@param cols DadbodUI.SqlserverColumn[]
+---@return DadbodUI.SqlserverColumn[]
+local function writable(cols)
+  return vim.tbl_filter(function(c)
+    return not c.generated
+  end, cols)
+end
+
+---@private
+-- The `CREATE TABLE` input, rendered line-by-line server-side as `marker|text`
+-- rows (SSMS itself assembles client-side; there is no sqlserver counterpart
+-- of `SHOW CREATE TABLE`): `B|` rows are body items (columns, then PK/unique,
+-- check and FK constraints -- ordered by section, then declaration order) and
+-- `X|` rows are complete secondary-index statements. Lua only joins them.
+-- Column lists aggregate via `STRING_AGG ... WITHIN GROUP` (SQL Server 2017+).
+-- At the good-enough depth agreed on issue #90: identity seed/increment,
+-- computed columns, named defaults, referential actions (`NO ACTION`
+-- suppressed), included columns and filtered indexes -- filegroups,
+-- partitioning, compression, collations and triggers stay out of scope.
+-- PK/unique-backing indexes are excluded from the index section (their
+-- constraint already declares them).
+---@param schema string
+---@param name string
+---@return string
+local function create_to_query(schema, name)
+  -- The squoted bracket-quoted name serves both as the `OBJECT_ID` literal and
+  -- inside the index statements' `ON` string literal below.
+  local qualified = parse.sql_squote(qualify(schema, name))
+  local object_id = string.format("OBJECT_ID('%s')", qualified)
+  return table.concat({
+    'SET NOCOUNT ON;',
+    'SELECT line FROM (',
+    -- columns: computed render as `name AS (expr) [PERSISTED]`, everything else
+    -- as type + IDENTITY(seed,increment) + named DEFAULT + NULL/NOT NULL
+    '  SELECT 1 AS sect, CAST(c.column_id AS int) AS seq,',
+    "    'B|' + CASE WHEN cc.definition IS NOT NULL THEN",
+    "      QUOTENAME(c.name) + ' AS ' + cc.definition COLLATE DATABASE_DEFAULT + CASE WHEN cc.is_persisted = 1 THEN ' PERSISTED' ELSE '' END",
+    '    ELSE',
+    "      QUOTENAME(c.name) + ' ' + t.name",
+    '      + ' .. type_suffix_sql,
+    "      + CASE WHEN c.is_identity = 1 THEN ' IDENTITY('",
+    "          + CAST(ISNULL(CAST(ic.seed_value AS bigint), 1) AS varchar(20)) + ','",
+    "          + CAST(ISNULL(CAST(ic.increment_value AS bigint), 1) AS varchar(20)) + ')' ELSE '' END",
+    "      + ISNULL(' CONSTRAINT ' + QUOTENAME(dc.name) + ' DEFAULT ' + dc.definition COLLATE DATABASE_DEFAULT, '')",
+    "      + CASE WHEN c.is_nullable = 1 THEN ' NULL' ELSE ' NOT NULL' END",
+    '    END AS line',
+    '  FROM sys.columns c',
+    '  JOIN sys.types t ON t.user_type_id = c.user_type_id',
+    '  LEFT JOIN sys.computed_columns cc ON cc.object_id = c.object_id AND cc.column_id = c.column_id',
+    '  LEFT JOIN sys.identity_columns ic ON ic.object_id = c.object_id AND ic.column_id = c.column_id',
+    '  LEFT JOIN sys.default_constraints dc ON dc.parent_object_id = c.object_id AND dc.parent_column_id = c.column_id',
+    '  WHERE c.object_id = ' .. object_id,
+    '  UNION ALL',
+    -- PK / unique constraints, their backing index shape preserved
+    '  SELECT 2, kc.unique_index_id,',
+    "    'B|CONSTRAINT ' + QUOTENAME(kc.name)",
+    "    + CASE kc.type WHEN 'PK' THEN ' PRIMARY KEY ' ELSE ' UNIQUE ' END",
+    "    + CASE WHEN i.type = 1 THEN 'CLUSTERED' ELSE 'NONCLUSTERED' END",
+    "    + ' (' + (SELECT STRING_AGG(QUOTENAME(COL_NAME(ic2.object_id, ic2.column_id))",
+    "        + CASE WHEN ic2.is_descending_key = 1 THEN ' DESC' ELSE '' END, ', ')",
+    '        WITHIN GROUP (ORDER BY ic2.key_ordinal)',
+    '      FROM sys.index_columns ic2',
+    "      WHERE ic2.object_id = kc.parent_object_id AND ic2.index_id = kc.unique_index_id) + ')'",
+    '  FROM sys.key_constraints kc',
+    '  JOIN sys.indexes i ON i.object_id = kc.parent_object_id AND i.index_id = kc.unique_index_id',
+    '  WHERE kc.parent_object_id = ' .. object_id,
+    '  UNION ALL',
+    -- check constraints, definition verbatim
+    "  SELECT 3, ck.object_id, 'B|CONSTRAINT ' + QUOTENAME(ck.name) + ' CHECK ' + ck.definition COLLATE DATABASE_DEFAULT",
+    '  FROM sys.check_constraints ck WHERE ck.parent_object_id = ' .. object_id,
+    '  UNION ALL',
+    -- foreign keys; ON DELETE/UPDATE emitted only when the action is not NO ACTION
+    '  SELECT 4, fk.object_id,',
+    "    'B|CONSTRAINT ' + QUOTENAME(fk.name) + ' FOREIGN KEY ('",
+    "    + (SELECT STRING_AGG(QUOTENAME(COL_NAME(fkc.parent_object_id, fkc.parent_column_id)), ', ')",
+    '        WITHIN GROUP (ORDER BY fkc.constraint_column_id)',
+    '      FROM sys.foreign_key_columns fkc WHERE fkc.constraint_object_id = fk.object_id)',
+    "    + ') REFERENCES ' + QUOTENAME(SCHEMA_NAME(rt.schema_id)) + '.' + QUOTENAME(rt.name) + ' ('",
+    "    + (SELECT STRING_AGG(QUOTENAME(COL_NAME(fkc.referenced_object_id, fkc.referenced_column_id)), ', ')",
+    '        WITHIN GROUP (ORDER BY fkc.constraint_column_id)',
+    "      FROM sys.foreign_key_columns fkc WHERE fkc.constraint_object_id = fk.object_id) + ')'",
+    '    + CASE WHEN fk.delete_referential_action <> 0',
+    "        THEN ' ON DELETE ' + REPLACE(fk.delete_referential_action_desc, '_', ' ') ELSE '' END",
+    '    + CASE WHEN fk.update_referential_action <> 0',
+    "        THEN ' ON UPDATE ' + REPLACE(fk.update_referential_action_desc, '_', ' ') ELSE '' END",
+    '  FROM sys.foreign_keys fk',
+    '  JOIN sys.tables rt ON rt.object_id = fk.referenced_object_id',
+    '  WHERE fk.parent_object_id = ' .. object_id,
+    '  UNION ALL',
+    -- secondary indexes as complete statements (PK/unique-backing excluded)
+    '  SELECT 5, i.index_id,',
+    "    'X|CREATE ' + CASE WHEN i.is_unique = 1 THEN 'UNIQUE ' ELSE '' END",
+    "    + CASE WHEN i.type = 1 THEN 'CLUSTERED' ELSE 'NONCLUSTERED' END + ' INDEX ' + QUOTENAME(i.name)",
+    "    + ' ON " .. qualified .. " ('",
+    '    + (SELECT STRING_AGG(QUOTENAME(COL_NAME(ic3.object_id, ic3.column_id))',
+    "        + CASE WHEN ic3.is_descending_key = 1 THEN ' DESC' ELSE '' END, ', ')",
+    '        WITHIN GROUP (ORDER BY ic3.key_ordinal)',
+    '      FROM sys.index_columns ic3',
+    "      WHERE ic3.object_id = i.object_id AND ic3.index_id = i.index_id AND ic3.is_included_column = 0) + ')'",
+    "    + ISNULL(' INCLUDE (' + (SELECT STRING_AGG(QUOTENAME(COL_NAME(ic4.object_id, ic4.column_id)), ', ')",
+    '        WITHIN GROUP (ORDER BY ic4.index_column_id)',
+    '      FROM sys.index_columns ic4',
+    "      WHERE ic4.object_id = i.object_id AND ic4.index_id = i.index_id AND ic4.is_included_column = 1) + ')', '')",
+    "    + ISNULL(' WHERE ' + i.filter_definition COLLATE DATABASE_DEFAULT, '')",
+    "    + ';'",
+    '  FROM sys.indexes i',
+    '  WHERE i.object_id = ' .. object_id,
+    '    AND i.is_primary_key = 0 AND i.is_unique_constraint = 0 AND i.type > 0 AND i.name IS NOT NULL',
+    ') x ORDER BY sect, seq',
+  }, '\n')
+end
+
+---@private
+-- One `marker|text` row of `create_to_query`.
+---@class DadbodUI.SqlserverCreateRow
+---@field marker 'B'|'X'
+---@field text string
+
+---@private
+-- Keep the `B|`/`X|` rows, split marker from text; sqlcmd noise drops.
+---@param lines string[]
+---@return DadbodUI.SqlserverCreateRow[]
+local function parse_create_rows(lines)
+  return vim
+    .iter(lines)
+    :map(function(line)
+      local marker, text = line:match('^([BX])|(.*)$')
+      return marker and { marker = marker, text = text } or nil
+    end)
+    :totable()
+end
+
+---@private
+-- Join the body rows into the parenthesized CREATE TABLE and append the index
+-- statements, blank-line separated.
+---@param ctx DadbodUI.ScriptCtx
+---@return string|nil
+local function create_table_statement(ctx)
+  local function texts(marker)
+    return vim
+      .iter(ctx.data)
+      :filter(function(row)
+        return row.marker == marker
+      end)
+      :map(function(row)
+        return row.text
+      end)
+      :totable()
+  end
+  local body, indexes = texts('B'), texts('X')
+  if #body == 0 then
+    return nil
+  end
+  return string.format('CREATE TABLE %s (\n    %s\n);', qualify(ctx.schema, ctx.name), table.concat(body, ',\n    '))
+    .. (#indexes > 0 and '\n\n' .. table.concat(indexes, '\n') or '')
+end
+
+---@private
+-- Every query-backed action fetches the same column rows (CREATE To fetches
+-- its marker rows instead, under the untruncated `definition_args` raw mode --
+-- a long check/computed definition would otherwise be cut at sqlcmd's 256-char
+-- display width); `build` receives the parse as `ctx.data`. An empty fetch
+-- (unknown table) yields nil -> the generic "Could not script" notification.
+---@type DadbodUI.ScriptActions
+local table_scripts = {
+  actions = {
+    {
+      label = 'CREATE To',
+      query = create_to_query,
+      args = definition_args,
+      parse = parse_create_rows,
+      build = create_table_statement,
+    },
+    {
+      label = 'DROP To',
+      ---@param ctx DadbodUI.ScriptCtx
+      build = function(ctx)
+        return string.format('DROP TABLE %s;', qualify(ctx.schema, ctx.name))
+      end,
+    },
+    {
+      label = 'SELECT To',
+      query = table_columns_query,
+      parse = parse_table_columns,
+      ---@param ctx DadbodUI.ScriptCtx
+      build = function(ctx)
+        if #ctx.data == 0 then
+          return nil
+        end
+        local names = vim.tbl_map(function(c)
+          return string.format('[%s]', parse.sql_bracket(c.name))
+        end, ctx.data)
+        return string.format('SELECT %s\nFROM %s;', table.concat(names, '\n     , '), qualify(ctx.schema, ctx.name))
+      end,
+    },
+    {
+      label = 'INSERT To',
+      query = table_columns_query,
+      parse = parse_table_columns,
+      ---@param ctx DadbodUI.ScriptCtx
+      build = function(ctx)
+        local cols = writable(ctx.data)
+        if #cols == 0 then
+          return nil
+        end
+        local names = vim.tbl_map(function(c)
+          return string.format('[%s]', parse.sql_bracket(c.name))
+        end, cols)
+        local values = vim.tbl_map(function(c)
+          return string.format(':%s  -- %s', c.name, c.type)
+        end, cols)
+        return string.format(
+          'INSERT INTO %s (\n    %s\n) VALUES (\n    %s\n);',
+          qualify(ctx.schema, ctx.name),
+          table.concat(names, '\n  , '),
+          table.concat(values, '\n  , ')
+        )
+      end,
+    },
+    {
+      label = 'UPDATE To',
+      query = table_columns_query,
+      parse = parse_table_columns,
+      ---@param ctx DadbodUI.ScriptCtx
+      build = function(ctx)
+        if #ctx.data == 0 then
+          return nil
+        end
+        local sets = vim.tbl_map(
+          function(c)
+            return string.format('[%s] = :%s  -- %s', parse.sql_bracket(c.name), c.name, c.type)
+          end,
+          vim.tbl_filter(function(c)
+            return not c.pk
+          end, writable(ctx.data))
+        )
+        return string.format(
+          'UPDATE %s\nSET %s\nWHERE %s;',
+          qualify(ctx.schema, ctx.name),
+          #sets > 0 and table.concat(sets, '\n  , ') or '<column> = :value  /* no updatable columns */',
+          where_by_pk(ctx.data)
+        )
+      end,
+    },
+    {
+      label = 'DELETE To',
+      query = table_columns_query,
+      parse = parse_table_columns,
+      ---@param ctx DadbodUI.ScriptCtx
+      build = function(ctx)
+        if #ctx.data == 0 then
+          return nil
+        end
+        return string.format('DELETE FROM %s\nWHERE %s;', qualify(ctx.schema, ctx.name), where_by_pk(ctx.data))
+      end,
+    },
   },
 }
 
@@ -314,6 +676,7 @@ return {
         return string.format("SELECT OBJECT_DEFINITION(OBJECT_ID('%s'))", parse.sql_squote(qualify(schema, name)))
       end,
       routine_scripts = routine_scripts,
+      table_scripts = table_scripts,
       foreign_key_query = foreign_key_query,
       select_foreign_key_query = 'select * from %s.%s where %s = %s',
       cell_line_number = 2,
