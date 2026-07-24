@@ -207,6 +207,30 @@ describe('table_scripts: mysql columns fetch + builders', function()
   end)
 end)
 
+describe('table_scripts: mysql CREATE To (SHOW CREATE TABLE)', function()
+  it('asks the server for the rendered DDL, keeping the stdin + -N framing', function()
+    local act = action('mysql', 'CREATE To')
+    assert.equals('SHOW CREATE TABLE `shop`.`users`', act.query('shop', 'users'))
+    assert.equals('SHOW CREATE TABLE `users`', act.query('', 'users'))
+    assert.is_nil(act.args)
+    assert.is_nil(act.build) -- the parse IS the script
+  end)
+
+  it('parse drops the name cell and unescapes the batch encoding', function()
+    -- one batch row: `name<TAB>ddl` with two-char \n escapes, including a
+    -- literal backslash-n in a comment that must NOT become a newline
+    local row = "users\tCREATE TABLE `users` (\\n  `bio` text COMMENT 'a\\\\nb'\\n)"
+    assert.equals(
+      "CREATE TABLE `users` (\n  `bio` text COMMENT 'a\\nb'\n);",
+      action('mysql', 'CREATE To').parse({ row })
+    )
+  end)
+
+  it('parse yields nil on empty output (unknown table -> could not script)', function()
+    assert.is_nil(action('mysql', 'CREATE To').parse({ '' }))
+  end)
+end)
+
 describe('table_scripts: sqlserver columns fetch + builders', function()
   -- Synthetic pipe-separated rows of the columns query: an identity pk, two
   -- plain columns, a computed column and a rowversion stamp.

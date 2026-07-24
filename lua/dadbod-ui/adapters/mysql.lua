@@ -123,12 +123,43 @@ local function writable(cols)
 end
 
 ---@private
--- Every query-backed action fetches the same column rows; `build` receives them
--- as `ctx.data`. An empty fetch (unknown table) yields nil -> the generic
--- "Could not script" notification.
+-- The DDL cell of `SHOW CREATE TABLE` under batch `-N` mode: one
+-- `name<TAB>ddl` row whose value has newlines/tabs/backslashes escaped as
+-- two-char `\n`/`\t`/`\\` sequences (and NUL as `\0`). Split off the leading
+-- name at the first real tab, then unescape in a single pass -- one gsub, so a
+-- literal `\\n` correctly becomes `\` + `n`, not a newline.
+---@param lines string[]
+---@return string|nil
+local function parse_show_create(lines)
+  local row = vim.iter(lines):find(function(line)
+    return not parse.blank(line)
+  end)
+  if row == nil then
+    return nil
+  end
+  local ddl = row:match('^[^\t]*\t(.*)$') or row
+  return (ddl:gsub('\\([nt0\\])', { n = '\n', t = '\t', ['0'] = '\0', ['\\'] = '\\' })) .. ';'
+end
+
+---@private
+-- Every query-backed action fetches the same column rows (CREATE To fetches the
+-- server-rendered DDL instead); `build` receives the parse as `ctx.data`. An
+-- empty fetch (unknown table) yields nil -> the generic "Could not script"
+-- notification.
 ---@type DadbodUI.ScriptActions
 local table_scripts = {
   actions = {
+    {
+      -- The server renders the full CREATE TABLE (indexes, constraints, engine,
+      -- charset) -- returned verbatim, like every other SHOW CREATE consumer.
+      label = 'CREATE To',
+      ---@param schema string
+      ---@param name string
+      query = function(schema, name)
+        return 'SHOW CREATE TABLE ' .. qualify(schema, name)
+      end,
+      parse = parse_show_create,
+    },
     {
       label = 'DROP To',
       ---@param ctx DadbodUI.ScriptCtx
