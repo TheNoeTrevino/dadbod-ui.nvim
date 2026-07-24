@@ -371,6 +371,9 @@ function Query:setup_buffer(entry, opts, name)
       explain_tree_analyze = function(mode)
         self:explain_tree(mode == 'v', { analyze = true })
       end,
+      goto_table = function()
+        self.drawer:goto_table()
+      end,
     }
     if is_tmp and is_sql then
       handlers.save_query = function()

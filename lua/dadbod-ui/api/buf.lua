@@ -10,6 +10,7 @@
 ---@class DadbodUI.ApiBufModule
 ---@field switch fun(name?: string): boolean, string|nil
 ---@field find fun()
+---@field goto_table fun()
 ---@field rename fun()
 ---@field execute fun(transform?: DadbodUI.SqlTransform)
 ---@field execute_selection fun(transform?: DadbodUI.SqlTransform)
@@ -59,6 +60,15 @@ end
 --- Find/adopt the query buffer for the current db context.
 function M.find()
   dbui.find_buffer()
+end
+
+--- Jump to the table under the cursor in the drawer (expanding its parents) --
+--- the Lua equivalent of the `goto_table` (`gd`) mapping. Aliases and schema
+--- qualification resolve through the treesitter `sql` parser when one is
+--- installed; a word that is not a table of this buffer's connection is a
+--- quiet no-op.
+function M.goto_table()
+  dbui.goto_table()
 end
 
 --- Rename the current query buffer's on-disk file.
