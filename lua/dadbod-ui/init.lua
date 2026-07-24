@@ -46,6 +46,7 @@
 ---@field switch_buffer fun(name?: string): boolean|nil, string|nil
 ---@field open_query fun(key_name: string, edit_action?: string)
 ---@field reveal fun(key_name: string)
+---@field goto_table fun()
 ---@field refresh fun(key_name: string)
 ---@field rename_buffer fun()
 ---@field print_last_query_info fun()
@@ -253,6 +254,15 @@ end
 ---@return nil
 function M.reveal(key_name)
   drawer():reveal_db(key_name)
+end
+
+--- Jump from the current query buffer to the table under the cursor in the
+--- drawer (expanding its parents). Quiet no-op when the word is not a table of
+--- the buffer's connection. Backs `dadbod-ui.api.buf.goto_table` and the `gd`
+--- query-buffer mapping.
+---@return nil
+function M.goto_table()
+  drawer():goto_table()
 end
 
 --- Re-introspect the connection `key_name` (reload saved queries + re-scan
