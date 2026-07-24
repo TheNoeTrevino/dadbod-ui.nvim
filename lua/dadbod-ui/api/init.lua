@@ -621,16 +621,10 @@ function M.introspect(name, cb)
     if not ok then
       return cb(nil, err)
     end
-    -- `populate` re-renders (our no-op) once the fan-out lands; a once-guard
-    -- turns that first render into the one-shot completion. Flat adapters may
-    -- render again later when routines land -- the guard keeps the callback
-    -- single-fire, so those trail the returned snapshot.
-    local fired = false
-    ctrl.render = function()
-      if fired then
-        return
-      end
-      fired = true
+    -- `populate`'s completion fires once when schemas/tables land; flat
+    -- adapters may still be fetching routines then, so those can trail the
+    -- returned snapshot.
+    ctrl:populate(entry, function()
       -- Flatten grouped routines (schema adapters) or take the flat list --
       -- keyed on `schema_support`, exactly as `apply_routines` populates them
       -- (`.flat` is always an initialized table, so it can't discriminate).
@@ -647,8 +641,7 @@ function M.introspect(name, cb)
         tables = entry.tables,
         routines = routines,
       })
-    end
-    ctrl:populate(entry)
+    end)
   end
   if state.is_connected(entry) then
     connected(true)

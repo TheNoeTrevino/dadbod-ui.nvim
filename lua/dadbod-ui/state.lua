@@ -8,6 +8,7 @@
 ---@class DadbodUI.StateModule
 ---@field new fun(config: DadbodUI.Config): DadbodUI.Instance
 ---@field is_connected fun(entry: DadbodUI.ConnectionEntry): boolean
+---@field is_introspected fun(entry: DadbodUI.ConnectionEntry): boolean
 ---@field disconnect fun(entry: DadbodUI.ConnectionEntry)
 ---@field Instance DadbodUI.Instance
 ---@field setup fun(opts?: table): DadbodUI.Config
@@ -292,6 +293,16 @@ end
 ---@return boolean
 function M.is_connected(entry)
   return entry.conn ~= nil and entry.conn ~= ''
+end
+
+--- Whether an entry's schema/table metadata has ever landed. A proxy read off
+--- the data itself (`make_entry` seeds both containers empty), so a genuinely
+--- empty database reads as never-introspected -- the desired bias for callers
+--- deciding whether introspecting (again) could possibly help.
+---@param entry DadbodUI.ConnectionEntry
+---@return boolean
+function M.is_introspected(entry)
+  return #entry.tables > 0 or #entry.schemas.list > 0
 end
 
 --- Drop the live connection handle for `entry`, so `is_connected` reports false
