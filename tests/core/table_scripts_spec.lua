@@ -134,6 +134,79 @@ describe('table_scripts: postgres builders', function()
   end)
 end)
 
+describe('table_scripts: mysql columns fetch + builders', function()
+  -- Synthetic `-N` TSV rows of the columns query: an auto-increment pk, two
+  -- plain columns (one with mysql 8's DEFAULT_GENERATED expression-default
+  -- marker, which must stay insertable), and a stored generated column.
+  local rows = {
+    'id\tint\tPRI\tauto_increment',
+    'email\tvarchar(80)\tUNI\t',
+    'created_at\ttimestamp\t\tDEFAULT_GENERATED',
+    'slug\tvarchar(80)\t\tSTORED GENERATED',
+  }
+
+  local function cols()
+    return action('mysql', 'SELECT To').parse(rows)
+  end
+
+  it('the columns query scopes to the schema, or DATABASE() when flat', function()
+    local sql = action('mysql', 'SELECT To').query('shop', 'users')
+    assert.is_truthy(sql:find("table_schema = 'shop' AND table_name = 'users'", 1, true))
+    local flat = action('mysql', 'SELECT To').query('', 'users')
+    assert.is_truthy(flat:find('table_schema = DATABASE()', 1, true))
+    assert.is_nil(action('mysql', 'SELECT To').args) -- keeps the adapter's stdin + -N framing
+  end)
+
+  it('parse splits TSV rows into name/type/pk/generated', function()
+    local parsed = cols()
+    assert.equals(4, #parsed)
+    assert.same({ name = 'id', type = 'int', pk = true, generated = true }, parsed[1])
+    assert.same({ name = 'created_at', type = 'timestamp', pk = false, generated = false }, parsed[3])
+    assert.same({ name = 'slug', type = 'varchar(80)', pk = false, generated = true }, parsed[4])
+  end)
+
+  it('SELECT To lists every column from the qualified table', function()
+    assert.equals(
+      'SELECT `id`\n     , `email`\n     , `created_at`\n     , `slug`\nFROM `shop`.`users`;',
+      build('mysql', 'SELECT To', { schema = 'shop', name = 'users', kind = 'table', data = cols() })
+    )
+  end)
+
+  it('INSERT To binds writable columns only (no auto-increment, no generated)', function()
+    assert.equals(
+      'INSERT INTO `users` (\n    `email`\n  , `created_at`\n) VALUES (\n'
+        .. '    :email  -- varchar(80)\n  , :created_at  -- timestamp\n);',
+      build('mysql', 'INSERT To', { schema = '', name = 'users', kind = 'table', data = cols() })
+    )
+  end)
+
+  it('UPDATE To sets writable non-key columns and keys the WHERE on the pk', function()
+    assert.equals(
+      'UPDATE `shop`.`users`\nSET `email` = :email  -- varchar(80)\n'
+        .. '  , `created_at` = :created_at  -- timestamp\nWHERE `id` = :id;',
+      build('mysql', 'UPDATE To', { schema = 'shop', name = 'users', kind = 'table', data = cols() })
+    )
+  end)
+
+  it('DELETE To falls back to the placeholder condition without a pk', function()
+    local nopk = action('mysql', 'SELECT To').parse({ 'msg\ttext\t\t' })
+    assert.equals(
+      'DELETE FROM `logs`\nWHERE <condition>  /* no primary key */;',
+      build('mysql', 'DELETE To', { schema = '', name = 'logs', kind = 'table', data = nopk })
+    )
+  end)
+
+  it('DROP To builds from the names alone; an empty fetch yields nil', function()
+    assert.equals('DROP TABLE `shop`.`users`;', build('mysql', 'DROP To', { schema = 'shop', name = 'users' }))
+    assert.equals('DROP TABLE `a``b`;', build('mysql', 'DROP To', { schema = '', name = 'a`b' }))
+    assert.is_nil(build('mysql', 'SELECT To', { schema = '', name = 'ghost', data = {} }))
+  end)
+
+  it('mariadb inherits the mysql capability unchanged', function()
+    assert.equals(caps('mysql'), caps('mariadb'))
+  end)
+end)
+
 describe('table_scripts: produce orchestration', function()
   local bridge = require('dadbod-ui.bridge')
   local real_run_many = bridge.run_many

@@ -108,7 +108,7 @@
 ---@field query? fun(schema: string, name: string, kind: string): string  SQL fetching this action's input
 ---@field args? string[]  CLI args replacing the adapter's for this action's fetch (when the query needs different output formatting, e.g. sqlserver's untruncated `-y 0` mode)
 ---@field parse? fun(lines: string[]): any  parse the query output (default: reassemble statement text)
----@field build? fun(ctx: DadbodUI.ScriptCtx): string  produce the DDL text (default: return the fetched data unchanged)
+---@field build? fun(ctx: DadbodUI.ScriptCtx): string|nil  produce the DDL text, nil when the data can't be scripted (default: return the fetched data unchanged)
 
 --- The context handed to a `DadbodUI.ScriptAction.build`. `data` is the parsed
 --- result of the action's `query` (nil for a query-less action).
