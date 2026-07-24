@@ -20,7 +20,8 @@ Full annotations are in [`types.lua`](../lua/dadbod-ui/types.lua)
 | `table_helpers`                                                            | helper leaves under each table                                       |
 | `schema()` with `schemes_query` + `schemes_tables_query` + `parse_results` | schema browsing in the drawer                                        |
 | `schema().procedures_query` (+ `routine_definition`)                       | the routines node                                                    |
-| `schema().routine_scripts`                                                 | the Script As submenu (see SCRIPT_AS_DDL.md)                         |
+| `schema().routine_scripts`                                                 | the routine Script As submenu (see SCRIPT_AS_DDL.md)                 |
+| `schema().table_scripts`                                                   | the table Script As submenu (see SCRIPT_AS_DDL.md)                   |
 | `schema().foreign_key_query` + `select_foreign_key_query` + cell fields    | dbout cell nav and FK jump                                           |
 | `schema().layout_flag`                                                     | the expanded layout toggle (`\x`, `\G`)                              |
 | `explain.plain` / `.analyze`                                               | EXPLAIN / EXPLAIN ANALYZE                                            |
