@@ -163,3 +163,64 @@ describe('state: public api', function()
     ui.reset()
   end)
 end)
+
+describe('state: connection colors (issue #91)', function()
+  local cfg = config.resolve({ save_location = '/tmp/dbui_test' })
+
+  it('carries a file connection color onto its entry and group rows onto the instance', function()
+    local inst = state.new(cfg):populate({
+      env = {},
+      g_dbs = {},
+      file_entries = {
+        { name = 'orders', url = 'sqlite:/tmp/orders.db', group = 'Prod', color = '#FF0000' },
+        { name = 'qa', url = 'sqlite:/tmp/qa.db', group = 'Prod' },
+        { group = 'Prod', color = '#AA0000' },
+      },
+    })
+    assert.equals('#ff0000', inst.dbs['Prod_orders_file'].color)
+    assert.is_nil(inst.dbs['Prod_qa_file'].color)
+    assert.same({ prod = '#aa0000' }, inst.group_colors)
+  end)
+
+  it('connection_color: own color wins over the group color; group color fills in; nil is the default', function()
+    local inst = state.new(cfg):populate({
+      env = {},
+      g_dbs = { { name = 'gvar', url = 'sqlite:/tmp/g.db', group = 'Prod' } },
+      file_entries = {
+        { name = 'orders', url = 'sqlite:/tmp/orders.db', group = 'Prod', color = '#ff0000' },
+        { name = 'qa', url = 'sqlite:/tmp/qa.db', group = 'Prod' },
+        { name = 'plain', url = 'sqlite:/tmp/plain.db' },
+        { group = 'prod', color = '#aa0000' },
+      },
+    })
+    assert.equals('#ff0000', inst:connection_color(inst.dbs['Prod_orders_file']))
+    assert.equals('#aa0000', inst:connection_color(inst.dbs['Prod_qa_file']))
+    assert.is_nil(inst:connection_color(inst.dbs['plain_file']))
+    -- A g:dbs member of a colored group inherits the group color too.
+    assert.equals('#aa0000', inst:connection_color(inst.dbs['Prod_gvar_g:dbs']))
+  end)
+
+  it('a recolor lands on a reused entry (same key_name + url) across populates', function()
+    local inst = state.new(cfg):populate({
+      env = {},
+      g_dbs = {},
+      file_entries = { { name = 'orders', url = 'sqlite:/tmp/orders.db', color = '#ff0000' } },
+    })
+    local entry = inst.dbs['orders_file']
+    inst:populate({
+      env = {},
+      g_dbs = {},
+      file_entries = { { name = 'orders', url = 'sqlite:/tmp/orders.db', color = '#00ff00' } },
+    })
+    -- Same entry object (interactive state survives), fresh color.
+    assert.equals(entry, inst.dbs['orders_file'])
+    assert.equals('#00ff00', entry.color)
+    -- And clearing the color clears the reused entry too.
+    inst:populate({
+      env = {},
+      g_dbs = {},
+      file_entries = { { name = 'orders', url = 'sqlite:/tmp/orders.db' } },
+    })
+    assert.is_nil(entry.color)
+  end)
+end)

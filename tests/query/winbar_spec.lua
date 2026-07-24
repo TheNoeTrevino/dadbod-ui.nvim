@@ -43,6 +43,20 @@ describe('connection winbar: formatter', function()
     local wb = query.connection_winbar({ group = 'a%b', name = 'c%d' })
     assert.equals('%=%#DadbodUIWinbarConnection# a%%b/c%%d ', wb)
   end)
+
+  it('a colored connection swaps in its solid color block (issue #91)', function()
+    local wb = query.connection_winbar({ group = 'prod', name = 'orders' }, '#ff0000')
+    assert.equals('%=%#DadbodUIWinbarColor_ff0000# prod/orders ', wb)
+    local hl = vim.api.nvim_get_hl(0, { name = 'DadbodUIWinbarColor_ff0000' })
+    assert.equals(0xff0000, hl.bg)
+    assert.equals(0xffffff, hl.fg) -- white text on a dark red
+  end)
+
+  it('picks black text on a light color by luminance', function()
+    query.connection_winbar({ group = '', name = 'qa' }, '#ffee88')
+    local hl = vim.api.nvim_get_hl(0, { name = 'DadbodUIWinbarColor_ffee88' })
+    assert.equals(0x000000, hl.fg)
+  end)
 end)
 
 describe('connection winbar: application', function()
@@ -101,6 +115,27 @@ describe('connection winbar: application', function()
     -- Re-entering the query buffer re-applies its connection winbar (BufWinEnter).
     vim.api.nvim_win_set_buf(win, qbuf)
     assert.equals(query.connection_winbar(entry), vim.api.nvim_get_option_value('winbar', { win = win }))
+  end)
+
+  it('applies the colored block for a colored file connection', function()
+    local cfg = config.resolve({ save_location = '/tmp/dbui_winbar', drawer = { show_help = false } })
+    local instance = state.new(cfg):populate({
+      env = {},
+      g_dbs = {},
+      file_entries = { { name = 'orders', url = 'sqlite:/tmp/orders.db', group = 'prod', color = '#ff0000' } },
+    })
+    d = drawer_mod.new(instance)
+    d.connector = function(url)
+      return url
+    end
+    d:open()
+    local entry = entry_named(d, 'orders')
+    d:query():open({ type = 'query', key_name = entry.key_name }, 'edit')
+    query_bufs[#query_bufs + 1] = vim.api.nvim_get_current_buf()
+
+    local winbar = vim.api.nvim_get_option_value('winbar', { win = 0 })
+    assert.equals(query.connection_winbar(entry, '#ff0000'), winbar)
+    assert.is_truthy(winbar:find('DadbodUIWinbarColor_ff0000', 1, true))
   end)
 
   it('leaves the winbar unset when show_buffer_connection is disabled', function()

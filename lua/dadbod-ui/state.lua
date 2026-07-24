@@ -40,6 +40,7 @@ local M = {}
 ---@field dbs_list DadbodUI.ConnectionEntry[]  the connections in discovery order -- the SAME entry objects as `dbs`, so there is one object per connection with a list view and a key view
 ---@field dbs table<string, DadbodUI.ConnectionEntry>  entries keyed by key_name
 ---@field dbout_list table<string, string>  executed result files -> preview content
+---@field group_colors table<string, string>  lowercase group name -> hex color, from the store's group-color rows (rebuilt on every populate)
 ---@field _inputs? DadbodUI.DiscoverInputs  inputs last populated with (for repopulate)
 local Instance = {}
 Instance.__index = Instance
@@ -199,6 +200,7 @@ function M.new(config)
     dbs_list = {},
     dbs = {},
     dbout_list = {},
+    group_colors = {},
   }, Instance)
 end
 
@@ -208,10 +210,14 @@ end
 ---@return DadbodUI.Instance
 function Instance:populate(inputs)
   self._inputs = inputs
+  -- One store parse feeds both the connection records and the group-color map
+  -- (`connections.snapshot` owns that single-parse rule).
+  local records, group_colors = connections.snapshot(self.config, inputs)
+  self.group_colors = group_colors
   local previous = self.dbs
   self.dbs_list = {}
   self.dbs = {}
-  for i, record in ipairs(connections.discover(self.config, inputs)) do
+  for i, record in ipairs(records) do
     -- An unchanged connection (same key_name and url) keeps its existing entry
     -- as-is: the static metadata is a pure function of (url, config) and the
     -- interactive state (live handle, introspected schemas/tables)
@@ -221,6 +227,9 @@ function Instance:populate(inputs)
     local prev = previous[record.key_name]
     local entry = (prev ~= nil and prev.url == record.url) and prev
       or make_entry(record, self.save_path, self.config, self.tmp_location)
+    -- The color rides on the record, not on (url, config): refresh it even on a
+    -- reused entry so a recolor (same key_name, same url) lands immediately.
+    entry.color = record.color
     self.dbs_list[i] = entry
     self.dbs[record.key_name] = entry
   end
@@ -296,6 +305,29 @@ end
 function M.disconnect(entry)
   entry.conn = nil
   entry.conn_error = ''
+end
+
+--- The stored color for `group`, or nil. The single reader of the
+--- lowercase-keyed `group_colors` map (matching the store's case-insensitive
+--- group rule) -- consumers go through here, never the map directly.
+---@param group string
+---@return string|nil
+function Instance:group_color(group)
+  return self.group_colors[(group or ''):lower()]
+end
+
+--- The effective color for `entry`: its own color when set, else its group's
+--- (issue #91's "a connection's own color wins over its group's"). Nil -- the
+--- default -- means "render exactly like today". Group colors apply whatever the
+--- member's source; own colors exist only on file connections (the only place
+--- one can persist).
+---@param entry DadbodUI.ConnectionEntry
+---@return string|nil
+function Instance:connection_color(entry)
+  if entry.color ~= nil then
+    return entry.color
+  end
+  return self:group_color(entry.group)
 end
 
 --- List connections with their connection state.

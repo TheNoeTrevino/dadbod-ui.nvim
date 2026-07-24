@@ -150,13 +150,16 @@ function Drawer:build_dbs(roots)
       roots[#roots + 1] = self:build_db(entry)
     elseif not seen_groups[group] then
       seen_groups[group] = true
+      local color = self.instance:group_color(group)
       local node, expanded = self:toggle_node({
         id = ids.group(group),
         type = 'group',
         label = self.show_details and (group .. ' (Group)') or group,
         default = self.config.drawer.expand_groups,
         detail = self.show_details or nil,
-        extra = { group = group },
+        -- A stored group color paints the group NAME (the first name_len bytes
+        -- of the label -- the `(Group)` details suffix keeps its dim style).
+        extra = { group = group, color = color, name_len = #group },
       })
       if expanded then
         node.children = vim
@@ -244,6 +247,7 @@ function Drawer:build_db(entry)
   -- `repaint_db_node`, which just re-renders -- the incremental paint rewrites
   -- only this line). The transient `loading` marker is cleared by the introspect
   -- controller on data-land/error, dropping the trailer on the next render.
+  local color = self.instance:connection_color(entry)
   local node, expanded = self:toggle_node({
     id = ids.db(entry.key_name),
     type = 'db',
@@ -252,6 +256,10 @@ function Drawer:build_db(entry)
     -- The `(scheme - source ...)` suffix above is only appended under `H`.
     detail = self.show_details or nil,
     extra = {
+      -- The effective color (own over group) paints the connection NAME: the
+      -- first name_len bytes of the label, leaving glyphs/suffixes alone.
+      color = color,
+      name_len = #entry.name,
       loading_frame = entry.loading and (self.loading_frames[entry.key_name] or spinners.dots[1]) or nil,
       -- on_expand runs the lazy introspection only on the opening flip;
       -- on_collapse stops a mid-load animation so no timer leaks and no stale

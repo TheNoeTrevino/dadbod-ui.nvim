@@ -3,9 +3,16 @@
 -- Connections come from four sources, merged in precedence order
 -- (dotenv → env → g:db/g:dbs → connections.json); the first occurrence of a
 -- given (name, source, group) wins. Each is normalized into a record:
---   { name, url, source, group, key_name }
+--   { name, url, source, group, key_name, color? }
 -- where `url` is resolved through dadbod and `key_name` namespaces the record
 -- by group so the same name can exist in different groups.
+--
+-- The connections.json array holds two entry shapes: connection entries
+-- (`{ name, url, group?, color? }`) and group-color entries
+-- (`{ group, color }`, no url) carrying a group's color -- a group is otherwise
+-- just a shared name on its members, so its color needs a row of its own.
+-- Everything except `group_colors` sees only the connection entries; the CRUD
+-- transforms preserve group-color rows untouched.
 
 ---@alias DadbodUI.ConnectionsOnDup fun(name: string, source: string)
 ---@alias DadbodUI.ConnectionsOnReadError fun(msg: string)
@@ -21,11 +28,15 @@
 ---@field connections_path fun(save_location: string|nil): string|nil
 ---@field read_file fun(path: string|nil, on_error?: DadbodUI.ConnectionsOnReadError): DadbodUI.FileConnection[]
 ---@field write_file fun(path: string, list: DadbodUI.FileConnection[])
----@field add_connection fun(list: DadbodUI.FileConnection[], name: string, url: string, group?: string): (DadbodUI.FileConnection[]|nil, string|nil)
----@field duplicate_connection fun(list: DadbodUI.FileConnection[], new_name: string, new_url: string, group?: string): (DadbodUI.FileConnection[]|nil, string|nil)
+---@field add_connection fun(list: DadbodUI.FileEntry[], name: string, url: string, group?: string, color?: string): (DadbodUI.FileEntry[]|nil, string|nil)
+---@field duplicate_connection fun(list: DadbodUI.FileEntry[], source: { color?: string }, new_name: string, new_url: string, group?: string): (DadbodUI.FileEntry[]|nil, string|nil)
 ---@field delete_connection fun(list: DadbodUI.FileConnection[], name: string, url: string, group?: string): DadbodUI.FileConnection[]
 ---@field rename_connection fun(list: DadbodUI.FileConnection[], old_name: string, old_url: string, new_name: string, new_url: string, group?: string): (DadbodUI.FileConnection[]|nil, string|nil)
 ---@field set_group fun(list: DadbodUI.FileConnection[], name: string, url: string, group: string, cur_group?: string): (DadbodUI.FileConnection[]|nil, string|nil)
+---@field group_colors fun(entries: DadbodUI.FileEntry[]): table<string, string>
+---@field snapshot fun(config: DadbodUI.Config, inputs?: DadbodUI.DiscoverInputs): DadbodUI.ConnectionRecord[], table<string, string>
+---@field set_connection_color fun(list: DadbodUI.FileEntry[], name: string, url: string, color: string, group?: string): (DadbodUI.FileEntry[]|nil, string|nil)
+---@field set_group_color fun(list: DadbodUI.FileEntry[], group: string, color: string): (DadbodUI.FileEntry[]|nil, string|nil)
 ---@field move_connection fun(list: DadbodUI.FileConnection[], name: string, url: string, direction: 'up'|'down', group?: string): (DadbodUI.FileConnection[]|nil, string|nil)
 ---@field discover fun(config: DadbodUI.Config, inputs?: DadbodUI.DiscoverInputs): DadbodUI.ConnectionRecord[]
 
@@ -50,14 +61,50 @@ function M.key_name(name, source, group)
   return string.format('%s_%s_%s', group, name, source)
 end
 
+---@private
+--- Normalize a stored color: a self-contained hex (`#rrggbb`, the only stored
+--- format -- issue #91 -- since hex survives colorscheme swaps, unlike a
+--- highlight group name) lowercased so `#FF0000` and `#ff0000` name the same
+--- highlight group downstream. Anything else -- including a hand-edited store
+--- value -- reads as nil ("no color"), degrading to today's uncolored look.
+---@param color any
+---@return string|nil
+local function normalize_color(color)
+  if type(color) == 'string' and color:match('^#%x%x%x%x%x%x$') ~= nil then
+    return color:lower()
+  end
+  return nil
+end
+
+---@private
+--- Whether a connections.json entry is a connection (vs a group-color row,
+--- which carries no url).
+---@param entry DadbodUI.FileEntry
+---@return boolean
+local function is_connection(entry)
+  return entry.url ~= nil
+end
+
+---@private
+--- Whether an entry is a PURE group-color row: group metadata and nothing else.
+--- Requiring `name == nil` (not just a missing url) keeps a malformed,
+--- hand-edited connection entry -- `{ name = 'x', group = 'prod', color = … }`
+--- with its url dropped -- from silently recoloring the whole group.
+---@param entry DadbodUI.FileEntry
+---@return boolean
+local function is_group_row(entry)
+  return entry.url == nil and entry.name == nil and entry.group ~= nil and entry.group ~= ''
+end
+
 --- Normalize a discovered connection into a record (url resolved at storage
---- time).
+--- time). `color` (file source only) is the connection's own hex color.
 ---@param name string
 ---@param url string
 ---@param source string
 ---@param group string|nil
+---@param color string|nil
 ---@return DadbodUI.ConnectionRecord
-local function record(name, url, source, group)
+local function record(name, url, source, group, color)
   group = group or ''
   return {
     name = name,
@@ -65,6 +112,7 @@ local function record(name, url, source, group)
     source = source,
     group = group,
     key_name = M.key_name(name, source, group),
+    color = normalize_color(color),
   }
 end
 M.record = record
@@ -169,16 +217,35 @@ function M.from_dotenv(env, config)
     :totable()
 end
 
---- Records from a decoded connections.json array (`{ name, url, group? }`).
----@param entries DadbodUI.FileConnection[]
+--- Records from a decoded connections.json array (`{ name, url, group?, color? }`).
+--- Group-color rows (`{ group, color }`, no url) are store metadata, not
+--- connections -- skipped here and read by `group_colors`.
+---@param entries DadbodUI.FileEntry[]
 ---@return DadbodUI.ConnectionRecord[]
 function M.from_file(entries)
   return vim
     .iter(entries)
+    :filter(is_connection)
     :map(function(conn)
-      return record(conn.name, conn.url, 'file', conn.group)
+      return record(conn.name, conn.url, 'file', conn.group, conn.color)
     end)
     :totable()
+end
+
+--- The group colors stored in a connections.json array: group name (lowercased,
+--- matching the store's case-insensitive group rule) -> hex color. Read from the
+--- `{ group, color }` rows; invalid colors are dropped, so downstream consumers
+--- only ever see `#rrggbb`. Applies to a group whatever its members' sources --
+--- a `g:dbs` connection in a colored group inherits the color too.
+---@param entries DadbodUI.FileEntry[]
+---@return table<string, string>
+function M.group_colors(entries)
+  return vim.iter(entries):fold({}, function(acc, entry)
+    if is_group_row(entry) then
+      acc[entry.group:lower()] = normalize_color(entry.color)
+    end
+    return acc
+  end)
 end
 
 --- Deduplicate by (name, source, group); first occurrence wins. `on_dup` is
@@ -253,26 +320,28 @@ end
 
 ---@private
 -- Two stored connections are "the same" when names match (case-insensitive) and
--- their urls resolve equal -- the delete/rename matching rule.
----@param conn DadbodUI.FileConnection
+-- their urls resolve equal -- the delete/rename matching rule. A group-color row
+-- (no name/url) never matches a connection.
+---@param conn DadbodUI.FileEntry
 ---@param name string
 ---@param resolved_url string
 ---@return boolean
 local function same_conn(conn, name, resolved_url)
-  return conn.name:lower() == name:lower() and bridge.resolve(conn.url):lower() == resolved_url
+  return is_connection(conn) and conn.name:lower() == name:lower() and bridge.resolve(conn.url):lower() == resolved_url
 end
 
 ---@private
 -- Two connections occupy the same "slot" when their names match
 -- (case-insensitive) AND they live in the same group -- the exact rule
 -- `key_name` enforces. So the same name is allowed in different groups
--- (e.g. geekom/postgres and pi/postgres), but never twice in one group.
----@param conn DadbodUI.FileConnection
+-- (e.g. geekom/postgres and pi/postgres), but never twice in one group. A
+-- group-color row (no name) occupies no slot.
+---@param conn DadbodUI.FileEntry
 ---@param name string
 ---@param group string
 ---@return boolean
 local function same_slot(conn, name, group)
-  return conn.name:lower() == name:lower() and (conn.group or ''):lower() == group:lower()
+  return is_connection(conn) and conn.name:lower() == name:lower() and (conn.group or ''):lower() == group:lower()
 end
 
 ---@private
@@ -294,13 +363,15 @@ end
 --- Append a connection in `group` ('' / nil = ungrouped). Returns
 --- `(new_list, nil)`, or `(nil, err)` when a connection with that name already
 --- exists *in the same group* (case-insensitive) -- the same name in a different
---- group is allowed.
----@param list DadbodUI.FileConnection[]
+--- group is allowed. `color` (optional) stamps the new entry's own hex color --
+--- how a duplicate carries its source's color along.
+---@param list DadbodUI.FileEntry[]
 ---@param name string
 ---@param url string
 ---@param group? string
----@return DadbodUI.FileConnection[]|nil, string|nil
-function M.add_connection(list, name, url, group)
+---@param color? string
+---@return DadbodUI.FileEntry[]|nil, string|nil
+function M.add_connection(list, name, url, group, color)
   group = group or ''
   local exists = vim.iter(list):any(function(conn)
     return same_slot(conn, name, group)
@@ -309,7 +380,7 @@ function M.add_connection(list, name, url, group)
     return nil, 'Connection with that name already exists in that group. Please enter a different name.'
   end
   local out = vim.deepcopy(list)
-  local entry = { name = name, url = url }
+  local entry = { name = name, url = url, color = normalize_color(color) }
   if group ~= '' then
     entry.group = group
   end
@@ -317,17 +388,21 @@ function M.add_connection(list, name, url, group)
   return out, nil
 end
 
---- Append a copy of a connection under `(new_name, new_url)` in `group`. A thin
---- alias for `add_connection` that names the intent at the call site; the
---- group-aware collision rule means a clone can keep its name as long as it lands
---- in a different group -- handy for `geekom/postgres` + `pi/postgres`.
+--- Append a copy of `source` under `(new_name, new_url)` in `group`. Callers
+--- supply only the (possibly re-typed) identity fields; this transform owns the
+--- copy policy -- every persisted non-identity attribute of `source` (today:
+--- the own color, so duplicating prod never silently drops the warning paint)
+--- is carried onto the clone here, in one place. The group-aware collision rule
+--- means a clone can keep its name as long as it lands in a different group --
+--- handy for `geekom/postgres` + `pi/postgres`.
 ---@param list DadbodUI.FileConnection[]
+---@param source { color?: string }  the entry being cloned
 ---@param new_name string
 ---@param new_url string
 ---@param group? string
----@return DadbodUI.FileConnection[]|nil, string|nil
-function M.duplicate_connection(list, new_name, new_url, group)
-  return M.add_connection(list, new_name, new_url, group)
+---@return DadbodUI.FileEntry[]|nil, string|nil
+function M.duplicate_connection(list, source, new_name, new_url, group)
+  return M.add_connection(list, new_name, new_url, group, source.color)
 end
 
 --- Remove the connection matching (name, url, group). Returns a new list. When
@@ -379,8 +454,10 @@ function M.rename_connection(list, old_name, old_url, new_name, new_url, group)
   end
   local out = vim.deepcopy(list)
   if match_idx ~= nil then
-    local entry = { name = new_name, url = new_url }
     local conn = out[match_idx]
+    -- Rebuild the entry, keeping its group AND its color: a rename changes the
+    -- identity fields only, never strips the prod-warning color off an entry.
+    local entry = { name = new_name, url = new_url, color = conn.color }
     if conn.group ~= nil and conn.group ~= '' then
       entry.group = conn.group
     end
@@ -409,7 +486,7 @@ function M.set_group(list, name, url, group, cur_group)
     return target_conn(conn, name, resolved, cur_group)
   end)
   local collides = vim.iter(ipairs(list)):any(function(i, conn)
-    return i ~= match_idx and conn.name:lower() == name:lower() and (conn.group or ''):lower() == group:lower()
+    return i ~= match_idx and same_slot(conn, name, group)
   end)
   if collides then
     return nil, 'A connection with that name already exists in that group. Please choose a different group.'
@@ -491,7 +568,18 @@ function M.move_connection(list, name, url, direction, group)
   end
   -- Deepcopy and drive everything off the copy's visual order, so the returned
   -- list is a fresh, block-contiguous ordering and the input is untouched.
-  local out = visual_order(vim.deepcopy(list))
+  -- Group-color rows are not part of the visual order (they render nothing, so a
+  -- move must never swap "past" one and appear to do nothing); they are set aside
+  -- here and re-appended by `with_metas` at every successful return.
+  local copy = vim.deepcopy(list)
+  local conns = vim.tbl_filter(is_connection, copy)
+  local metas = vim.tbl_filter(function(entry)
+    return not is_connection(entry)
+  end, copy)
+  local function with_metas(l)
+    return vim.list_extend(l, metas)
+  end
+  local out = visual_order(conns)
   local i = vim.iter(ipairs(out)):find(function(_, conn)
     return target_conn(conn, name, resolved, group)
   end)
@@ -505,7 +593,7 @@ function M.move_connection(list, name, url, direction, group)
   if (moving.group or ''):lower() == (neighbor.group or ''):lower() then
     -- Same block: a plain reorder among siblings.
     out[i], out[j] = out[j], out[i]
-    return out, nil
+    return with_metas(out), nil
   end
 
   -- Block boundary: `moving` crosses into the neighbour's block, adopting its
@@ -526,7 +614,109 @@ function M.move_connection(list, name, url, direction, group)
   else
     moving.group = target_group
   end
+  return with_metas(out), nil
+end
+
+---@private
+--- The shared refusal for a non-empty, non-`#rrggbb` color -- the single owner
+--- of hex validation, surfaced verbatim by the interactive and api callers.
+---@param color any
+---@return string|nil  normalized color ('' stays ''), or nil on refusal
+---@return string|nil  the refusal message
+local function check_color(color)
+  if color == '' then
+    return '', nil
+  end
+  local normalized = normalize_color(color)
+  if normalized == nil then
+    return nil, 'Please enter a hex color like #ff0000, or leave empty to clear.'
+  end
+  return normalized, nil
+end
+
+--- Set (or clear, with `color = ''`) the own color of the connection matching
+--- (name, url, `group` disambiguating clones). Returns `(new_list, nil)`, or
+--- `(nil, err)` when the non-empty color is not `#rrggbb` -- the same refusal
+--- contract as the sibling transforms, so a bad value can never be silently
+--- committed. `(nil, nil)` when nothing matches (the `move_connection` no-op
+--- convention), so callers never rewrite the store for a guaranteed no-change.
+---@param list DadbodUI.FileEntry[]
+---@param name string
+---@param url string
+---@param color string  hex `#rrggbb`, or '' to clear
+---@param group? string
+---@return DadbodUI.FileEntry[]|nil, string|nil
+function M.set_connection_color(list, name, url, color, group)
+  local normalized, err = check_color(color)
+  if normalized == nil then
+    return nil, err
+  end
+  local resolved = bridge.resolve(url):lower()
+  -- Locate on the input before paying for the copy: no match, no deepcopy.
+  local match_idx = vim.iter(ipairs(list)):find(function(_, conn)
+    return target_conn(conn, name, resolved, group)
+  end)
+  if match_idx == nil then
+    return nil, nil
+  end
+  local out = vim.deepcopy(list)
+  -- '' clears: stored as an absent key, never an empty string.
+  out[match_idx].color = normalized ~= '' and normalized or nil
   return out, nil
+end
+
+--- Set (or clear, with `color = ''`) a group's color: upsert the group's
+--- `{ group, color }` row, or drop it on clear. The row is the group's only
+--- persisted existence (a group is otherwise just a shared name on members), so
+--- clearing removes it entirely rather than leaving a colorless husk. Returns
+--- `(new_list, nil)`, or `(nil, err)` for a bad color / empty group name
+--- (mirroring `set_connection_color`'s refusal contract), or `(nil, nil)` when
+--- clearing a group that has no row -- a guaranteed no-change.
+---@param list DadbodUI.FileEntry[]
+---@param group string
+---@param color string  hex `#rrggbb`, or '' to clear
+---@return DadbodUI.FileEntry[]|nil, string|nil
+function M.set_group_color(list, group, color)
+  if group == nil or group == '' then
+    return nil, 'Please enter a group name.'
+  end
+  local normalized, err = check_color(color)
+  if normalized == nil then
+    return nil, err
+  end
+  local match_idx = vim.iter(ipairs(list)):find(function(_, entry)
+    return is_group_row(entry) and entry.group:lower() == group:lower()
+  end)
+  if normalized == '' then
+    if match_idx == nil then
+      return nil, nil -- nothing to clear
+    end
+    local out = vim.deepcopy(list)
+    table.remove(out, match_idx)
+    return out, nil
+  end
+  local out = vim.deepcopy(list)
+  if match_idx ~= nil then
+    out[match_idx].color = normalized
+  else
+    out[#out + 1] = { group = group, color = normalized }
+  end
+  return out, nil
+end
+
+---@private
+--- The connections.json entries feeding a discover/snapshot: an injected
+--- `inputs.file_entries` (tests/overrides) or the file read. The single owner
+--- of that fallback rule.
+---@param config DadbodUI.Config
+---@param inputs? DadbodUI.DiscoverInputs
+---@return DadbodUI.FileEntry[]
+local function store_entries(config, inputs)
+  local entries = inputs and inputs.file_entries
+  if entries == nil then
+    entries = M.read_file(M.connections_path(config.save_location))
+  end
+  return entries
 end
 
 --- Discover all connections, merged in precedence order with duplicates dropped.
@@ -546,10 +736,7 @@ function M.discover(config, inputs)
   if g_dbs == nil then
     g_dbs = vim.g.dbs
   end
-  local file_entries = inputs.file_entries
-  if file_entries == nil then
-    file_entries = M.read_file(M.connections_path(config.save_location))
-  end
+  local file_entries = store_entries(config, inputs)
 
   local all = {}
   vim.list_extend(all, M.from_dotenv(env, config))
@@ -557,6 +744,19 @@ function M.discover(config, inputs)
   vim.list_extend(all, M.from_global(g_db, g_dbs))
   vim.list_extend(all, M.from_file(file_entries))
   return M.dedup(all, inputs.on_dup)
+end
+
+--- Both products of ONE store parse: the discovered connection records and the
+--- group-color map. `Instance:populate` reads through here so the file is not
+--- parsed twice per populate -- the injected-vs-file fallback and the
+--- `DiscoverInputs` plumbing stay inside this module, where the parse lives.
+---@param config DadbodUI.Config
+---@param inputs? DadbodUI.DiscoverInputs
+---@return DadbodUI.ConnectionRecord[], table<string, string>
+function M.snapshot(config, inputs)
+  local merged = vim.tbl_extend('force', {}, inputs or {})
+  merged.file_entries = store_entries(config, merged)
+  return M.discover(config, merged), M.group_colors(merged.file_entries)
 end
 
 return M

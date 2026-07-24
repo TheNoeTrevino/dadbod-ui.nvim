@@ -52,12 +52,24 @@
 ---@field source DadbodUI.Source
 ---@field group string  '' when ungrouped
 ---@field key_name string  name_source, or group_name_source when grouped
+---@field color? string  the connection's own hex color (`#rrggbb`, file source only)
 
---- A connections.json entry (stored form).
+--- A connections.json connection entry (stored form).
 ---@class DadbodUI.FileConnection
 ---@field name string
 ---@field url string
 ---@field group? string
+---@field color? string  own hex color (`#rrggbb`); wins over the group's
+
+--- A connections.json group-color row: a group's persisted color. A group is
+--- otherwise just a shared name on its member connections, so its color gets a
+--- row of its own (no name/url) in the same array.
+---@class DadbodUI.FileGroupColor
+---@field group string
+---@field color string  hex `#rrggbb`
+
+--- Anything stored in the connections.json array.
+---@alias DadbodUI.FileEntry DadbodUI.FileConnection|DadbodUI.FileGroupColor
 
 -- Pure domain containers: drawer expand/collapse state lives in the drawer's
 -- `expand` map (keyed by drawer/ids.lua ids), never on these.
@@ -231,6 +243,7 @@
 ---@field source DadbodUI.Source
 ---@field name string
 ---@field group string
+---@field color? string  own hex color (`#rrggbb`, file source only); resolve the effective color via Instance:connection_color
 ---@field key_name string
 ---@field save_name string  group-qualified identifier ({group}_{name} when grouped); names the save folder + tmp query folder
 ---@field scheme string  raw adapter scheme
@@ -304,6 +317,8 @@
 ---@field saved? boolean  true for saved-query nodes (vs tmp/open buffers)
 ---@field detail? boolean  the label ends in a `(…)` detail suffix (stamped where the suffix is appended; renders dimmed)
 ---@field loading_frame? string  trailing spinner frame for a connecting db node (appended after the label; animated in place by repaint_db_node)
+---@field color? string  effective hex color for a db/group node's name (`#rrggbb`; absent = default styling)
+---@field name_len? integer  byte length of the connection/group name prefix of the label (what `color` paints; stamped on every db/group node)
 
 --- A command spec for the bridge concurrency helpers.
 ---@class DadbodUI.CommandSpec

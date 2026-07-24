@@ -35,6 +35,8 @@ familiar workflow, but API-first, deeply configurable, and typed to the teeth.
 
 - A drawer for your databases
   - browse connections, schemas, tables, saved queries, and stored procedures
+- Connection & group colors - paint prod red in the drawer and the query
+  buffer's winbar, so you notice before you run the query
 - Scratch & saved query buffers
   - SQL filetype so formatters and LSPs attach and work as expected
 - Paginated result buffers
@@ -170,6 +172,8 @@ api.add({ name = 'dev', url = 'postgres://localhost/dev', group = 'local' })
 api.rename('dev', 'development')
 api.duplicate('development', 'dev-copy', 'scratch')  -- clone into another group
 api.set_group('dev-copy', 'archive')                 -- '' to ungroup
+api.set_color('analytics/prod', '#ff0000')           -- own color ('' clears)
+api.set_group_color('analytics', '#aa0000')          -- members inherit it
 api.move('development', 'up')                         -- reorder among siblings
 api.remove('dev-copy')
 
