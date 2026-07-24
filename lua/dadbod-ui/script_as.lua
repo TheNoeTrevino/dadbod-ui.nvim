@@ -1,14 +1,15 @@
--- "Script As" for stored routines (SSMS-style DDL scripting)
+-- "Script As" (SSMS-style DDL scripting)
 --
--- A routine's drawer node expands to a "Script As" submenu whose leaves each
--- script the routine a different way (CREATE / ALTER / DROP / EXECUTE / ...).
--- Activating one prompts for a destination (a new query buffer, or replacing /
--- appending the current one), optionally fetches the action's input from the
--- database, builds the finished DDL via the adapter's builder, and hands it to
--- the query controller.
+-- A scriptable drawer node (a stored routine, a table) expands to a "Script As"
+-- submenu whose leaves each script the object a different way (CREATE / ALTER /
+-- DROP / EXECUTE / ...). Activating one prompts for a destination (a new query
+-- buffer, or replacing / appending the current one), optionally fetches the
+-- action's input from the database, builds the finished DDL via the adapter's
+-- builder, and hands it to the query controller.
 --
 -- The capability is a flat list of actions on the adapter spec
--- (`routine_scripts.actions`); each action is `{ label, query?, args?, parse?, build? }`:
+-- (`routine_scripts.actions` / `table_scripts.actions`); each action is
+-- `{ label, query?, args?, parse?, build? }`:
 --   * `query(schema, name, kind)` -- SQL fetching this action's input, or absent
 --     when the action builds from the name/kind alone (no DB round-trip, e.g. a
 --     name-only DROP);
@@ -19,17 +20,17 @@
 --   * `build(ctx)` -- produce the final DDL from `{ schema, name, kind, data }`.
 -- Everything database-specific lives on the adapter; this module owns only the
 -- destination prompt, the async fetch and the hand-off, so an adapter opts in by
--- defining the capability and needs no code here.
+-- defining the capability and needs no code here. It never branches on `kind`.
 
 local bridge = require('dadbod-ui.bridge')
 local schemas = require('dadbod-ui.schemas')
 local state = require('dadbod-ui.state')
 local notifications = require('dadbod-ui.notifications')
 
----@class DadbodUI.RoutineScriptModule
+---@class DadbodUI.ScriptAsModule
 local M = {}
 
---- Where a scripted routine's DDL lands, offered after an action is picked.
+--- Where a scripted object's DDL lands, offered after an action is picked.
 ---@type { label: string, dest: 'new'|'replace'|'append' }[]
 M.destinations = {
   { label = 'Open in new query buffer', dest = 'new' },
@@ -37,11 +38,11 @@ M.destinations = {
   { label = 'Append to current query buffer', dest = 'append' },
 }
 
---- Run one scripting `action` against a routine: prompt for a destination, build
+--- Run one scripting `action` against an object: prompt for a destination, build
 --- the DDL (fetching from the database first when the action needs it) and write
 --- it there. A cancelled prompt or a fetch error is a clean no-op (the latter
 --- notifies).
----@param opts { entry: DadbodUI.ConnectionEntry, schema: string, name: string, kind: 'procedure'|'function', action: DadbodUI.RoutineScript, query: DadbodUI.Query }
+---@param opts { entry: DadbodUI.ConnectionEntry, schema: string, name: string, kind: 'procedure'|'function'|'table', action: DadbodUI.ScriptAction, query: DadbodUI.Query }
 ---@return nil
 function M.run(opts)
   local action = opts.action
@@ -88,7 +89,7 @@ end
 --- by actions whose statement was built entirely by their `query` (e.g. every
 --- postgres action, or sqlserver `CREATE To`), so they need no `build` -- the
 --- symmetric counterpart of `M.text` being the default `parse`.
----@param ctx DadbodUI.RoutineScriptCtx
+---@param ctx DadbodUI.ScriptCtx
 ---@return any
 function M.fetched(ctx)
   return ctx.data
@@ -99,12 +100,12 @@ end
 --- building (via `action.build`, else `M.fetched`); a query-less action (e.g. a
 --- name-only DROP) builds synchronously. `cb` is not called when the build yields
 --- nothing (a failed fetch notifies).
----@param opts { entry: DadbodUI.ConnectionEntry, schema: string, name: string, kind: 'procedure'|'function', action: DadbodUI.RoutineScript }
+---@param opts { entry: DadbodUI.ConnectionEntry, schema: string, name: string, kind: 'procedure'|'function'|'table', action: DadbodUI.ScriptAction }
 ---@param cb fun(text: string): nil
 ---@return nil
 function M.produce(opts, cb)
   local action = opts.action
-  ---@type DadbodUI.RoutineScriptCtx
+  ---@type DadbodUI.ScriptCtx
   local ctx = { schema = opts.schema, name = opts.name, kind = opts.kind }
   local build = action.build or M.fetched
 
@@ -122,7 +123,7 @@ function M.produce(opts, cb)
   end
   local conn = opts.entry.conn
   if conn == nil or conn == '' then
-    notifications.error('Connect to the database before scripting a routine.')
+    notifications.error('Connect to the database before scripting.')
     return
   end
   -- Resolved only on the fetch path (a query-less action never needs it).

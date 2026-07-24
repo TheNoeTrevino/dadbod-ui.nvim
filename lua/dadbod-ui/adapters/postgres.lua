@@ -153,7 +153,7 @@ end
 ---@private
 -- Every postgres action builds its statement server-side, so it needs no `build`
 -- -- the generic default (return the fetched, `M.text`-reassembled result) applies.
----@type DadbodUI.RoutineScripts
+---@type DadbodUI.ScriptActions
 local routine_scripts = {
   actions = {
     { label = 'CREATE OR REPLACE To', query = routine_definition },

@@ -99,7 +99,7 @@ local constraints_query = table.concat({
 --
 -- The drawer turns each stored procedure/function into a "Script As" submenu
 -- (CREATE / ALTER / CREATE OR ALTER / DROP / DROP And CREATE / EXECUTE). The
--- generic flow lives in `dadbod-ui.routine_script`; everything SQL-Server
+-- generic flow lives in `dadbod-ui.script_as`; everything SQL-Server
 -- specific -- the source + parameter queries, their output parsers, and the
 -- text transforms -- lives here so the capability is one file per adapter.
 
@@ -131,7 +131,7 @@ end
 
 ---@private
 -- `DROP PROCEDURE`/`DROP FUNCTION [schema].[name]` for the routine in `ctx`.
----@param ctx DadbodUI.RoutineScriptCtx
+---@param ctx DadbodUI.ScriptCtx
 ---@return string
 local function drop_statement(ctx)
   return string.format('DROP %s %s', parse.routine_verb(ctx.kind), qualify(ctx.schema, ctx.name))
@@ -218,7 +218,7 @@ end
 -- per parameter (procedures) or a scalar `SELECT name(:arg, ...)` (functions).
 -- The `:param` placeholders drive dadbod-ui's bind-param prompt on execute; each
 -- parameter's type rides along as a comment. `ctx.data` is the parsed parameters.
----@param ctx DadbodUI.RoutineScriptCtx
+---@param ctx DadbodUI.ScriptCtx
 ---@return string
 local function execute_statement(ctx)
   local qualified = qualify(ctx.schema, ctx.name)
@@ -240,7 +240,7 @@ local function execute_statement(ctx)
 end
 
 ---@private
----@type DadbodUI.RoutineScripts
+---@type DadbodUI.ScriptActions
 local routine_scripts = {
   actions = {
     -- CREATE To needs no `build`: the fetched definition is the script (the

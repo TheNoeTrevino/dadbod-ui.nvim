@@ -7,7 +7,7 @@ append.
 
 ## Where the code lives
 
-- [`lua/dadbod-ui/routine_script.lua`](../lua/dadbod-ui/routine_script.lua)
+- [`lua/dadbod-ui/script_as.lua`](../lua/dadbod-ui/script_as.lua)
   owns the prompt, the fetch and the hand off. No SQL in there, and it never
   branches on routine kind.
 - The actions live on the adapter spec as `routine_scripts.actions`. Each one

@@ -19,7 +19,7 @@ local spinner = require('dadbod-ui.spinner')
 local spinners = require('dadbod-ui.spinners')
 local table_helpers = require('dadbod-ui.table_helpers')
 local state = require('dadbod-ui.state')
-local routine_script = require('dadbod-ui.routine_script')
+local script_as = require('dadbod-ui.script_as')
 local dbout = require('dadbod-ui.dbout')
 
 ---@private
@@ -450,7 +450,7 @@ end
 --- Adapters exposing a "Script As" capability (`entry.routine_scripts`, SSMS-
 --- style) render the routine as a toggle expanding to a `Script As` node whose
 --- leaves each script the routine (CREATE / ALTER / DROP / ...) into a chosen
---- destination -- see `dadbod-ui.routine_script`. Adapters without it keep the
+--- destination -- see `dadbod-ui.script_as`. Adapters without it keep the
 --- plain leaf: its `content` (the adapter's pre-built DDL/source query) rides
 --- along so the `open` action reuses the table-helper open path verbatim --
 --- opening it fills a query buffer with the definition SQL to run.
@@ -507,7 +507,7 @@ function Drawer:build_routine(entry, routine, schema)
           action = 'activate',
           key_name = entry.key_name,
           on_activate = function()
-            routine_script.run({
+            script_as.run({
               entry = entry,
               schema = schema,
               name = routine.name,

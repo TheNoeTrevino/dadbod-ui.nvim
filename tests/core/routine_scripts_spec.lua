@@ -9,7 +9,7 @@ local drawer_mod = require('dadbod-ui.drawer')
 local ids = require('dadbod-ui.drawer.ids')
 local state = require('dadbod-ui.state')
 local config = require('dadbod-ui.config')
-local routine_script = require('dadbod-ui.routine_script')
+local script_as = require('dadbod-ui.script_as')
 
 local function caps(scheme)
   return schemas.get(scheme).routine_scripts
@@ -28,7 +28,7 @@ end
 --- generic `build` default for query-only actions that define none).
 local function build(scheme, label, ctx)
   local act = action(scheme, label)
-  return (act.build or routine_script.fetched)(ctx)
+  return (act.build or script_as.fetched)(ctx)
 end
 
 -- A drawer over an instance seeded with injected connections (offline connector).
@@ -156,9 +156,9 @@ describe('routine_scripts: default text parser', function()
   it('reassembles output lines, trimming blank framing top and bottom', function()
     assert.equals(
       'CREATE PROCEDURE [dbo].[p]\nAS\nSELECT 1',
-      routine_script.text({ '', 'CREATE PROCEDURE [dbo].[p]', 'AS', 'SELECT 1', '', '' })
+      script_as.text({ '', 'CREATE PROCEDURE [dbo].[p]', 'AS', 'SELECT 1', '', '' })
     )
-    assert.equals('', routine_script.text({ '', '' }))
+    assert.equals('', script_as.text({ '', '' }))
   end)
 
   it('sqlserver EXECUTE To parses (name, type) parameter rows, skipping blanks', function()
@@ -264,7 +264,7 @@ describe('routine_scripts: produce orchestration', function()
   --- Run `act` against a routine and return what `produce` hands its callback.
   local function produced(entry, schema, name, kind, act)
     local got
-    routine_script.produce({ entry = entry, schema = schema, name = name, kind = kind, action = act }, function(text)
+    script_as.produce({ entry = entry, schema = schema, name = name, kind = kind, action = act }, function(text)
       got = text
     end)
     return got

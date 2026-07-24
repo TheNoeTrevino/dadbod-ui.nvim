@@ -98,24 +98,24 @@
 ---@field items table<string, DadbodUI.RoutineItem[]>  per-schema routines (schema adapters)
 ---@field flat DadbodUI.RoutineItem[]  routines, ungrouped (non-schema adapters)
 
---- One "Script As" action for a routine (e.g. `CREATE To`, `DROP To`,
+--- One "Script As" action for a database object (e.g. `CREATE To`, `DROP To`,
 --- `EXECUTE To`). `query` fetches the action's input from the database (absent =>
 --- build from the name/kind alone, no round-trip); `parse` turns that raw output
 --- into whatever `build` wants (defaults to reassembling statement text);
 --- `build` produces the final DDL.
----@class DadbodUI.RoutineScript
----@field label string  menu label, shown under the routine's "Script As" node
+---@class DadbodUI.ScriptAction
+---@field label string  menu label, shown under the object's "Script As" node
 ---@field query? fun(schema: string, name: string, kind: string): string  SQL fetching this action's input
 ---@field args? string[]  CLI args replacing the adapter's for this action's fetch (when the query needs different output formatting, e.g. sqlserver's untruncated `-y 0` mode)
 ---@field parse? fun(lines: string[]): any  parse the query output (default: reassemble statement text)
----@field build? fun(ctx: DadbodUI.RoutineScriptCtx): string  produce the DDL text (default: return the fetched data unchanged)
+---@field build? fun(ctx: DadbodUI.ScriptCtx): string  produce the DDL text (default: return the fetched data unchanged)
 
---- The context handed to a `DadbodUI.RoutineScript.build`. `data` is the parsed
+--- The context handed to a `DadbodUI.ScriptAction.build`. `data` is the parsed
 --- result of the action's `query` (nil for a query-less action).
----@class DadbodUI.RoutineScriptCtx
+---@class DadbodUI.ScriptCtx
 ---@field schema string
 ---@field name string
----@field kind 'procedure' | 'function'
+---@field kind 'procedure' | 'function' | 'table'
 ---@field data? any  the parsed result of the action's `query` (e.g. source text, or a `DadbodUI.RoutineParam[]`)
 
 --- One routine parameter, parsed from an adapter's parameter query.
@@ -125,9 +125,9 @@
 
 --- An adapter's "Script As" capability: the ordered scripting actions. Absent on
 --- adapters that don't support DDL scripting -- their routine nodes stay plain
---- open leaves.
----@class DadbodUI.RoutineScripts
----@field actions DadbodUI.RoutineScript[]  ordered scripting actions
+--- open leaves (and their table nodes list only helpers).
+---@class DadbodUI.ScriptActions
+---@field actions DadbodUI.ScriptAction[]  ordered scripting actions
 
 --- One database adapter, registered under its canonical `name` and every
 --- `aliases` entry (dadbod-ui.adapters). The single per-scheme registry: each
@@ -213,7 +213,7 @@
 ---@field procedures_query? string     SQL listing (schema, routine_name, kind) rows; kind is 'procedure'|'function'. Absent => the adapter has no stored procedures (e.g. sqlite): a clean no-op.
 ---@field tables_procedures_query? string  same shape as `procedures_query`, scoped to the connected database -- used on the tables-only path (e.g. mysql url naming a database) so routines from other schemas don't leak in. Falls back to `procedures_query` when absent.
 ---@field routine_definition? fun(schema: string, name: string, kind: string): string  SQL that renders one routine's DDL/source (identifiers escaped)
----@field routine_scripts? DadbodUI.RoutineScripts  SSMS-style "Script As" capability (absent => routine nodes open the definition query instead)
+---@field routine_scripts? DadbodUI.ScriptActions  SSMS-style "Script As" capability for routines (absent => routine nodes open the definition query instead)
 ---@field parse_results? fun(results: string[], min_len: integer): any[]
 ---@field default_scheme? string
 ---@field quote? boolean  whether the adapter quotes identifiers (postgres/oracle/clickhouse do; mysql/sqlserver do not)
@@ -265,7 +265,7 @@
 ---@field schemas DadbodUI.SchemasNode
 ---@field routines DadbodUI.RoutinesNode  stored procedures / functions for this connection
 ---@field routine_support boolean  does the adapter expose stored procedures/functions
----@field routine_scripts? DadbodUI.RoutineScripts  the adapter's "Script As" capability (nil => plain open-definition routine leaves)
+---@field routine_scripts? DadbodUI.ScriptActions  the adapter's "Script As" capability for routines (nil => plain open-definition routine leaves)
 ---@field buffers string[]  open query buffers for this connection (full file paths)
 ---@field saved_queries string[]  persisted saved-query file paths under save_path
 
