@@ -25,6 +25,19 @@ describe('schemas: get', function()
     assert.is_not_nil(s.foreign_key_query) -- but the FK jump is supported
   end)
 
+  it('returns schema-browsing metadata for duckdb, scoped to the current database', function()
+    local dk = schemas.get('duckdb')
+    assert.is_string(dk.schemes_query)
+    assert.is_string(dk.schemes_tables_query)
+    -- the system/temp catalogs each carry their own `main`; the queries must
+    -- scope to current_database() so the drawer lists each schema once
+    assert.is_truthy(dk.schemes_query:match('current_database%(%)'))
+    assert.is_truthy(dk.schemes_tables_query:match('current_database%(%)'))
+    assert.equals('main', dk.default_scheme)
+    assert.is_not_nil(dk.foreign_key_query)
+    assert.is_nil(dk.procedures_query) -- macros, not stored procedures (#102)
+  end)
+
   it('honors use_postgres_views when building the tables query', function()
     local with_views = schemas.get('postgres', config.resolve({ use_postgres_views = true }))
     local without_views = schemas.get('postgres', config.resolve({ use_postgres_views = false }))
@@ -41,6 +54,11 @@ describe('schemas: supports_schemes', function()
 
   it('is false when the adapter has no schema support', function()
     assert.is_false(schemas.supports_schemes(schemas.get('sqlite'), { scheme = 'sqlite' }))
+  end)
+
+  it('is true for duckdb even though the url names a database file', function()
+    local dk = schemas.get('duckdb')
+    assert.is_true(schemas.supports_schemes(dk, { scheme = 'duckdb', path = '/tmp/x.duckdb' }))
   end)
 
   it('is false for mysql/mariadb when the url names a database in the path', function()
@@ -73,6 +91,12 @@ describe('schemas: result parsers', function()
     assert.same({ { 'app', 'users' }, { 'app', 'posts' } }, my.parse_results(table_lines, 2))
   end)
 
+  it('parses duckdb list-mode output (-list -noheader: pipe rows), skipping blanks', function()
+    local dk = schemas.get('duckdb')
+    assert.same({ 'main' }, dk.parse_results({ 'main', '' }, 1))
+    assert.same({ { 'main', 'users' }, { 'main', 'posts' } }, dk.parse_results({ 'main|users', 'main|posts', '' }, 2))
+  end)
+
   it('parses sqlserver pipe output, dropping the trailing two lines', function()
     local ss = schemas.get('sqlserver')
     -- sqlcmd appends a blank line and a "(N rows affected)" line.
@@ -96,6 +120,18 @@ describe('schemas: command_spec', function()
     local spec = schemas.command_spec('mysql://localhost/', my, my.schemes_query)
     assert.equals(my.schemes_query, spec.stdin)
     assert.is_false(vim.tbl_contains(spec.cmd, my.schemes_query))
+  end)
+
+  it('appends -readonly -list -noheader then the query for duckdb (interactive, last-flag-wins)', function()
+    local dk = schemas.get('duckdb')
+    local spec = schemas.command_spec('duckdb:/tmp/x.duckdb', dk, dk.schemes_query)
+    assert.equals('duckdb', spec.cmd[1])
+    -- the CLI is last-flag-wins: -list -noheader after dadbod's -column
+    -- -header gives pipe-separated headerless rows; -readonly so the
+    -- concurrent introspection fan-out can share DuckDB's file lock
+    assert.equals(dk.schemes_query, spec.cmd[#spec.cmd])
+    assert.same({ '-readonly', '-list', '-noheader' }, vim.list_slice(spec.cmd, #spec.cmd - 3, #spec.cmd - 1))
+    assert.is_nil(spec.stdin)
   end)
 
   it('an args override replaces the adapter args for one command', function()

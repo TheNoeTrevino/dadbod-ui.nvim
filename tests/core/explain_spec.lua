@@ -23,6 +23,7 @@ describe('explain: wrap', function()
     assert.equals('EXPLAIN select 1', explain.wrap('mariadb', 'select 1'))
     assert.equals('EXPLAIN QUERY PLAN select 1', explain.wrap('sqlite', 'select 1'))
     assert.equals('EXPLAIN select 1', explain.wrap('clickhouse', 'select 1'))
+    assert.equals('EXPLAIN select 1', explain.wrap('duckdb', 'select 1'))
     assert.is_truthy(explain.wrap('oracle', 'select 1'):match('^EXPLAIN PLAN FOR select 1;'))
     assert.is_truthy(explain.wrap('oracle', 'select 1'):match('DBMS_XPLAN%.DISPLAY'))
   end)
@@ -45,6 +46,8 @@ describe('explain: wrap', function()
     assert.equals('EXPLAIN ANALYZE select 1', explain.wrap('mysql', 'select 1', { analyze = true }))
     -- MariaDB spells the executing form `ANALYZE <stmt>`.
     assert.equals('ANALYZE select 1', explain.wrap('mariadb', 'select 1', { analyze = true }))
+    -- DuckDB's ANALYZE executes the statement, same caveat as postgres.
+    assert.equals('EXPLAIN ANALYZE select 1', explain.wrap('duckdb', 'select 1', { analyze = true }))
   end)
 
   it('errors when analyze is requested but the adapter has no executing form', function()
@@ -66,7 +69,7 @@ describe('explain: wrap', function()
   end)
 
   it('errors on the JSON form for text-only EXPLAIN dialects', function()
-    for _, scheme in ipairs({ 'sqlite', 'clickhouse', 'oracle' }) do
+    for _, scheme in ipairs({ 'sqlite', 'clickhouse', 'oracle', 'duckdb' }) do
       local sql, err = explain.wrap(scheme, 'select 1', { format = 'json' })
       assert.is_nil(sql)
       assert.is_truthy(err and err:match('JSON explain plan is not supported'))
@@ -95,7 +98,7 @@ describe('explain: supports / supported_schemes', function()
 
   it('lists the supported schemes sorted (canonical adapter names)', function()
     local schemes = explain.supported_schemes()
-    assert.same({ 'clickhouse', 'mariadb', 'mysql', 'oracle', 'postgres', 'sqlite' }, schemes)
+    assert.same({ 'clickhouse', 'duckdb', 'mariadb', 'mysql', 'oracle', 'postgres', 'sqlite' }, schemes)
   end)
 
   it('gates the structured JSON form separately from text EXPLAIN', function()
