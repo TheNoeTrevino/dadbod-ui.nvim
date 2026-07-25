@@ -16,7 +16,7 @@ sql before it runs. We never wrap it in a subquery.
 
 | Style          | Clause                           | Adapters                         |
 | -------------- | -------------------------------- | -------------------------------- |
-| `limit_offset` | `LIMIT <length> OFFSET <offset>` | PG, SQLite, ClickHouse, BigQuery |
+| `limit_offset` | `LIMIT <length> OFFSET <offset>` | PG, SQLite, ClickHouse, BigQuery, DuckDB |
 | `limit_comma`  | `LIMIT <offset>, <length>`       | MySQL, MariaDB                   |
 
 Offset is `(page - 1) * page_size`. Pages are 1 based.

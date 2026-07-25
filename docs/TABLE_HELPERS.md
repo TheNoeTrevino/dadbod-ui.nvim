@@ -34,6 +34,7 @@ have are skipped.
 | MySQL      | 5     | List, Columns, Indexes, Primary Keys, Foreign Keys                                      |
 | MariaDB    | 5     | List, Columns, Indexes, Primary Keys, Foreign Keys                                      |
 | SQLite     | 5     | List, Columns, Indexes, Primary Keys, Foreign Keys (all via `pragma_*` table functions) |
+| DuckDB     | 6     | List, Columns, Indexes, Primary Keys, Foreign Keys, References (via `duckdb_*` functions) |
 | ClickHouse | 2     | List, Columns                                                                           |
 | BigQuery   | 2     | List, Columns                                                                           |
 | Mongo      | 1     | List                                                                                    |
