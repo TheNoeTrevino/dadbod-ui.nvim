@@ -11,6 +11,7 @@ FROM ubuntu:24.04
 ARG NVIM_VERSION=v0.12.3
 ARG MONGOSH_VERSION=2.3.1
 ARG SQLCMD_VERSION=1.8.2
+ARG DUCKDB_VERSION=1.5.4
 # Matches the clickhouse-server tag in docker-compose.yml (24.8 LTS).
 ARG CLICKHOUSE_VERSION=24.8.14.39
 
@@ -23,7 +24,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 # Oracle's for NULL. Both talk to either server.
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
-  ca-certificates curl git make tar xz-utils bzip2 \
+  ca-certificates curl git make tar xz-utils bzip2 unzip \
   postgresql-client mariadb-client sqlite3 \
   luarocks \
   && rm -rf /var/lib/apt/lists/*
@@ -69,6 +70,10 @@ RUN set -eux; \
   curl -fsSL -o /tmp/sqlcmd.tar.bz2 \
   "https://github.com/microsoft/go-sqlcmd/releases/download/v${SQLCMD_VERSION}/sqlcmd-linux-${GOARCH}.tar.bz2"; \
   tar -C /usr/local/bin -xjf /tmp/sqlcmd.tar.bz2 sqlcmd; \
+  \
+  curl -fsSL -o /tmp/duckdb.zip \
+  "https://github.com/duckdb/duckdb/releases/download/v${DUCKDB_VERSION}/duckdb_cli-linux-${GOARCH}.zip"; \
+  unzip -o /tmp/duckdb.zip -d /usr/local/bin duckdb; \
   \
   rm -rf /tmp/*; \
   nvim --version | head -1

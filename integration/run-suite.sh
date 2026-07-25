@@ -24,9 +24,11 @@ export DBUI_IT_MYSQL_URL="mysql://dbui:dbui@${DBUI_IT_MYSQL_HOST}:${DBUI_IT_MYSQ
 # suite must exercise the adapter the scheme actually selects.
 export DBUI_IT_MARIADB_URL="mariadb://dbui:dbui@${DBUI_IT_MARIADB_HOST}:${DBUI_IT_MARIADB_PORT}/dbui"
 
-SQLITE_TMP="$(mktemp -d)"
-trap 'rm -rf "$SQLITE_TMP"' EXIT
-export DBUI_IT_SQLITE_URL="sqlite:${SQLITE_TMP}/dbui.db"
+# One throwaway dir for the file-based engines (no container, no server).
+FILEDB_TMP="$(mktemp -d)"
+trap 'rm -rf "$FILEDB_TMP"' EXIT
+export DBUI_IT_SQLITE_URL="sqlite:${FILEDB_TMP}/dbui.db"
+export DBUI_IT_DUCKDB_URL="duckdb:${FILEDB_TMP}/dbui.duckdb"
 
 echo "==> seeding"
 # client-min-messages=warning: the seeds are idempotent (DROP ... IF EXISTS),
@@ -35,7 +37,8 @@ PGPASSWORD=dbui PGOPTIONS='--client-min-messages=warning' psql -h "$DBUI_IT_PG_H
   -v ON_ERROR_STOP=1 -q -f "$HERE/seed/postgres.sql"
 mariadb --host="$DBUI_IT_MYSQL_HOST" --port="$DBUI_IT_MYSQL_PORT" -u dbui -pdbui dbui <"$HERE/seed/mysql.sql"
 mariadb --host="$DBUI_IT_MARIADB_HOST" --port="$DBUI_IT_MARIADB_PORT" -u dbui -pdbui dbui <"$HERE/seed/mysql.sql"
-sqlite3 "${SQLITE_TMP}/dbui.db" <"$HERE/seed/sqlite.sql"
+sqlite3 "${FILEDB_TMP}/dbui.db" <"$HERE/seed/sqlite.sql"
+duckdb "${FILEDB_TMP}/dbui.duckdb" <"$HERE/seed/duckdb.sql"
 
 if [[ "${DBUI_IT_EXTRA:-0}" == "1" ]]; then
   echo "==> seeding extras"
