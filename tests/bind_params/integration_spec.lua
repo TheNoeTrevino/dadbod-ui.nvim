@@ -4,30 +4,8 @@
 -- numeric vs string quoting and a custom pattern over the actual engine, not a
 -- stub -- the regression complement to the stubbed flow specs.
 
-local drawer_mod = require('dadbod-ui.drawer')
-local state = require('dadbod-ui.state')
-local config = require('dadbod-ui.config')
 local bridge = require('dadbod-ui.bridge')
-
-local fixture = '/tmp/dbui_bp_integration.db'
-
-local function make_drawer(overrides)
-  local cfg = config.resolve(
-    vim.tbl_extend('force', { save_location = '/tmp/dbui_bp_int', drawer = { show_help = false } }, overrides or {})
-  )
-  local instance = state.new(cfg):populate({ env = {}, g_dbs = { qa = 'sqlite:' .. fixture }, file_entries = {} })
-  local d = drawer_mod.new(instance)
-  d.connector = bridge.connect -- real connection
-  return d
-end
-
-local function entry_named(d, name)
-  for _, record in ipairs(d.instance.dbs_list) do
-    if record.name == name then
-      return d.instance.dbs[record.key_name]
-    end
-  end
-end
+local h = require('helper')
 
 -- Collect the text of every open .dbout buffer.
 local function dbout_text()
@@ -47,17 +25,13 @@ local function wait_for(text)
 end
 
 describe('bind params: end-to-end (sqlite)', function()
-  local d, query_buf
+  local d, query_buf, db_url
 
   before_each(function()
-    if vim.fn.executable('sqlite3') == 1 then
-      vim.fn.delete(fixture)
-      vim.fn.system({
-        'sqlite3',
-        fixture,
-        "CREATE TABLE users(id INTEGER, name TEXT); INSERT INTO users VALUES (1,'ada'),(2,'alan'),(3,'O''Brien');",
-      })
-    end
+    h.clean_ui()
+    db_url = h.sqlite_db(
+      "CREATE TABLE users(id INTEGER, name TEXT); INSERT INTO users VALUES (1,'ada'),(2,'alan'),(3,'O''Brien');"
+    )
   end)
 
   after_each(function()
@@ -74,22 +48,21 @@ describe('bind params: end-to-end (sqlite)', function()
       d:close()
       d = nil
     end
-    vim.fn.delete(fixture)
   end)
 
   local function open_query(d_, lines)
     d_:open()
-    local entry = entry_named(d_, 'qa')
+    local entry = h.entry_named(d_, 'qa')
     d_:query():open({ type = 'query', key_name = entry.key_name }, 'edit')
     query_buf = vim.api.nvim_get_current_buf()
     vim.api.nvim_buf_set_lines(0, 0, -1, false, lines)
   end
 
   it('substitutes a numeric param bare and returns the matching row', function()
-    if vim.fn.executable('sqlite3') ~= 1 then
+    if not db_url then
       return pending('sqlite3 not installed')
     end
-    d = make_drawer()
+    d = h.make_drawer({ g_dbs = { qa = db_url }, connector = bridge.connect })
     open_query(d, { 'SELECT name FROM users WHERE id = :id;' })
     d:query().input = function(_, on_confirm)
       on_confirm('2')
@@ -102,10 +75,10 @@ describe('bind params: end-to-end (sqlite)', function()
   end)
 
   it('quotes a string param and returns the matching row', function()
-    if vim.fn.executable('sqlite3') ~= 1 then
+    if not db_url then
       return pending('sqlite3 not installed')
     end
-    d = make_drawer()
+    d = h.make_drawer({ g_dbs = { qa = db_url }, connector = bridge.connect })
     open_query(d, { 'SELECT id FROM users WHERE name = :name;' })
     d:query().input = function(_, on_confirm)
       on_confirm('alan')
@@ -116,10 +89,10 @@ describe('bind params: end-to-end (sqlite)', function()
   end)
 
   it('escapes an embedded quote in a string param', function()
-    if vim.fn.executable('sqlite3') ~= 1 then
+    if not db_url then
       return pending('sqlite3 not installed')
     end
-    d = make_drawer()
+    d = h.make_drawer({ g_dbs = { qa = db_url }, connector = bridge.connect })
     open_query(d, { 'SELECT id FROM users WHERE name = :name;' })
     d:query().input = function(_, on_confirm)
       on_confirm("O'Brien")
@@ -130,10 +103,14 @@ describe('bind params: end-to-end (sqlite)', function()
   end)
 
   it('honors a custom $N bind_param_pattern', function()
-    if vim.fn.executable('sqlite3') ~= 1 then
+    if not db_url then
       return pending('sqlite3 not installed')
     end
-    d = make_drawer({ query = { bind_param_pattern = '\\$\\d\\+' } })
+    d = h.make_drawer({
+      g_dbs = { qa = db_url },
+      connector = bridge.connect,
+      config = { query = { bind_param_pattern = '\\$\\d\\+' } },
+    })
     open_query(d, { 'SELECT name FROM users WHERE id = $1;' })
     d:query().input = function(_, on_confirm)
       on_confirm('1')
