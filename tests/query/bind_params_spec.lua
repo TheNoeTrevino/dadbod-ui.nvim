@@ -3,30 +3,8 @@
 -- the <Leader>E edit flow. The engine is stubbed (bridge functions swapped out),
 -- so no DB binary is required -- we assert on what would be sent, not on rows.
 
-local drawer_mod = require('dadbod-ui.drawer')
-local state = require('dadbod-ui.state')
-local config = require('dadbod-ui.config')
 local bridge = require('dadbod-ui.bridge')
-
-local function make_drawer(overrides)
-  local cfg = config.resolve(
-    vim.tbl_extend('force', { save_location = '/tmp/dbui_bp', drawer = { show_help = false } }, overrides or {})
-  )
-  local instance = state.new(cfg):populate({ env = {}, g_dbs = { qa = 'sqlite:/tmp/qa.db' }, file_entries = {} })
-  local d = drawer_mod.new(instance)
-  d.connector = function(url)
-    return url
-  end
-  return d
-end
-
-local function entry_named(d, name)
-  for _, record in ipairs(d.instance.dbs_list) do
-    if record.name == name then
-      return d.instance.dbs[record.key_name]
-    end
-  end
-end
+local h = require('helper')
 
 describe('bind params: execute flow', function()
   local d, query_buf
@@ -34,6 +12,7 @@ describe('bind params: execute flow', function()
   local calls
 
   before_each(function()
+    h.clean_ui()
     calls = { buffer = 0, files = {} }
     saved = {
       execute_buffer = bridge.execute_buffer,
@@ -72,14 +51,14 @@ describe('bind params: execute flow', function()
 
   local function open_query(lines)
     d:open()
-    local entry = entry_named(d, 'qa')
+    local entry = h.entry_named(d, 'qa')
     d:query():open({ type = 'query', key_name = entry.key_name }, 'edit')
     query_buf = vim.api.nvim_get_current_buf()
     vim.api.nvim_buf_set_lines(0, 0, -1, false, lines)
   end
 
   it('auto-paginates a plain whole-buffer SELECT as page 1 (tempfile, not %DB)', function()
-    d = make_drawer()
+    d = h.make_drawer()
     open_query({ 'SELECT 1' })
     d:query():execute_query()
     -- sqlite is a paginated adapter: the SELECT runs as page 1 (LIMIT/OFFSET) from
@@ -89,7 +68,7 @@ describe('bind params: execute flow', function()
   end)
 
   it('runs a whole-buffer non-paginatable query directly through %DB', function()
-    d = make_drawer()
+    d = h.make_drawer()
     open_query({ 'SELECT 1 LIMIT 10' }) -- already paged: not rewritten, stays on %DB
     d:query():execute_query()
     assert.equals(1, calls.buffer)
@@ -97,7 +76,7 @@ describe('bind params: execute flow', function()
   end)
 
   it('runs a visual selection from a temp file (no marks, no %DB)', function()
-    d = make_drawer()
+    d = h.make_drawer()
     open_query({ 'SELECT 1', 'SELECT 2' })
     -- select the first line; leaving visual sets '<'/'>' so get_lines reads it
     vim.api.nvim_win_set_cursor(0, { 1, 0 })
@@ -107,11 +86,11 @@ describe('bind params: execute flow', function()
     assert.equals(0, calls.buffer) -- never goes through %DB
     -- the selection is a plain SELECT on sqlite, so it auto-paginates as page 1
     assert.same({ { 'SELECT 1 LIMIT 200 OFFSET 0' } }, calls.files)
-    assert.equals(entry_named(d, 'qa').conn, calls.last_url)
+    assert.equals(h.entry_named(d, 'qa').conn, calls.last_url)
   end)
 
   it('prompts for a placeholder, persists it, and runs the substituted query', function()
-    d = make_drawer()
+    d = h.make_drawer()
     open_query({ 'SELECT * FROM contacts WHERE id = :id' })
 
     local prompts = {}
@@ -128,11 +107,11 @@ describe('bind params: execute flow', function()
     -- the substituted query is a plain SELECT, so it auto-paginates as page 1
     assert.same({ { 'SELECT * FROM contacts WHERE id = 5 LIMIT 200 OFFSET 0' } }, calls.files)
     -- execution targets the captured connection url, not the current buffer's b:db
-    assert.equals(entry_named(d, 'qa').conn, calls.last_url)
+    assert.equals(h.entry_named(d, 'qa').conn, calls.last_url)
   end)
 
   it('quotes a string value and escapes embedded quotes', function()
-    d = make_drawer()
+    d = h.make_drawer()
     open_query({ 'WHERE name = :name' })
     d:query().input = function(_, on_confirm)
       on_confirm("O'Brien")
@@ -142,7 +121,7 @@ describe('bind params: execute flow', function()
   end)
 
   it('does not re-prompt on a second run with the value already stored', function()
-    d = make_drawer()
+    d = h.make_drawer()
     open_query({ 'WHERE id = :id' })
 
     local count = 0
@@ -158,7 +137,7 @@ describe('bind params: execute flow', function()
   end)
 
   it('aborts without executing or persisting when a prompt is cancelled', function()
-    d = make_drawer()
+    d = h.make_drawer()
     open_query({ 'SELECT :a, :b' })
 
     local seen = 0
@@ -180,7 +159,7 @@ describe('bind params: execute flow', function()
   end)
 
   it('explains without throwing when the buffer is wiped while the prompt is open', function()
-    d = make_drawer()
+    d = h.make_drawer()
     open_query({ 'SELECT * FROM t WHERE id = :id' })
 
     local pending
@@ -200,7 +179,7 @@ describe('bind params: execute flow', function()
   end)
 
   it('honors a custom bind_param_pattern', function()
-    d = make_drawer({ query = { bind_param_pattern = '\\$\\d\\+' } })
+    d = h.make_drawer({ config = { query = { bind_param_pattern = '\\$\\d\\+' } } })
     open_query({ 'WHERE a = $1' })
     d:query().input = function(opts, on_confirm)
       assert.is_truthy(opts.prompt:find('$1', 1, true))
@@ -213,6 +192,10 @@ end)
 
 describe('bind params: edit', function()
   local d, query_buf
+
+  before_each(function()
+    h.clean_ui()
+  end)
 
   after_each(function()
     if query_buf then
@@ -227,7 +210,7 @@ describe('bind params: edit', function()
 
   local function open_query(lines)
     d:open()
-    local entry = entry_named(d, 'qa')
+    local entry = h.entry_named(d, 'qa')
     d:query():open({ type = 'query', key_name = entry.key_name }, 'edit')
     query_buf = vim.api.nvim_get_current_buf()
     vim.api.nvim_buf_set_lines(0, 0, -1, false, lines)
@@ -235,14 +218,14 @@ describe('bind params: edit', function()
 
   it('reports when there is nothing to edit', function()
     local notify = require('dadbod-ui.notifications')
-    d = make_drawer()
+    d = h.make_drawer()
     open_query({ 'SELECT 1' })
     d:query():edit_bind_parameters()
     assert.equals('No bind parameters to edit.', notify.get_last_msg())
   end)
 
   it('offers a placeholder detected in the buffer before any execute', function()
-    d = make_drawer()
+    d = h.make_drawer()
     open_query({ 'WHERE id = :id' }) -- never executed: nothing stored yet
 
     local default_seen = '<unset>'
@@ -270,7 +253,7 @@ describe('bind params: edit', function()
       return false
     end
 
-    d = make_drawer()
+    d = h.make_drawer()
     open_query({ 'WHERE id = :id' })
     -- pre-fill via edit, then execute
     d:query().input = function(_, on_confirm)
@@ -291,7 +274,7 @@ describe('bind params: edit', function()
   end)
 
   it('edits the single stored parameter directly (no picker)', function()
-    d = make_drawer()
+    d = h.make_drawer()
     open_query({ 'WHERE id = :id' })
     vim.b[query_buf].dbui_bind_params = { [':id'] = '1' }
 
@@ -307,7 +290,7 @@ describe('bind params: edit', function()
   end)
 
   it('uses the picker to choose among several parameters', function()
-    d = make_drawer()
+    d = h.make_drawer()
     open_query({ 'WHERE a = :a AND b = :b' })
     vim.b[query_buf].dbui_bind_params = { [':a'] = '1', [':b'] = '2' }
 
@@ -324,7 +307,7 @@ describe('bind params: edit', function()
   end)
 
   it('renders an unanswered detected param as "Not provided" in the picker', function()
-    d = make_drawer()
+    d = h.make_drawer()
     open_query({ 'WHERE a = :a AND b = :b' })
     vim.b[query_buf].dbui_bind_params = { [':a'] = '1' } -- :b detected but unanswered
 
@@ -339,7 +322,7 @@ describe('bind params: edit', function()
   end)
 
   it('leaves the value unchanged when the edit is cancelled', function()
-    d = make_drawer()
+    d = h.make_drawer()
     open_query({ 'WHERE id = :id' })
     vim.b[query_buf].dbui_bind_params = { [':id'] = '1' }
     d:query().input = function(_, on_confirm)
