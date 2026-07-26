@@ -3,24 +3,15 @@
 -- resolve a saved/tmp buffer back to the RIGHT connection (never the other
 -- group's, which shares the bare name). See utils.qualified_name.
 
-local drawer_mod = require('dadbod-ui.drawer')
-local state = require('dadbod-ui.state')
-local config = require('dadbod-ui.config')
+local h = require('helper')
 
-local SAVE_ROOT = '/tmp/dbui_grouped'
-local TMP_ROOT = '/tmp/dbui_grouped_tmp'
+local SAVE_ROOT = h.tmp_dir()
+local TMP_ROOT = h.tmp_dir()
 
 -- Two connections both named 'prod' (groups a/b), plus an ungrouped 'stage'.
 local function make_drawer()
-  vim.fn.delete(SAVE_ROOT, 'rf')
-  vim.fn.delete(TMP_ROOT, 'rf')
-  local cfg = config.resolve({
-    save_location = SAVE_ROOT,
-    tmp_query_location = TMP_ROOT,
-    drawer = { show_help = false },
-  })
-  local instance = state.new(cfg):populate({
-    env = {},
+  return h.make_drawer({
+    config = { save_location = SAVE_ROOT, tmp_query_location = TMP_ROOT },
     g_dbs = {},
     file_entries = {
       { name = 'prod', url = 'sqlite:/tmp/a.db', group = 'a' },
@@ -28,11 +19,6 @@ local function make_drawer()
       { name = 'stage', url = 'sqlite:/tmp/stage.db' },
     },
   })
-  local d = drawer_mod.new(instance)
-  d.connector = function(url)
-    return url
-  end
-  return d
 end
 
 local function entry(d, key_name)
@@ -41,6 +27,9 @@ end
 
 describe('grouped buffer/save naming', function()
   local d
+  before_each(function()
+    h.clean_ui()
+  end)
   after_each(function()
     if d then
       d:close()

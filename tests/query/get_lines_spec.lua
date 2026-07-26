@@ -3,21 +3,17 @@
 -- the user's unnamed (`"`) register must be left completely untouched -- this is
 -- the regression the rewrite guards against.
 
-local drawer_mod = require('dadbod-ui.drawer')
-local state = require('dadbod-ui.state')
-local config = require('dadbod-ui.config')
+local h = require('helper')
 
 local function make_query()
-  local cfg = config.resolve({ save_location = '/tmp/dbui_getlines', drawer = { show_help = false } })
-  local instance = state.new(cfg):populate({ env = {}, g_dbs = { qa = 'sqlite:/tmp/qa.db' }, file_entries = {} })
-  return drawer_mod.new(instance):query()
+  return h.make_drawer():query()
 end
 
 describe('Query:get_lines visual branch', function()
   local buf
 
   before_each(function()
-    require('helper').clean_ui()
+    h.clean_ui()
     buf = vim.api.nvim_create_buf(true, false)
     vim.api.nvim_set_current_buf(buf)
     vim.api.nvim_buf_set_lines(buf, 0, -1, false, { 'first line', 'second line', 'third line' })

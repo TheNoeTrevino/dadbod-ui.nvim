@@ -2,32 +2,13 @@
 -- query buffer to another connection, rewriting the contract + winbar and moving
 -- the buffer's tracking between connections. Driven through an injected drawer.
 
-local drawer_mod = require('dadbod-ui.drawer')
-local state = require('dadbod-ui.state')
-local config = require('dadbod-ui.config')
-
-local function make_drawer(g_dbs, overrides)
-  local cfg = config.resolve(
-    vim.tbl_extend('force', { save_location = '/tmp/dbui_switch', drawer = { show_help = false } }, overrides or {})
-  )
-  local instance = state.new(cfg):populate({ env = {}, g_dbs = g_dbs, file_entries = {} })
-  local d = drawer_mod.new(instance)
-  d.connector = function(url)
-    return url
-  end
-  return d
-end
-
-local function entry_named(d, name)
-  for _, record in ipairs(d.instance.dbs_list) do
-    if record.name == name then
-      return d.instance.dbs[record.key_name]
-    end
-  end
-end
+local h = require('helper')
 
 describe('switch_buffer', function()
   local d
+  before_each(function()
+    h.clean_ui()
+  end)
   after_each(function()
     if d then
       d:close()
@@ -37,10 +18,13 @@ describe('switch_buffer', function()
   end)
 
   it('reassigns the contract, winbar, and buffer tracking to the chosen db', function()
-    d = make_drawer({ a = 'sqlite:/tmp/a.db', b = 'sqlite:/tmp/b.db' }, { query = { show_buffer_connection = true } })
+    d = h.make_drawer({
+      g_dbs = { a = 'sqlite:/tmp/a.db', b = 'sqlite:/tmp/b.db' },
+      config = { query = { show_buffer_connection = true } },
+    })
     d:open()
-    local a = entry_named(d, 'a')
-    local b = entry_named(d, 'b')
+    local a = h.entry_named(d, 'a')
+    local b = h.entry_named(d, 'b')
     -- Open a real query buffer on connection a, in a non-drawer window.
     d:query():open({ type = 'query', key_name = a.key_name }, 'edit')
     local bufname = vim.api.nvim_buf_get_name(0)
@@ -69,10 +53,10 @@ describe('switch_buffer', function()
   end)
 
   it('carries the table/schema/bind-param context across the switch', function()
-    d = make_drawer({ a = 'sqlite:/tmp/a.db', b = 'sqlite:/tmp/b.db' })
+    d = h.make_drawer({ g_dbs = { a = 'sqlite:/tmp/a.db', b = 'sqlite:/tmp/b.db' } })
     d:open()
-    local a = entry_named(d, 'a')
-    local b = entry_named(d, 'b')
+    local a = h.entry_named(d, 'a')
+    local b = h.entry_named(d, 'b')
     d:query():open({ type = 'query', key_name = a.key_name }, 'edit')
     local bufnr = vim.api.nvim_get_current_buf()
     vim.b[bufnr].dbui_table_name = 'users'
@@ -91,9 +75,9 @@ describe('switch_buffer', function()
   end)
 
   it('does nothing when the picker is cancelled', function()
-    d = make_drawer({ a = 'sqlite:/tmp/a.db', b = 'sqlite:/tmp/b.db' })
+    d = h.make_drawer({ g_dbs = { a = 'sqlite:/tmp/a.db', b = 'sqlite:/tmp/b.db' } })
     d:open()
-    local a = entry_named(d, 'a')
+    local a = h.entry_named(d, 'a')
     d:query():open({ type = 'query', key_name = a.key_name }, 'edit')
     local bufnr = vim.api.nvim_get_current_buf()
     d:query().select = function(_, _, on_choice)
@@ -104,9 +88,9 @@ describe('switch_buffer', function()
   end)
 
   it('notifies when there is no other connection to switch to', function()
-    d = make_drawer({ a = 'sqlite:/tmp/a.db' })
+    d = h.make_drawer({ g_dbs = { a = 'sqlite:/tmp/a.db' } })
     d:open()
-    local a = entry_named(d, 'a')
+    local a = h.entry_named(d, 'a')
     d:query():open({ type = 'query', key_name = a.key_name }, 'edit')
     local notify = require('dadbod-ui.notifications')
     local msg
@@ -120,7 +104,7 @@ describe('switch_buffer', function()
   end)
 
   it('falls back to find_buffer for a bare buffer', function()
-    d = make_drawer({ a = 'sqlite:/tmp/a.db' })
+    d = h.make_drawer({ g_dbs = { a = 'sqlite:/tmp/a.db' } })
     d:open()
     vim.cmd('wincmd p')
     vim.cmd('enew')
@@ -133,10 +117,10 @@ describe('switch_buffer', function()
   end)
 
   it('switches directly to a named connection without prompting', function()
-    d = make_drawer({ a = 'sqlite:/tmp/a.db', b = 'sqlite:/tmp/b.db' })
+    d = h.make_drawer({ g_dbs = { a = 'sqlite:/tmp/a.db', b = 'sqlite:/tmp/b.db' } })
     d:open()
-    local a = entry_named(d, 'a')
-    local b = entry_named(d, 'b')
+    local a = h.entry_named(d, 'a')
+    local b = h.entry_named(d, 'b')
     d:query():open({ type = 'query', key_name = a.key_name }, 'edit')
     local bufname = vim.api.nvim_buf_get_name(0)
     local bufnr = vim.api.nvim_get_current_buf()
@@ -152,9 +136,9 @@ describe('switch_buffer', function()
   end)
 
   it('errors for an unknown named target, leaving the buffer put', function()
-    d = make_drawer({ a = 'sqlite:/tmp/a.db', b = 'sqlite:/tmp/b.db' })
+    d = h.make_drawer({ g_dbs = { a = 'sqlite:/tmp/a.db', b = 'sqlite:/tmp/b.db' } })
     d:open()
-    local a = entry_named(d, 'a')
+    local a = h.entry_named(d, 'a')
     d:query():open({ type = 'query', key_name = a.key_name }, 'edit')
     local bufnr = vim.api.nvim_get_current_buf()
     local ok, err = d:switch_buffer('nope')
@@ -164,7 +148,7 @@ describe('switch_buffer', function()
   end)
 
   it('errors on a named switch from a bare buffer (no query contract)', function()
-    d = make_drawer({ a = 'sqlite:/tmp/a.db', b = 'sqlite:/tmp/b.db' })
+    d = h.make_drawer({ g_dbs = { a = 'sqlite:/tmp/a.db', b = 'sqlite:/tmp/b.db' } })
     d:open()
     vim.cmd('wincmd p')
     vim.cmd('enew')
@@ -175,9 +159,7 @@ describe('switch_buffer', function()
 
   it('labels the picker and prompt with group/name (issue #58)', function()
     -- Two groups, a name (qa) that only makes sense with its group shown.
-    local cfg = config.resolve({ save_location = '/tmp/dbui_switch', drawer = { show_help = false } })
-    local instance = state.new(cfg):populate({
-      env = {},
+    d = h.make_drawer({
       g_dbs = {},
       file_entries = {
         { name = 'qa', url = 'sqlite:/tmp/icris_qa.db', group = 'ICRIS' },
@@ -185,12 +167,8 @@ describe('switch_buffer', function()
         { name = 'test', url = 'sqlite:/tmp/nmcris_test.db', group = 'NMCRIS' },
       },
     })
-    d = drawer_mod.new(instance)
-    d.connector = function(url)
-      return url
-    end
     d:open()
-    local qa = instance.dbs['ICRIS_qa_file']
+    local qa = d.instance.dbs['ICRIS_qa_file']
     d:query():open({ type = 'query', key_name = qa.key_name }, 'edit')
 
     local captured

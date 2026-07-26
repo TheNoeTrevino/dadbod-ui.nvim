@@ -4,29 +4,7 @@
 -- `show_buffer_connection` toggle is off). No DB binary is needed.
 
 local query = require('dadbod-ui.query')
-local drawer_mod = require('dadbod-ui.drawer')
-local state = require('dadbod-ui.state')
-local config = require('dadbod-ui.config')
-
-local function make_drawer(g_dbs, overrides)
-  local cfg = config.resolve(
-    vim.tbl_extend('force', { save_location = '/tmp/dbui_winbar', drawer = { show_help = false } }, overrides or {})
-  )
-  local instance = state.new(cfg):populate({ env = {}, g_dbs = g_dbs, file_entries = {} })
-  local d = drawer_mod.new(instance)
-  d.connector = function(url)
-    return url
-  end
-  return d
-end
-
-local function entry_named(d, name)
-  for _, record in ipairs(d.instance.dbs_list) do
-    if record.name == name then
-      return d.instance.dbs[record.key_name]
-    end
-  end
-end
+local h = require('helper')
 
 describe('connection winbar: formatter', function()
   it('ungrouped connection shows just the name (no leading slash)', function()
@@ -63,6 +41,10 @@ describe('connection winbar: application', function()
   local d
   local query_bufs = {}
 
+  before_each(function()
+    h.clean_ui()
+  end)
+
   after_each(function()
     for _, b in ipairs(query_bufs) do
       pcall(vim.api.nvim_buf_delete, b, { force = true })
@@ -83,9 +65,9 @@ describe('connection winbar: application', function()
   end)
 
   it('sets the connection winbar on the query window when enabled', function()
-    d = make_drawer({ qa = 'sqlite:/tmp/qa.db' })
+    d = h.make_drawer()
     d:open()
-    local entry = entry_named(d, 'qa')
+    local entry = h.entry_named(d, 'qa')
     d:query():open({ type = 'query', key_name = entry.key_name }, 'edit')
     query_bufs[#query_bufs + 1] = vim.api.nvim_get_current_buf()
 
@@ -95,9 +77,9 @@ describe('connection winbar: application', function()
   end)
 
   it('clears the winbar when the query buffer leaves its window, then re-applies on re-entry', function()
-    d = make_drawer({ qa = 'sqlite:/tmp/qa.db' })
+    d = h.make_drawer()
     d:open()
-    local entry = entry_named(d, 'qa')
+    local entry = h.entry_named(d, 'qa')
     d:query():open({ type = 'query', key_name = entry.key_name }, 'edit')
     local qbuf = vim.api.nvim_get_current_buf()
     query_bufs[#query_bufs + 1] = qbuf
@@ -118,18 +100,12 @@ describe('connection winbar: application', function()
   end)
 
   it('applies the colored block for a colored file connection', function()
-    local cfg = config.resolve({ save_location = '/tmp/dbui_winbar', drawer = { show_help = false } })
-    local instance = state.new(cfg):populate({
-      env = {},
+    d = h.make_drawer({
       g_dbs = {},
       file_entries = { { name = 'orders', url = 'sqlite:/tmp/orders.db', group = 'prod', color = '#ff0000' } },
     })
-    d = drawer_mod.new(instance)
-    d.connector = function(url)
-      return url
-    end
     d:open()
-    local entry = entry_named(d, 'orders')
+    local entry = h.entry_named(d, 'orders')
     d:query():open({ type = 'query', key_name = entry.key_name }, 'edit')
     query_bufs[#query_bufs + 1] = vim.api.nvim_get_current_buf()
 
@@ -139,9 +115,9 @@ describe('connection winbar: application', function()
   end)
 
   it('leaves the winbar unset when show_buffer_connection is disabled', function()
-    d = make_drawer({ qa = 'sqlite:/tmp/qa.db' }, { query = { show_buffer_connection = false } })
+    d = h.make_drawer({ config = { query = { show_buffer_connection = false } } })
     d:open()
-    local entry = entry_named(d, 'qa')
+    local entry = h.entry_named(d, 'qa')
     d:query():open({ type = 'query', key_name = entry.key_name }, 'edit')
     query_bufs[#query_bufs + 1] = vim.api.nvim_get_current_buf()
 
