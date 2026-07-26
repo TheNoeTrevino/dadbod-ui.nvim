@@ -5,6 +5,7 @@
 -- (guarded by the presence of the `sqlite3` binary).
 
 local bridge = require('dadbod-ui.bridge')
+local h = require('helper')
 
 describe('bridge: availability', function()
   it('reports vim-dadbod as available', function()
@@ -100,14 +101,11 @@ describe('bridge: concurrent introspection (fan-out / WaitGroup)', function()
   end)
 
   it('collects results aligned to the input specs', function()
-    if vim.fn.executable('sqlite3') ~= 1 then
-      pending('sqlite3 not installed')
-      return
+    local url = h.sqlite_db('CREATE TABLE t(a); INSERT INTO t VALUES(1),(2),(3);')
+    if not url then
+      return pending('sqlite3 not installed')
     end
-    local dir = vim.fn.tempname()
-    vim.fn.mkdir(dir, 'p')
-    local db = dir .. '/c.db'
-    vim.fn.system({ 'sqlite3', db, 'CREATE TABLE t(a); INSERT INTO t VALUES(1),(2),(3);' })
+    local db = url:gsub('^sqlite:', '')
 
     local results, done
     bridge.run_many({
@@ -122,7 +120,6 @@ describe('bridge: concurrent introspection (fan-out / WaitGroup)', function()
     assert.equals('3', vim.trim(results[1].stdout))
     assert.equals('1', vim.trim(results[2].stdout))
     assert.equals(0, results[1].code)
-    vim.fn.delete(dir, 'rf')
   end)
 
   it('completes when a spawn fails mid-loop (missing binary)', function()
@@ -177,35 +174,19 @@ describe('bridge: connect_async', function()
 end)
 
 describe('bridge: async execution', function()
-  local has_sqlite = vim.fn.executable('sqlite3') == 1
-  local dir, db_path
+  local db_url
 
   before_each(function()
-    if not has_sqlite then
-      return
-    end
-    dir = vim.fn.tempname()
-    vim.fn.mkdir(dir, 'p')
-    db_path = dir .. '/test.db'
-    vim.fn.system({
-      'sqlite3',
-      db_path,
-      "CREATE TABLE greet(msg TEXT); INSERT INTO greet VALUES('hello_async');",
-    })
+    db_url = h.sqlite_db("CREATE TABLE greet(msg TEXT); INSERT INTO greet VALUES('hello_async');")
   end)
 
   after_each(function()
-    if dir then
-      vim.fn.delete(dir, 'rf')
-      dir, db_path = nil, nil
-    end
     pcall(vim.api.nvim_clear_autocmds, { event = 'User' })
   end)
 
   it('runs a query through :DB and fires pre/post with the output file', function()
-    if not has_sqlite then
-      pending('sqlite3 not installed')
-      return
+    if not db_url then
+      return pending('sqlite3 not installed')
     end
 
     local pre_file, post_file, rows
@@ -217,7 +198,7 @@ describe('bridge: async execution', function()
       rows = vim.fn.readfile(info.output_file)
     end, { once = true })
 
-    bridge.execute('sqlite:' .. db_path, 'SELECT msg FROM greet')
+    bridge.execute(db_url, 'SELECT msg FROM greet')
 
     local ok = vim.wait(5000, function()
       return post_file ~= nil

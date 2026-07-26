@@ -4,30 +4,9 @@
 -- engine lands. All pure or mock-driven -- no live database.
 
 local schemas = require('dadbod-ui.schemas')
-local drawer_mod = require('dadbod-ui.drawer')
 local ids = require('dadbod-ui.drawer.ids')
-local state = require('dadbod-ui.state')
-local config = require('dadbod-ui.config')
 local script_as = require('dadbod-ui.script_as')
-
--- A drawer over an instance seeded with injected connections (offline connector).
--- `make_drawer`/`entry_named`/`lines` follow the per-spec convention (see
--- routine_scripts_spec.lua); there is no shared test-helper module for them.
-local function make_drawer(g_dbs, overrides)
-  local cfg = config.resolve(
-    vim.tbl_extend(
-      'force',
-      { save_location = '/tmp/dbui_tbl_scripts', drawer = { show_help = false } },
-      overrides or {}
-    )
-  )
-  local instance = state.new(cfg):populate({ env = {}, g_dbs = g_dbs, file_entries = {} })
-  local d = drawer_mod.new(instance)
-  d.connector = function(url)
-    return url
-  end
-  return d
-end
+local h = require('helper')
 
 local function caps(scheme)
   return schemas.get(scheme).table_scripts
@@ -47,25 +26,6 @@ end
 local function build(scheme, label, ctx)
   local act = action(scheme, label)
   return (act.build or script_as.fetched)(ctx)
-end
-
-local function entry_named(d, name)
-  for _, record in ipairs(d.instance.dbs_list) do
-    if record.name == name then
-      return d.instance.dbs[record.key_name]
-    end
-  end
-end
-
-local function lines(d)
-  return vim.api.nvim_buf_get_lines(d.bufnr, 0, -1, false)
-end
-
---- Whether any rendered drawer line contains `text` (plain substring).
-local function has_line(d, text)
-  return vim.iter(lines(d)):any(function(l)
-    return l:find(text, 1, true)
-  end)
 end
 
 --- The first rendered node whose label is exactly `label`.
@@ -375,8 +335,8 @@ describe('table_scripts: produce orchestration', function()
   end)
 
   it('query-less DROP builds synchronously; query actions pass server text through', function()
-    d = make_drawer({ dev = 'postgres://h/dev' })
-    local entry = entry_named(d, 'dev')
+    d = h.make_drawer({ g_dbs = { dev = 'postgres://h/dev' } })
+    local entry = h.entry_named(d, 'dev')
     local called = 0
     bridge.run_many = function()
       called = called + 1
@@ -418,9 +378,9 @@ describe('table_scripts: drawer rendering', function()
   --- injected capability (adapters grow their real `table_scripts` in later
   --- commits; the drawer only cares that the entry carries one).
   local function render_table(capability)
-    d = make_drawer({ dev = 'postgres://h/dev' })
+    d = h.make_drawer({ g_dbs = { dev = 'postgres://h/dev' } })
     d:open()
-    local entry = entry_named(d, 'dev')
+    local entry = h.entry_named(d, 'dev')
     entry.table_scripts = capability
     entry.schemas.list = { 'public' }
     entry.schemas.items = { public = { 'users' } }
@@ -435,8 +395,8 @@ describe('table_scripts: drawer rendering', function()
     local entry = render_table({ actions = { { label = 'FAKE To' } } })
     d:set_expanded(ids.script_as(ids.table(entry.key_name, 'public', 'users')), true)
     d:render()
-    assert.is_truthy(has_line(d, 'Script As'))
-    assert.is_truthy(has_line(d, 'FAKE To'))
+    assert.is_truthy(h.has_line(d.bufnr, 'Script As'))
+    assert.is_truthy(h.has_line(d.bufnr, 'FAKE To'))
     -- pinned first: the submenu leads the (user-orderable) helper leaves
     local script_node = node_labeled(d, 'Script As')
     local list_node = node_labeled(d, 'List')
@@ -446,8 +406,8 @@ describe('table_scripts: drawer rendering', function()
   it('without the capability a table lists only its helpers', function()
     render_table(nil)
     d:render()
-    assert.is_truthy(has_line(d, 'List'))
-    assert.is_falsy(has_line(d, 'Script As'))
+    assert.is_truthy(h.has_line(d.bufnr, 'List'))
+    assert.is_falsy(h.has_line(d.bufnr, 'Script As'))
   end)
 
   it("an action leaf's on_activate dispatches to script_as.run with kind 'table'", function()
