@@ -4,6 +4,10 @@
 -- from a known-clean state. `clean_ui()` restores that; call it from a spec's
 -- `before_each` when the spec drives real windows/buffers.
 
+local config = require('dadbod-ui.config')
+local drawer_mod = require('dadbod-ui.drawer')
+local state = require('dadbod-ui.state')
+
 local M = {}
 
 --- Return to a single normal-mode window over a fresh scratch buffer, drop the
@@ -25,7 +29,7 @@ function M.clean_ui()
   vim.wo.foldexpr = '0'
   -- Reset the session state singleton (drops the cached instance + drawer).
   pcall(function()
-    require('dadbod-ui.state').reset()
+    state.reset()
   end)
   -- Wipe leftover plugin buffers so a reopened query buffer can't reuse stale
   -- content; keep the current buffer.
@@ -41,6 +45,113 @@ function M.clean_ui()
       end
     end
   end
+end
+
+--- A unique, created temp directory. Lives under Neovim's private tempdir, so
+--- the OS path is unique per test process and removed when Neovim exits --
+--- specs never need to clean it up and parallel checkouts cannot collide.
+---@return string
+function M.tmp_dir()
+  local dir = vim.fn.tempname()
+  vim.fn.mkdir(dir, 'p')
+  return dir
+end
+
+--- A throwaway sqlite database seeded with `seed_sql`, for end-to-end specs
+--- that execute real queries. Returns the dadbod url, or nil when the sqlite3
+--- CLI is unavailable (callers `return pending(...)`). The file lives in
+--- Neovim's private tempdir, so it is unique per run and removed on exit.
+---@param seed_sql string
+---@return string? url
+function M.sqlite_db(seed_sql)
+  if vim.fn.executable('sqlite3') ~= 1 then
+    return nil
+  end
+  local path = vim.fn.tempname() .. '.db'
+  vim.fn.system({ 'sqlite3', path, seed_sql })
+  return 'sqlite:' .. path
+end
+
+---@class dbui.test.DrawerOpts
+---@field g_dbs? table<string,string> name -> url (default one sqlite connection 'qa')
+---@field file_entries? table[] entries as if read from connections.json
+---@field config? table overrides merged into the resolved test config
+---@field connector? 'echo'|'offline'|fun(url: string): string 'echo' (default) returns the url so entries "connect" and b:db is set; 'offline' returns '' so entries stay unconnected; a function is used as-is (e.g. the real bridge.connect for e2e specs)
+---@field inputs? string[] queued answers for d.input prompts
+---@field confirm? boolean fixed answer for d.confirm (only stubbed when set)
+
+--- A drawer over an instance seeded with injected connections -- the canonical
+--- offline fixture for drawer/query/dbout specs. Nothing touches a real DB
+--- unless a spec passes the real bridge as `connector`.
+---@param opts? dbui.test.DrawerOpts
+function M.make_drawer(opts)
+  opts = opts or {} --[[@as dbui.test.DrawerOpts]]
+  local cfg = config.resolve(vim.tbl_deep_extend('force', {
+    save_location = M.tmp_dir(),
+    drawer = { show_help = false },
+  }, opts.config or {}))
+  local instance = state.new(cfg):populate({
+    env = {},
+    g_dbs = opts.g_dbs or { qa = 'sqlite:/tmp/qa.db' },
+    file_entries = opts.file_entries or {},
+  })
+  local d = drawer_mod.new(instance)
+
+  local connector = opts.connector or 'echo'
+  if connector == 'echo' then
+    d.connector = function(url)
+      return url
+    end
+  elseif connector == 'offline' then
+    d.connector = function()
+      return ''
+    end
+  else
+    d.connector = connector
+  end
+
+  if opts.inputs then
+    local i = 0
+    d.input = function(_, on_confirm)
+      i = i + 1
+      on_confirm(opts.inputs[i])
+    end
+  end
+  if opts.confirm ~= nil then
+    d.confirm = function()
+      return opts.confirm
+    end
+  end
+  return d
+end
+
+--- Find a populated entry by connection name.
+function M.entry_named(d, name)
+  for _, record in ipairs(d.instance.dbs_list) do
+    if record.name == name then
+      return d.instance.dbs[record.key_name]
+    end
+  end
+end
+
+--- All lines of a buffer.
+---@param bufnr integer
+---@return string[]
+function M.buf_lines(bufnr)
+  return vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+end
+
+--- Whether any line of the buffer contains `text` (plain find, not a pattern).
+---@param bufnr integer
+---@param text string
+---@return boolean
+function M.has_line(bufnr, text)
+  for _, line in ipairs(M.buf_lines(bufnr)) do
+    if line:find(text, 1, true) then
+      return true
+    end
+  end
+  return false
 end
 
 return M
