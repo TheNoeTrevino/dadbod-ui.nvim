@@ -20,11 +20,20 @@ end
 
 -- busted's `pending()` marks a spec skipped; mini.test's busted emulation does
 -- not provide it. Our guarded specs call `return pending(msg)` to bow out when a
--- DB binary/url is unavailable, so a no-op that returns nil lets that `return`
--- exit the body cleanly. Defined BEFORE setup(): lazy.minit runs the whole
--- suite synchronously inside setup, and integration specs call pending() at
--- collect time (top of a describe body).
-_G.pending = function(...) end
+-- DB binary/url is unavailable. Inside a running case we forward to
+-- MiniTest.skip() so the case is REPORTED as a skip note instead of silently
+-- passing (a green run with sqlite3 missing used to look identical to real
+-- coverage). At collect time (top of a describe body, before any case runs)
+-- MiniTest.current.case is nil and skip() would blow up the collection, so
+-- there we stay a no-op returning nil -- `return pending(msg)` still exits the
+-- body cleanly. Defined BEFORE setup(): lazy.minit runs the whole suite
+-- synchronously inside setup.
+_G.pending = function(msg)
+  local ok, mini_test = pcall(require, 'mini.test')
+  if ok and mini_test.current and mini_test.current.case ~= nil then
+    mini_test.skip(type(msg) == 'string' and msg or nil)
+  end
+end
 
 -- Keep the command line quiet during tests.
 vim.notify = function() end
