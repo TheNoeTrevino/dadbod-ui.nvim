@@ -218,13 +218,8 @@ describe('dbout foreign-key jump (sqlite, end-to-end)', function()
 
   -- The dbout buffers whose lines contain `text`.
   local function dbout_with(text)
-    return vim.iter(vim.api.nvim_list_bufs()):find(function(b)
-      if not vim.api.nvim_buf_get_name(b):match('%.dbout$') then
-        return false
-      end
-      return vim.iter(vim.api.nvim_buf_get_lines(b, 0, -1, false)):any(function(l)
-        return l:find(text, 1, true) ~= nil
-      end)
+    return vim.iter(h.dbout_bufs()):find(function(b)
+      return h.has_line(b, text)
     end)
   end
 

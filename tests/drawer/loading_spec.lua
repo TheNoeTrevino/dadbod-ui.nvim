@@ -10,17 +10,11 @@ local state = require('dadbod-ui.state')
 local notifications = require('dadbod-ui.notifications')
 local h = require('helper')
 
--- Offline connector; the async_connector stub (not covered by the shared helper)
--- mirrors the non-blocking connect path `expand_db` uses so specs never dispatch
--- a real probe. Individual specs override it to simulate success/failure/latency.
+-- Offline connector; the deferring async_connector mirrors the non-blocking
+-- connect path `expand_db` uses so specs never dispatch a real probe.
+-- Individual specs override it to simulate success/failure/latency.
 local function make_drawer(g_dbs, overrides)
-  local d = h.make_drawer({ g_dbs = g_dbs, config = overrides, connector = 'offline' })
-  d.async_connector = function(_, on_result)
-    vim.schedule(function()
-      on_result(true, '')
-    end)
-  end
-  return d
+  return h.make_drawer({ g_dbs = g_dbs, config = overrides, connector = 'offline', async_connector = 'defer' })
 end
 
 describe('drawer loading: line_for', function()

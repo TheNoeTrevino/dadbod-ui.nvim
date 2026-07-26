@@ -17,12 +17,11 @@ describe('drawer repaint', function()
 
   before_each(function()
     h.clean_ui()
-    d = h.make_drawer({ g_dbs = { a = 'postgres://h/a', b = 'postgres://h/b' }, connector = 'offline' })
-    d.async_connector = function(_, on_result)
-      vim.schedule(function()
-        on_result(true, '')
-      end)
-    end
+    d = h.make_drawer({
+      g_dbs = { a = 'postgres://h/a', b = 'postgres://h/b' },
+      connector = 'offline',
+      async_connector = 'defer',
+    })
     -- Seed introspected tables so the tree has real depth to expand into.
     for _, name in ipairs({ 'a', 'b' }) do
       local entry = h.entry_named(d, name)

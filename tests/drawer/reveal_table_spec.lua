@@ -3,8 +3,8 @@ local helper = require('helper')
 
 -- A drawer over one schema connection (postgres) and one flat one (sqlite),
 -- with introspection data seeded directly -- reveal/goto work purely off
--- entry data, no live connection. The async_connector stub (not covered by the
--- shared helper) keeps any expansion offline.
+-- entry data, no live connection. The deferring async_connector keeps any
+-- expansion offline.
 local function make_drawer()
   local d = helper.make_drawer({
     g_dbs = {
@@ -12,12 +12,8 @@ local function make_drawer()
       { name = 'lite', url = 'sqlite:/tmp/dbui_reveal.db' },
     },
     connector = 'offline',
+    async_connector = 'defer',
   })
-  d.async_connector = function(_, on_result)
-    vim.schedule(function()
-      on_result(true, '')
-    end)
-  end
   local pg = helper.entry_named(d, 'pg')
   pg.tables = { 'logs', 'orders', 'users' }
   pg.schemas = {

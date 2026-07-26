@@ -95,13 +95,9 @@ describe('dbout: execute on save (sqlite)', function()
     vim.cmd('silent write')
 
     local function dbout_has(text)
-      for _, b in ipairs(vim.api.nvim_list_bufs()) do
-        if vim.api.nvim_buf_get_name(b):match('%.dbout$') then
-          for _, line in ipairs(vim.api.nvim_buf_get_lines(b, 0, -1, false)) do
-            if line:find(text, 1, true) then
-              return true
-            end
-          end
+      for _, b in ipairs(h.dbout_bufs()) do
+        if h.has_line(b, text) then
+          return true
         end
       end
       return false

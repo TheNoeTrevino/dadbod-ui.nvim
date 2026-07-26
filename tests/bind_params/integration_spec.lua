@@ -10,10 +10,8 @@ local h = require('helper')
 -- Collect the text of every open .dbout buffer.
 local function dbout_text()
   local out = {}
-  for _, b in ipairs(vim.api.nvim_list_bufs()) do
-    if vim.api.nvim_buf_get_name(b):match('%.dbout$') then
-      vim.list_extend(out, vim.api.nvim_buf_get_lines(b, 0, -1, false))
-    end
+  for _, b in ipairs(h.dbout_bufs()) do
+    vim.list_extend(out, vim.api.nvim_buf_get_lines(b, 0, -1, false))
   end
   return table.concat(out, '\n')
 end
@@ -39,11 +37,9 @@ describe('bind params: end-to-end (sqlite)', function()
       pcall(vim.api.nvim_buf_delete, query_buf, { force = true })
       query_buf = nil
     end
-    for _, b in ipairs(vim.api.nvim_list_bufs()) do
-      if vim.api.nvim_buf_get_name(b):match('%.dbout$') then
-        pcall(vim.api.nvim_buf_delete, b, { force = true })
-      end
-    end
+    vim.iter(h.dbout_bufs()):each(function(b)
+      pcall(vim.api.nvim_buf_delete, b, { force = true })
+    end)
     if d then
       d:close()
       d = nil

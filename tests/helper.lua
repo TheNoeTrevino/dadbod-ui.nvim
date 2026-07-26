@@ -58,18 +58,29 @@ function M.tmp_dir()
 end
 
 --- A throwaway sqlite database seeded with `seed_sql`, for end-to-end specs
---- that execute real queries. Returns the dadbod url, or nil when the sqlite3
---- CLI is unavailable (callers `return pending(...)`). The file lives in
---- Neovim's private tempdir, so it is unique per run and removed on exit.
+--- that execute real queries. Returns the dadbod url AND the raw path (some
+--- callers -- e.g. a `{ 'sqlite3', path }` argv -- need the bare file), or nil
+--- when the sqlite3 CLI is unavailable (callers `return pending(...)`). The
+--- file lives in Neovim's private tempdir, so it is unique per run and removed
+--- on exit.
 ---@param seed_sql string
----@return string? url
+---@return string? url, string? path
 function M.sqlite_db(seed_sql)
   if vim.fn.executable('sqlite3') ~= 1 then
     return nil
   end
   local path = vim.fn.tempname() .. '.db'
   vim.fn.system({ 'sqlite3', path, seed_sql })
-  return 'sqlite:' .. path
+  return 'sqlite:' .. path, path
+end
+
+--- Buffers whose name ends in `.dbout` (the result buffers). Folds the
+--- "scan nvim_list_bufs and match the name" loop specs otherwise repeat.
+---@return integer[]
+function M.dbout_bufs()
+  return vim.tbl_filter(function(b)
+    return vim.api.nvim_buf_get_name(b):match('%.dbout$') ~= nil
+  end, vim.api.nvim_list_bufs())
 end
 
 ---@class dbui.test.DrawerOpts
@@ -77,8 +88,14 @@ end
 ---@field file_entries? table[] entries as if read from connections.json
 ---@field config? table overrides merged into the resolved test config
 ---@field connector? 'echo'|'offline'|fun(url: string): string 'echo' (default) returns the url so entries "connect" and b:db is set; 'offline' returns '' so entries stay unconnected; a function is used as-is (e.g. the real bridge.connect for e2e specs)
+---@field async_connector? 'defer'|fun(url: string, on_result: fun(ok: boolean, conn: string)) 'defer' installs a stub that schedule-defers an empty success (mirrors the vim.system backend so the loading spinner is observable); a function is used as-is. Left unstubbed by default.
 ---@field inputs? string[] queued answers for d.input prompts
 ---@field confirm? boolean fixed answer for d.confirm (only stubbed when set)
+
+-- Offline specs never persist, so one lazily-created dir serves as the default
+-- save_location for every make_drawer that doesn't override it -- no per-call
+-- mkdir. Specs that actually write connections.json pass their own tmp dir.
+local default_save
 
 --- A drawer over an instance seeded with injected connections -- the canonical
 --- offline fixture for drawer/query/dbout specs. Nothing touches a real DB
@@ -86,8 +103,11 @@ end
 ---@param opts? dbui.test.DrawerOpts
 function M.make_drawer(opts)
   opts = opts or {} --[[@as dbui.test.DrawerOpts]]
+  if not (opts.config and opts.config.save_location) then
+    default_save = default_save or M.tmp_dir()
+  end
   local cfg = config.resolve(vim.tbl_deep_extend('force', {
-    save_location = M.tmp_dir(),
+    save_location = default_save,
     drawer = { show_help = false },
   }, opts.config or {}))
   local instance = state.new(cfg):populate({
@@ -108,6 +128,16 @@ function M.make_drawer(opts)
     end
   else
     d.connector = connector
+  end
+
+  if opts.async_connector == 'defer' then
+    d.async_connector = function(_, on_result)
+      vim.schedule(function()
+        on_result(true, '')
+      end)
+    end
+  elseif type(opts.async_connector) == 'function' then
+    d.async_connector = opts.async_connector
   end
 
   if opts.inputs then

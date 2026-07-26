@@ -149,13 +149,9 @@ describe('query_time: end-to-end (sqlite)', function()
     vim.cmd('silent write')
 
     local function dbout_buf()
-      for _, b in ipairs(vim.api.nvim_list_bufs()) do
-        if vim.api.nvim_buf_get_name(b):match('%.dbout$') then
-          for _, line in ipairs(vim.api.nvim_buf_get_lines(b, 0, -1, false)) do
-            if line:find('ada', 1, true) then
-              return b
-            end
-          end
+      for _, b in ipairs(h.dbout_bufs()) do
+        if h.has_line(b, 'ada') then
+          return b
         end
       end
     end

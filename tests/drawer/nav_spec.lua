@@ -1,23 +1,18 @@
 local h = require('helper')
 
 -- Navigation specs stay offline (expansion would otherwise connect). The
--- async_connector stub (not covered by the shared helper) returns an empty conn
--- so no real probe is spawned. Array form keeps a deterministic order.
+-- deferring async_connector returns an empty conn so no real probe is spawned.
+-- Array form keeps a deterministic order.
 local function make_drawer()
-  local d = h.make_drawer({
+  return h.make_drawer({
     g_dbs = {
       { name = 'a', url = 'postgres://h/a' },
       { name = 'b', url = 'postgres://h/b' },
       { name = 'c', url = 'postgres://h/c' },
     },
     connector = 'offline',
+    async_connector = 'defer',
   })
-  d.async_connector = function(_, on_result)
-    vim.schedule(function()
-      on_result(true, '')
-    end)
-  end
-  return d
 end
 
 local function cursor_line(d)

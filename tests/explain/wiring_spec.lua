@@ -29,11 +29,6 @@ local PLAN_JSON = vim.json.encode({
 describe('explain tree: query-buffer wiring', function()
   local d, query_bufs, saved_run_many, ran_specs, canned
 
-  -- Default 'echo' connector (returns the url) so the buffer connection is live.
-  local function make_drawer(g_dbs)
-    return h.make_drawer({ g_dbs = g_dbs })
-  end
-
   local function open_query_buffer(name, sql)
     d:open()
     local entry = h.entry_named(d, name)
@@ -69,7 +64,7 @@ describe('explain tree: query-buffer wiring', function()
 
   it('runs the wrapped JSON explain headlessly and opens the tree', function()
     canned = { code = 0, stdout = PLAN_JSON, stderr = '' }
-    d = make_drawer({ dev = 'postgres://u@h/dev' })
+    d = h.make_drawer({ g_dbs = { dev = 'postgres://u@h/dev' } })
     local entry = open_query_buffer('dev', 'select * from contacts')
     entry.conn = entry.url -- a live connection (the connector is identity)
     d:query():explain_tree(false)
@@ -83,13 +78,13 @@ describe('explain tree: query-buffer wiring', function()
     assert.is_truthy(cmd:match('%-A'))
 
     local t = assert(tree.get())
-    local lines = vim.api.nvim_buf_get_lines(t.bufnr, 0, -1, false)
+    local lines = h.buf_lines(t.bufnr)
     assert.is_truthy(lines[3]:match('Seq Scan on contacts'))
   end)
 
   it('uses the executing JSON form for analyze', function()
     canned = { code = 0, stdout = PLAN_JSON, stderr = '' }
-    d = make_drawer({ dev = 'postgres://u@h/dev' })
+    d = h.make_drawer({ g_dbs = { dev = 'postgres://u@h/dev' } })
     local entry = open_query_buffer('dev', 'delete from contacts')
     entry.conn = entry.url
     d:query():explain_tree(false, { analyze = true })
@@ -99,7 +94,7 @@ describe('explain tree: query-buffer wiring', function()
 
   it('surfaces the client error (stderr) and opens nothing', function()
     canned = { code = 3, stdout = '', stderr = 'ERROR:  relation "nope" does not exist' }
-    d = make_drawer({ dev = 'postgres://u@h/dev' })
+    d = h.make_drawer({ g_dbs = { dev = 'postgres://u@h/dev' } })
     local entry = open_query_buffer('dev', 'select * from nope')
     entry.conn = entry.url
     d:query():explain_tree(false)
@@ -108,7 +103,7 @@ describe('explain tree: query-buffer wiring', function()
   end)
 
   it('rejects adapters without a structured plan format before running', function()
-    d = make_drawer({ qa = 'sqlite:/tmp/qa.db' })
+    d = h.make_drawer({ g_dbs = { qa = 'sqlite:/tmp/qa.db' } })
     local entry = open_query_buffer('qa', 'select 1')
     entry.conn = entry.url
     d:query():explain_tree(false)
@@ -118,7 +113,7 @@ describe('explain tree: query-buffer wiring', function()
 
   it('connects first when the buffer connection is not live yet', function()
     canned = { code = 0, stdout = PLAN_JSON, stderr = '' }
-    d = make_drawer({ dev = 'postgres://u@h/dev' })
+    d = h.make_drawer({ g_dbs = { dev = 'postgres://u@h/dev' } })
     local entry = open_query_buffer('dev', 'select 1')
     entry.conn = nil
     d:query().introspect.async_connector = function(url, cb)
@@ -130,7 +125,7 @@ describe('explain tree: query-buffer wiring', function()
   end)
 
   it('surfaces a failed connect and runs nothing', function()
-    d = make_drawer({ dev = 'postgres://u@h/dev' })
+    d = h.make_drawer({ g_dbs = { dev = 'postgres://u@h/dev' } })
     local entry = open_query_buffer('dev', 'select 1')
     entry.conn = nil
     d:query().introspect.async_connector = function(_, cb)

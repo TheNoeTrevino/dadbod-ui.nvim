@@ -1,17 +1,11 @@
 local h = require('helper')
 
 -- Build a drawer over an instance seeded with injected connections. Offline
--- connector so expanding a connection never probes a real DB; the async_connector
--- stub (not covered by the shared helper) defers like the vim.system backend so
--- the loading spinner is observable between expand and resolution.
+-- connector so expanding a connection never probes a real DB; the deferring
+-- async_connector keeps the loading spinner observable between expand and
+-- resolution.
 local function make_drawer(g_dbs, overrides)
-  local d = h.make_drawer({ g_dbs = g_dbs, config = overrides, connector = 'offline' })
-  d.async_connector = function(_, on_result)
-    vim.schedule(function()
-      on_result(true, '')
-    end)
-  end
-  return d
+  return h.make_drawer({ g_dbs = g_dbs, config = overrides, connector = 'offline', async_connector = 'defer' })
 end
 
 describe('drawer: window', function()
@@ -53,7 +47,7 @@ end)
 describe('drawer: open failure', function()
   local d
   before_each(function()
-    require('helper').clean_ui()
+    h.clean_ui()
   end)
   after_each(function()
     if d then

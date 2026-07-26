@@ -101,11 +101,10 @@ describe('bridge: concurrent introspection (fan-out / WaitGroup)', function()
   end)
 
   it('collects results aligned to the input specs', function()
-    local url = h.sqlite_db('CREATE TABLE t(a); INSERT INTO t VALUES(1),(2),(3);')
+    local url, db = h.sqlite_db('CREATE TABLE t(a); INSERT INTO t VALUES(1),(2),(3);')
     if not url then
       return pending('sqlite3 not installed')
     end
-    local db = url:gsub('^sqlite:', '')
 
     local results, done
     bridge.run_many({
