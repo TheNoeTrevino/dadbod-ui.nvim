@@ -5,6 +5,7 @@
 
 local dbout = require('dadbod-ui.dbout')
 local schemas = require('dadbod-ui.schemas')
+local h = require('helper')
 
 describe('dbout.foldexpr_for', function()
   it('opens a fold on a mysql `+---` header border', function()
@@ -203,40 +204,16 @@ describe('schemas dbout metadata', function()
 end)
 
 describe('dbout foreign-key jump (sqlite, end-to-end)', function()
-  local drawer_mod = require('dadbod-ui.drawer')
-  local state = require('dadbod-ui.state')
-  local config = require('dadbod-ui.config')
-  local fixture = '/tmp/dbui_fk_sqlite.db'
   local d
 
   before_each(function()
-    if vim.fn.executable('sqlite3') == 1 then
-      vim.fn.delete(fixture)
-      vim.fn.system({
-        'sqlite3',
-        fixture,
-        table.concat({
-          'CREATE TABLE authors(id INTEGER PRIMARY KEY, name TEXT);',
-          'CREATE TABLE books(id INTEGER PRIMARY KEY, title TEXT, author_id INTEGER REFERENCES authors(id));',
-          "INSERT INTO authors VALUES (1,'Ada Lovelace'),(2,'Alan Turing');",
-          "INSERT INTO books VALUES (1,'Notes',1),(2,'Computable Numbers',2);",
-        }, ' '),
-      })
-    end
+    h.clean_ui()
   end)
-
   after_each(function()
-    for _, b in ipairs(vim.api.nvim_list_bufs()) do
-      local name = vim.api.nvim_buf_get_name(b)
-      if name:match('%.dbout$') or name:match('books') then
-        pcall(vim.api.nvim_buf_delete, b, { force = true })
-      end
-    end
     if d then
       d:close()
       d = nil
     end
-    vim.fn.delete(fixture)
   end)
 
   -- The dbout buffers whose lines contain `text`.
@@ -252,19 +229,22 @@ describe('dbout foreign-key jump (sqlite, end-to-end)', function()
   end
 
   it('jumps from a books.author_id cell to the referenced author row', function()
-    if vim.fn.executable('sqlite3') ~= 1 then
+    local url = h.sqlite_db(table.concat({
+      'CREATE TABLE authors(id INTEGER PRIMARY KEY, name TEXT);',
+      'CREATE TABLE books(id INTEGER PRIMARY KEY, title TEXT, author_id INTEGER REFERENCES authors(id));',
+      "INSERT INTO authors VALUES (1,'Ada Lovelace'),(2,'Alan Turing');",
+      "INSERT INTO books VALUES (1,'Notes',1),(2,'Computable Numbers',2);",
+    }, ' '))
+    if not url then
       return pending('sqlite3 not installed')
     end
-    local cfg = config.resolve({
-      save_location = '/tmp/dbui_fk_qa',
-      drawer = { show_help = false },
-      query = { execute_on_save = true },
+    d = h.make_drawer({
+      g_dbs = { qa = url },
+      config = { query = { execute_on_save = true } },
+      connector = require('dadbod-ui.bridge').connect,
     })
-    local instance = state.new(cfg):populate({ env = {}, g_dbs = { qa = 'sqlite:' .. fixture }, file_entries = {} })
-    d = drawer_mod.new(instance)
-    d.connector = require('dadbod-ui.bridge').connect
     d:open()
-    local entry = instance.dbs[instance.dbs_list[1].key_name]
+    local entry = h.entry_named(d, 'qa')
 
     -- run a query that surfaces the foreign-key column
     d:query():open({ type = 'query', key_name = entry.key_name }, 'edit')
