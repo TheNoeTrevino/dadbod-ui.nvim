@@ -5,11 +5,9 @@
 -- destinations. All pure or mock-driven -- no live database.
 
 local schemas = require('dadbod-ui.schemas')
-local drawer_mod = require('dadbod-ui.drawer')
 local ids = require('dadbod-ui.drawer.ids')
-local state = require('dadbod-ui.state')
-local config = require('dadbod-ui.config')
 local script_as = require('dadbod-ui.script_as')
+local h = require('helper')
 
 local function caps(scheme)
   return schemas.get(scheme).routine_scripts
@@ -29,40 +27,6 @@ end
 local function build(scheme, label, ctx)
   local act = action(scheme, label)
   return (act.build or script_as.fetched)(ctx)
-end
-
--- A drawer over an instance seeded with injected connections (offline connector).
--- `make_drawer`/`entry_named`/`lines` follow the per-spec convention (see
--- routines_spec.lua); there is no shared test-helper module for them.
-local function make_drawer(g_dbs, overrides)
-  local cfg = config.resolve(
-    vim.tbl_extend('force', { save_location = '/tmp/dbui_scripts', drawer = { show_help = false } }, overrides or {})
-  )
-  local instance = state.new(cfg):populate({ env = {}, g_dbs = g_dbs, file_entries = {} })
-  local d = drawer_mod.new(instance)
-  d.connector = function(url)
-    return url
-  end
-  return d
-end
-
-local function entry_named(d, name)
-  for _, record in ipairs(d.instance.dbs_list) do
-    if record.name == name then
-      return d.instance.dbs[record.key_name]
-    end
-  end
-end
-
-local function lines(d)
-  return vim.api.nvim_buf_get_lines(d.bufnr, 0, -1, false)
-end
-
---- Whether any rendered drawer line contains `text` (plain substring).
-local function has_line(d, text)
-  return vim.iter(lines(d)):any(function(l)
-    return l:find(text, 1, true)
-  end)
 end
 
 describe('routine_scripts: capability presence + action set', function()
@@ -282,8 +246,8 @@ describe('routine_scripts: produce orchestration', function()
   end
 
   it('query-less actions (DROP) build synchronously with no DB round-trip', function()
-    d = make_drawer({ CaRS = 'sqlserver://h/db' })
-    local entry = entry_named(d, 'CaRS')
+    d = h.make_drawer({ g_dbs = { CaRS = 'sqlserver://h/db' } })
+    local entry = h.entry_named(d, 'CaRS')
     local called = 0
     bridge.run_many = function()
       called = called + 1
@@ -294,8 +258,8 @@ describe('routine_scripts: produce orchestration', function()
   end)
 
   it('actions with a query fetch, parse, then build (sqlserver ALTER)', function()
-    d = make_drawer({ CaRS = 'sqlserver://h/db' })
-    local entry = entry_named(d, 'CaRS')
+    d = h.make_drawer({ g_dbs = { CaRS = 'sqlserver://h/db' } })
+    local entry = h.entry_named(d, 'CaRS')
     entry.conn = entry.url -- pretend connected
     stub_stdout('CREATE PROC [dbo].[do_thing] AS SELECT 1\n')
     assert.equals(
@@ -305,8 +269,8 @@ describe('routine_scripts: produce orchestration', function()
   end)
 
   it("an action's args override reaches the fetch command", function()
-    d = make_drawer({ CaRS = 'sqlserver://h/db' })
-    local entry = entry_named(d, 'CaRS')
+    d = h.make_drawer({ g_dbs = { CaRS = 'sqlserver://h/db' } })
+    local entry = h.entry_named(d, 'CaRS')
     entry.conn = entry.url
     local seen = stub_stdout('CREATE PROC [dbo].[do_thing] AS SELECT 1\n')
     produced(entry, 'dbo', 'do_thing', 'procedure', action('sqlserver', 'CREATE To'))
@@ -316,8 +280,8 @@ describe('routine_scripts: produce orchestration', function()
   end)
 
   it('postgres actions fetch server-built text and pass it through', function()
-    d = make_drawer({ dev = 'postgres://h/dev' })
-    local entry = entry_named(d, 'dev')
+    d = h.make_drawer({ g_dbs = { dev = 'postgres://h/dev' } })
+    local entry = h.entry_named(d, 'dev')
     entry.conn = entry.url
     stub_stdout('DROP FUNCTION public.fn(integer);\n')
     assert.equals(
@@ -338,9 +302,9 @@ describe('routine_scripts: drawer rendering', function()
 
   --- Seed one routine under `schema` and expand down to (but not into) the routine.
   local function render_routine(name, url, schema)
-    d = make_drawer({ [name] = url })
+    d = h.make_drawer({ g_dbs = { [name] = url } })
     d:open()
-    local entry = entry_named(d, name)
+    local entry = h.entry_named(d, name)
     entry.routines.list = { schema }
     entry.routines.items = { [schema] = { { name = 'do_thing', kind = 'procedure', content = 'x' } } }
     d:set_expanded(ids.db(entry.key_name), true)
@@ -363,7 +327,7 @@ describe('routine_scripts: drawer rendering', function()
       'DROP And CREATE To',
       'EXECUTE To',
     }) do
-      assert.is_truthy(has_line(d, label), 'missing drawer line: ' .. label)
+      assert.is_truthy(h.has_line(d.bufnr, label), 'missing drawer line: ' .. label)
     end
   end)
 
@@ -373,17 +337,17 @@ describe('routine_scripts: drawer rendering', function()
     d:set_expanded(ids.script_as(ids.routine(entry.key_name, 'public', 'do_thing')), true)
     d:render()
     for _, label in ipairs({ 'Script As', 'CREATE OR REPLACE To', 'DROP To', 'DROP And CREATE To', 'EXECUTE To' }) do
-      assert.is_truthy(has_line(d, label), 'missing drawer line: ' .. label)
+      assert.is_truthy(h.has_line(d.bufnr, label), 'missing drawer line: ' .. label)
     end
-    assert.is_falsy(has_line(d, 'ALTER To')) -- postgres has no ALTER-body action
+    assert.is_falsy(h.has_line(d.bufnr, 'ALTER To')) -- postgres has no ALTER-body action
   end)
 
   it('an adapter without routine_scripts (oracle) keeps a plain open leaf', function()
     local entry = render_routine('ora', 'oracle://h/dev', 'HR')
     d:set_expanded(ids.routine(entry.key_name, 'HR', 'do_thing'), true)
     d:render()
-    assert.is_truthy(has_line(d, 'do_thing [P]'))
-    assert.is_falsy(has_line(d, 'Script As'))
+    assert.is_truthy(h.has_line(d.bufnr, 'do_thing [P]'))
+    assert.is_falsy(h.has_line(d.bufnr, 'Script As'))
   end)
 end)
 
@@ -410,9 +374,9 @@ describe('routine_scripts: write destinations', function()
 
   --- Open a drawer on a (pretend-)connected sqlserver connection; returns its entry.
   local function connected()
-    d = make_drawer({ CaRS = 'sqlserver://h/db' })
+    d = h.make_drawer({ g_dbs = { CaRS = 'sqlserver://h/db' } })
     d:open()
-    local entry = entry_named(d, 'CaRS')
+    local entry = h.entry_named(d, 'CaRS')
     entry.conn = entry.url
     return entry
   end
