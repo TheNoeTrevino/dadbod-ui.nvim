@@ -41,6 +41,7 @@ Two ways to produce the bytes:
 | MySQL   | html, xml |
 | MariaDB | html, xml |
 | SQLite  | csv, json |
+| DuckDB  | csv, json |
 
 Everything else goes through the Lua formatters.
 
@@ -54,6 +55,10 @@ Everything else goes through the Lua formatters.
   into output we parse strictly, and the sql goes over stdin because a
   positional string starting with `-` (a `-- comment`) reads as an unknown
   option.
+- duckdb inherits sqlite's shell, so it gets the same treatment: sql over
+  stdin (leading-dash safety) and `-no-init` to skip `~/.duckdbrc`. It also
+  needs `-nullvalue ''` because its CLI prints NULL as the literal string
+  `NULL` in csv, where every other adapter emits an empty field.
 - `make test-integration` compares export output to committed goldens against
   real databases in docker. A golden change is a deliberate output change,
   review the diff before committing.

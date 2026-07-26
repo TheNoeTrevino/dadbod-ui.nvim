@@ -175,6 +175,7 @@ the keymaps.
 | mysql ≥5.7 | `EXPLAIN FORMAT=JSON` | full | no executing JSON form (`EXPLAIN ANALYZE` emits TREE text -- parse later, not now) |
 | mariadb | `EXPLAIN FORMAT=JSON` | full | `ANALYZE FORMAT=JSON` gives real per-node `r_*` timings |
 | sqlite | `EXPLAIN QUERY PLAN` | flat text, no JSON | stays on the existing plain path |
+| duckdb | `EXPLAIN (FORMAT JSON)` exists | text only for now | JSON output is preceded by a box-art banner and node shape differs; parser deferred to #127. NOTE: `EXPLAIN ANALYZE` executes the statement |
 | sqlserver / oracle / bigquery / mongodb | ✗ (xml/table shaped) | ✗ | honestly unsupported per the issue |
 
 ## Testing

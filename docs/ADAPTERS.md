@@ -80,6 +80,17 @@ be paraphrased", the framing is calibrated per CLI.
   the server under that one db.
 - sqlite's FK query returns the literal `'main'` as the schema so the
   postgres style `"schema"."table"` select template works unchanged.
+- duckdb's CLI is last-flag-wins: the spec's `-list -noheader` args land
+  AFTER dadbod's interactive `-column -header`, which is what turns
+  introspection output into pipe-separated headerless rows. duckdb's
+  introspection queries scope to `current_database()` because the system and
+  temp catalogs each carry their own `main` schema (and so ATTACH'd catalogs
+  are not browsed).
+- duckdb introspection passes `-readonly` because a read-write duckdb
+  process holds an EXCLUSIVE file lock: the concurrent introspection fan-out
+  (`run_many`) would deadlock itself otherwise. Only read-only opens can
+  share the file, so introspection can still race a running user query --
+  duckdb simply cannot have a writer and anyone else at once.
 - sqlserver's plain routine-definition open path runs through dadbod's own
   argv, where `definition_args` cant apply, so its truncated at 256 chars.
   Script As is the full fidelity path.

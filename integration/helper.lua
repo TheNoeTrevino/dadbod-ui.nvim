@@ -70,6 +70,19 @@ M.adapters = {
     quoted_name = "O'Brien",
     counts_rows = true,
   },
+  {
+    name = 'duckdb',
+    url = vim.env.DBUI_IT_DUCKDB_URL or '',
+    schemas = true,
+    default_schema = 'main',
+    routines = false,
+    plan_marker = 'SEQ_SCAN',
+    error_markers = { 'Parser Error', 'Binder Error', 'Catalog Error' },
+    quoted_name = "O'Brien",
+    counts_rows = true, -- dbout is `-column -header`: same header rule as sqlite
+    extra_schema = 'analytics',
+    extra_schema_table = 'orders_archive',
+  },
   -- Opt-in extras (run.sh exports these urls only under DBUI_IT_EXTRA=1 with
   -- the matching host client installed). mongodb is not SQL and has its own
   -- spec (integration/mongodb/) instead of an entry here.

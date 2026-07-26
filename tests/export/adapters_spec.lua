@@ -8,7 +8,7 @@ local NULLDEV = vim.fn.has('win32') == 1 and 'NUL' or '/dev/null'
 
 describe('adapters.supports', function()
   it('supports postgres, mysql/mariadb, sqlite under raw + canonical names', function()
-    for _, s in ipairs({ 'postgres', 'postgresql', 'mysql', 'mariadb', 'sqlite', 'sqlite3' }) do
+    for _, s in ipairs({ 'postgres', 'postgresql', 'mysql', 'mariadb', 'sqlite', 'sqlite3', 'duckdb' }) do
       assert.is_true(adapters.supports(s), s .. ' should be supported')
     end
   end)
@@ -47,6 +47,13 @@ describe('adapters.extract_args + uses_stdin (Appendix A)', function()
     assert.is_true(adapters.uses_stdin('sqlite')) -- stdin, not a positional arg
   end)
 
+  it('duckdb extracts with -no-init -nullvalue "" -csv, query on stdin (leading-dash safe)', function()
+    -- -nullvalue '' makes CSV NULLs empty like the other adapters (duckdb
+    -- defaults to the literal string NULL).
+    assert.are.same({ '-no-init', '-nullvalue', '', '-csv' }, adapters.extract_args('duckdb'))
+    assert.is_true(adapters.uses_stdin('duckdb'))
+  end)
+
   it('mysql extracts with --batch, query on stdin', function()
     assert.are.same({ '--batch' }, adapters.extract_args('mariadb'))
     assert.is_true(adapters.uses_stdin('mysql'))
@@ -66,6 +73,13 @@ describe('adapters.native_args + is_native (§4 matrix)', function()
     assert.is_nil(adapters.native_args('sqlite', 'html')) -- T16: use the Lua formatter
     assert.is_nil(adapters.native_args('sqlite', 'xml'))
     assert.is_nil(adapters.native_args('sqlite', 'sql'))
+  end)
+
+  it('duckdb emits csv/json natively (rc-suppressed), nothing else', function()
+    assert.are.same({ '-no-init', '-nullvalue', '', '-csv' }, adapters.native_args('duckdb', 'csv'))
+    assert.are.same({ '-no-init', '-json' }, adapters.native_args('duckdb', 'json'))
+    assert.is_nil(adapters.native_args('duckdb', 'markdown')) -- Lua formatter, like sqlite
+    assert.is_nil(adapters.native_args('duckdb', 'html'))
   end)
 
   it('postgres emits csv + html natively (rc-suppressed), nothing else', function()

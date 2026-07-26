@@ -1,0 +1,4 @@
+[{"id":1,"name":"Ann","note":null,"amount":10.5},
+{"id":2,"name":"O'Brien","note":"has, comma","amount":20.0},
+{"id":3,"name":"Zoe","note":"line1\nline2","amount":3.25},
+{"id":4,"name":"Ünïcödé","note":"tab\there & <b>","amount":null}]

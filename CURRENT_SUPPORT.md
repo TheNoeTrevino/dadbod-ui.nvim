@@ -17,27 +17,27 @@ If the plugin DOES support something, and this doc says it does not, then this d
 | Feature                 |    PG     |   MySQL   |  MariaDB  |  SQLite   | MSSQL | Oracle | ClickHouse | BigQuery | Mongo | DuckDB | Snowflake | Presto | Impala | Redis | OSQuery |
 | ----------------------- | :-------: | :-------: | :-------: | :-------: | :---: | :----: | :--------: | :------: | :---: | :----: | :-------: | :----: | :----: | :---: | :-----: |
 | **Browsing**            |           |           |           |           |       |        |            |          |       |        |           |        |        |       |         |
-| Connect + introspect    |    ✅     |    ✅     |    ✅     |    ✅     |  ✅   |   ✅   |     ✅     |    ✅    |  ✅   |   ⬜   |    ⬜     |   ⬜   |   ⬜   |  ⬜   |   ⬜    |
-| Schema tree             |    ✅     |    ✅     |    ✅     |    ❌     |  ✅   |   ✅   |     ✅     |    ✅    |  ⬜   |   ⬜   |    ⬜     |   ⬜   |   ⬜   |  ⬜   |   ⬜    |
-| Table listing           |    ✅     |    ✅     |    ✅     |    ✅     |  ✅   |   ✅   |     ✅     |    ✅    |  ✅   |   ⬜   |    ⬜     |   ⬜   |   ⬜   |  ⬜   |   ⬜    |
+| Connect + introspect    |    ✅     |    ✅     |    ✅     |    ✅     |  ✅   |   ✅   |     ✅     |    ✅    |  ✅   |   ✅   |    ⬜     |   ⬜   |   ⬜   |  ⬜   |   ⬜    |
+| Schema tree             |    ✅     |    ✅     |    ✅     |    ❌     |  ✅   |   ✅   |     ✅     |    ✅    |  ⬜   |   ✅   |    ⬜     |   ⬜   |   ⬜   |  ⬜   |   ⬜    |
+| Table listing           |    ✅     |    ✅     |    ✅     |    ✅     |  ✅   |   ✅   |     ✅     |    ✅    |  ✅   |   ✅   |    ⬜     |   ⬜   |   ⬜   |  ⬜   |   ⬜    |
 | Stored routines listed  |    ✅     |    ✅     |    ✅     |    ❌     |  ✅   |   ✅   |     ⬜     |    ⬜    |  ❌   |   ❌   |    ⬜     |   ⬜   |   ⬜   |  ⬜   |   ⬜    |
 | Routine definition      |    ✅     |    ✅     |    ✅     |    ❌     |  ✅   |   ✅   |     ⬜     |    ⬜    |  ❌   |   ❌   |    ⬜     |   ⬜   |   ⬜   |  ⬜   |   ⬜    |
 | **DDL Scripting**       |           |           |           |           |       |        |            |          |       |        |           |        |        |       |         |
 | Script As - routines    |   ✅ 4    |    ⬜     |    ⬜     |    ❌     | ✅ 6  |   ⬜   |     ⬜     |    ⬜    |  ❌   |   ❌   |    ⬜     |   ⬜   |   ⬜   |  ⬜   |   ⬜    |
 | Script As - tables      |   ✅ 6    |   ✅ 6    |   ✅ 6    |    ⬜     | ✅ 6  |   ⬜   |     ⬜     |    ⬜    |  ❌   |   ⬜   |    ⬜     |   ⬜   |   ⬜   |  ⬜   |   ⬜    |
 | **Query buffers**       |           |           |           |           |       |        |            |          |       |        |           |        |        |       |         |
-| Table helpers           |   ✅ 6    |   ✅ 5    |   ✅ 5    |   ✅ 5    | ✅ 8  |  ✅ 6  |    ✅ 2    |   ✅ 2   | ✅ 1  |   ⬜   |    ⬜     |   ⬜   |   ⬜   |  ⬜   |   ⬜    |
-| EXPLAIN                 |    ✅     |    ✅     |    ✅     |    ✅     |  ⬜   |   ✅   |     ✅     |    ⬜    |  ⬜   |   ⬜   |    ⬜     |   ⬜   |   ⬜   |  ⬜   |   ⬜    |
-| EXPLAIN ANALYZE         |    ✅     |    ✅     |    ✅     |    ⬜     |  ⬜   |   ⬜   |     ⬜     |    ⬜    |  ⬜   |   ⬜   |    ⬜     |   ⬜   |   ⬜   |  ⬜   |   ⬜    |
+| Table helpers           |   ✅ 6    |   ✅ 5    |   ✅ 5    |   ✅ 5    | ✅ 8  |  ✅ 6  |    ✅ 2    |   ✅ 2   | ✅ 1  |  ✅ 6  |    ⬜     |   ⬜   |   ⬜   |  ⬜   |   ⬜    |
+| EXPLAIN                 |    ✅     |    ✅     |    ✅     |    ✅     |  ⬜   |   ✅   |     ✅     |    ⬜    |  ⬜   |   ✅   |    ⬜     |   ⬜   |   ⬜   |  ⬜   |   ⬜    |
+| EXPLAIN ANALYZE         |    ✅     |    ✅     |    ✅     |    ⬜     |  ⬜   |   ⬜   |     ⬜     |    ⬜    |  ⬜   |   ✅   |    ⬜     |   ⬜   |   ⬜   |  ⬜   |   ⬜    |
 | EXPLAIN plan tree       |    ✅     |    ✅     |    ✅     |    ❌     |  ❌   |   ❌   |     ⬜     |    ❌    |  ❌   |   ⬜   |    ⬜     |   ⬜   |   ⬜   |  ⬜   |   ⬜    |
 | **Results (`.dbout`)**  |           |           |           |           |       |        |            |          |       |        |           |        |        |       |         |
-| Auto-pagination         |    ✅     |    ✅     |    ✅     |    ✅     |  ⬜   |   ⬜   |     ✅     |    ✅    |  ⬜   |   ⬜   |    ⬜     |   ⬜   |   ⬜   |  ⬜   |   ⬜    |
-| Foreign-key jump        |    ✅     |    ✅     |    ✅     |    ✅     |  ✅   |   ✅   |     ⬜     |    ⬜    |  ⬜   |   ⬜   |    ⬜     |   ⬜   |   ⬜   |  ⬜   |   ⬜    |
-| Cell / header nav       |    ✅     |    ✅     |    ✅     |    ✅     |  ✅   |   ✅   |     ✅     |    ⬜    |  ⬜   |   ⬜   |    ⬜     |   ⬜   |   ⬜   |  ⬜   |   ⬜    |
+| Auto-pagination         |    ✅     |    ✅     |    ✅     |    ✅     |  ⬜   |   ⬜   |     ✅     |    ✅    |  ⬜   |   ✅   |    ⬜     |   ⬜   |   ⬜   |  ⬜   |   ⬜    |
+| Foreign-key jump        |    ✅     |    ✅     |    ✅     |    ✅     |  ✅   |   ✅   |     ⬜     |    ⬜    |  ⬜   |   ✅   |    ⬜     |   ⬜   |   ⬜   |  ⬜   |   ⬜    |
+| Cell / header nav       |    ✅     |    ✅     |    ✅     |    ✅     |  ✅   |   ✅   |     ✅     |    ⬜    |  ⬜   |   ✅   |    ⬜     |   ⬜   |   ⬜   |  ⬜   |   ⬜    |
 | Vertical layout flag    |    ✅     |    ✅     |    ✅     |    ⬜     |  ⬜   |   ⬜   |     ⬜     |    ✅    |  ⬜   |   ⬜   |    ⬜     |   ⬜   |   ⬜   |  ⬜   |   ⬜    |
 | **Export**              |           |           |           |           |       |        |            |          |       |        |           |        |        |       |         |
-| Export (Lua formatters) |    ✅     |    ✅     |    ✅     |    ✅     |  ✅   |   ✅   |     ✅     |    ✅    |  ✅   |   ⬜   |    ⬜     |   ⬜   |   ⬜   |  ⬜   |   ⬜    |
-| Native CLI export       | csv, html | html, xml | html, xml | csv, json |  ⬜   |   ⬜   |     ⬜     |    ⬜    |  ⬜   |   ⬜   |    ⬜     |   ⬜   |   ⬜   |  ⬜   |   ⬜    |
+| Export (Lua formatters) |    ✅     |    ✅     |    ✅     |    ✅     |  ✅   |   ✅   |     ✅     |    ✅    |  ✅   |   ✅   |    ⬜     |   ⬜   |   ⬜   |  ⬜   |   ⬜    |
+| Native CLI export       | csv, html | html, xml | html, xml | csv, json |  ⬜   |   ⬜   |     ⬜     |    ⬜    |  ⬜   | csv, json |    ⬜     |   ⬜   |   ⬜   |  ⬜   |   ⬜    |
 
 Counts (`✅ 6`) are how many actions/helpers that adapter defines today.
 
@@ -70,8 +70,9 @@ flagged here rather than quietly guessed:
   an `EXPLAIN {sql}` template, so that ⬜ may not be reachable in the current
   `explain` shape.
 - DuckDB's routine rows are ❌ because it has macros, not stored procedures in
-  the PG/MSSQL sense (see #102). The rest of its column is ⬜ pending the
-  adapter.
+  the PG/MSSQL sense (see #102). Its EXPLAIN plan tree is ⬜ pending a JSON
+  plan parser (#127), and its drawer scopes to `current_database()` - ATTACH'd
+  catalogs are not browsed yet.
 - The Snowflake / Presto / Impala / Redis / OSQuery columns are unresearched:
   every cell is ⬜ because nobody has checked yet, not because everything is
   buildable. Several will resolve to ❌ once someone looks - Redis especially,

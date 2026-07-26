@@ -40,6 +40,7 @@ M.Type = {
   bigquery = 'bigquery',
   clickhouse = 'clickhouse',
   mongodb = 'mongodb',
+  duckdb = 'duckdb',
 }
 
 ---@private
