@@ -6,36 +6,8 @@
 -- No live DB required -- parsers are pure and populate mocks bridge.run_many.
 
 local schemas = require('dadbod-ui.schemas')
-local drawer_mod = require('dadbod-ui.drawer')
 local ids = require('dadbod-ui.drawer.ids')
-local state = require('dadbod-ui.state')
-local config = require('dadbod-ui.config')
-
--- A drawer over an instance seeded with injected connections; connector echoes
--- the url so entries "connect" offline.
-local function make_drawer(g_dbs, overrides)
-  local cfg = config.resolve(
-    vim.tbl_extend('force', { save_location = '/tmp/dbui_routines', drawer = { show_help = false } }, overrides or {})
-  )
-  local instance = state.new(cfg):populate({ env = {}, g_dbs = g_dbs, file_entries = {} })
-  local d = drawer_mod.new(instance)
-  d.connector = function(url)
-    return url
-  end
-  return d
-end
-
-local function entry_named(d, name)
-  for _, record in ipairs(d.instance.dbs_list) do
-    if record.name == name then
-      return d.instance.dbs[record.key_name]
-    end
-  end
-end
-
-local function lines(d)
-  return vim.api.nvim_buf_get_lines(d.bufnr, 0, -1, false)
-end
+local h = require('helper')
 
 describe('routines: adapter metadata', function()
   it('exposes procedures_query + routine_definition for postgres and mysql', function()
@@ -124,8 +96,8 @@ describe('routines: apply_routines', function()
   end)
 
   it('groups routines per schema for a schema adapter, honoring hide_schemas', function()
-    d = make_drawer({ dev = 'postgres://h/dev' }, { hide_schemas = { 'pg_' } })
-    local entry = entry_named(d, 'dev')
+    d = h.make_drawer({ g_dbs = { dev = 'postgres://h/dev' }, config = { hide_schemas = { 'pg_' } } })
+    local entry = h.entry_named(d, 'dev')
     local scheme_info = schemas.get(entry.scheme, d.config)
     d:introspect():apply_routines(entry, scheme_info, {
       { 'public', 'do_thing', 'procedure' },
@@ -144,8 +116,8 @@ describe('routines: apply_routines', function()
   end)
 
   it('collects routines flat for a non-schema adapter (mysql-with-db)', function()
-    d = make_drawer({ app = 'mysql://h/app' })
-    local entry = entry_named(d, 'app')
+    d = h.make_drawer({ g_dbs = { app = 'mysql://h/app' } })
+    local entry = h.entry_named(d, 'app')
     assert.is_false(entry.schema_support)
     assert.is_true(entry.routine_support)
     local scheme_info = schemas.get(entry.scheme, d.config)
@@ -159,8 +131,8 @@ describe('routines: apply_routines', function()
   end)
 
   it('prunes emptied schemas across a refresh; drawer expand state is untouched', function()
-    d = make_drawer({ dev = 'postgres://h/dev' })
-    local entry = entry_named(d, 'dev')
+    d = h.make_drawer({ g_dbs = { dev = 'postgres://h/dev' } })
+    local entry = h.entry_named(d, 'dev')
     local scheme_info = schemas.get(entry.scheme, d.config)
     d:introspect():apply_routines(entry, scheme_info, {
       { 'public', 'a', 'procedure' },
@@ -196,8 +168,8 @@ describe('routines: concurrent populate', function()
   it('uses the database-scoped routines query on the tables-only path (mysql-with-db)', function()
     -- regression: populate_tables used the global procedures_query, leaking
     -- routines from every schema into this one db's Procedures node.
-    d = make_drawer({ app = 'mysql://h/app' })
-    local entry = entry_named(d, 'app')
+    d = h.make_drawer({ g_dbs = { app = 'mysql://h/app' } })
+    local entry = h.entry_named(d, 'app')
     entry.conn = 'mysql://h/app' -- pretend connected
     local seen_query
     bridge.run_many = function(specs, on_done)
@@ -217,8 +189,8 @@ describe('routines: concurrent populate', function()
   end)
 
   it('fans schemas + tables + routines out together and folds them in', function()
-    d = make_drawer({ dev = 'postgres://h/dev' })
-    local entry = entry_named(d, 'dev')
+    d = h.make_drawer({ g_dbs = { dev = 'postgres://h/dev' } })
+    local entry = h.entry_named(d, 'dev')
     entry.conn = 'postgres://h/dev' -- pretend connected
     -- Mock the fan-out: three specs in, three aligned results back.
     bridge.run_many = function(specs, on_done)
@@ -250,9 +222,9 @@ describe('routines: drawer rendering', function()
     -- oracle: a schema adapter with routines but NO "Script As" capability, so its
     -- routine nodes stay plain `open` leaves (postgres/sqlserver now render a
     -- Script As toggle instead -- covered in routine_scripts_spec).
-    d = make_drawer({ dev = 'oracle://h/dev' })
+    d = h.make_drawer({ g_dbs = { dev = 'oracle://h/dev' } })
     d:open()
-    local entry = entry_named(d, 'dev')
+    local entry = h.entry_named(d, 'dev')
     d:set_expanded(ids.db(entry.key_name), true)
     d:set_expanded(ids.section(entry.key_name, 'routines'), true)
     d:set_expanded(ids.routine_schema(entry.key_name, 'public'), true)
@@ -264,7 +236,7 @@ describe('routines: drawer rendering', function()
       },
     }
     d:render()
-    local l = lines(d)
+    local l = h.buf_lines(d.bufnr)
     assert.is_truthy(vim.tbl_contains(l, '  ▾ Procedures (2)'))
     assert.is_truthy(vim.tbl_contains(l, '    ▾ public (2)'))
     assert.is_truthy(vim.tbl_contains(l, '      ƒ do_thing [P]'))
@@ -272,38 +244,38 @@ describe('routines: drawer rendering', function()
   end)
 
   it('renders routines flat for a non-schema adapter (mysql-with-db)', function()
-    d = make_drawer({ app = 'mysql://h/app' })
+    d = h.make_drawer({ g_dbs = { app = 'mysql://h/app' } })
     d:open()
-    local entry = entry_named(d, 'app')
+    local entry = h.entry_named(d, 'app')
     d:set_expanded(ids.db(entry.key_name), true)
     d:set_expanded(ids.section(entry.key_name, 'routines'), true)
     entry.routines.flat = { { name = 'run', kind = 'procedure', content = 'z' } }
     d:render()
-    local l = lines(d)
+    local l = h.buf_lines(d.bufnr)
     assert.is_truthy(vim.tbl_contains(l, '  ▾ Procedures (1)'))
     assert.is_truthy(vim.tbl_contains(l, '    ƒ run [P]'))
   end)
 
   it('shows no Procedures node when the connection has zero routines', function()
-    d = make_drawer({ dev = 'postgres://h/dev' })
+    d = h.make_drawer({ g_dbs = { dev = 'postgres://h/dev' } })
     d:open()
-    local entry = entry_named(d, 'dev')
+    local entry = h.entry_named(d, 'dev')
     d:set_expanded(ids.db(entry.key_name), true)
     d:render()
-    for _, line in ipairs(lines(d)) do
+    for _, line in ipairs(h.buf_lines(d.bufnr)) do
       assert.is_nil(line:match('Procedures'))
     end
   end)
 
   it('shows no Procedures node for sqlite (no routine support)', function()
-    d = make_drawer({ qa = 'sqlite:/tmp/whatever.db' })
+    d = h.make_drawer({ g_dbs = { qa = 'sqlite:/tmp/whatever.db' } })
     d:open()
-    local entry = entry_named(d, 'qa')
+    local entry = h.entry_named(d, 'qa')
     assert.is_false(entry.routine_support)
     d:set_expanded(ids.db(entry.key_name), true)
     -- even if some stray state existed, the section is gated on routine_support
     d:render()
-    for _, line in ipairs(lines(d)) do
+    for _, line in ipairs(h.buf_lines(d.bufnr)) do
       assert.is_nil(line:match('Procedures'))
     end
   end)
@@ -324,9 +296,9 @@ describe('routines: open definition', function()
   end)
 
   it('opens a routine node into a buffer prefilled with its definition query', function()
-    d = make_drawer({ dev = 'postgres://h/dev' })
+    d = h.make_drawer({ g_dbs = { dev = 'postgres://h/dev' } })
     d:open()
-    local entry = entry_named(d, 'dev')
+    local entry = h.entry_named(d, 'dev')
     local content = schemas.get(entry.scheme, d.config).routine_definition('public', 'do_thing', 'procedure')
     d:query():open({
       type = 'routine',
