@@ -6,6 +6,7 @@
 local plan = require('dadbod-ui.explain.plan')
 local state = require('dadbod-ui.state')
 local tree = require('dadbod-ui.explain.tree')
+local h = require('helper')
 
 local FIXTURE = [=[
 [{"Plan": {
@@ -30,14 +31,12 @@ local function open_fixture()
   return parsed
 end
 
-local function buf_lines(bufnr)
-  return vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-end
+local buf_lines = h.buf_lines
 
 describe('explain tree: window', function()
   before_each(function()
-    require('helper').clean_ui()
-    state.setup({ save_location = '/tmp/dbui_explain_tree', drawer = { show_help = false } })
+    h.clean_ui()
+    state.setup({ save_location = h.tmp_dir(), drawer = { show_help = false } })
   end)
   after_each(function()
     tree.close()

@@ -7,11 +7,10 @@
 
 local api = require('dadbod-ui.api')
 local bridge = require('dadbod-ui.bridge')
-local config = require('dadbod-ui.config')
-local drawer_mod = require('dadbod-ui.drawer')
 local notifications = require('dadbod-ui.notifications')
 local state = require('dadbod-ui.state')
 local tree = require('dadbod-ui.explain.tree')
+local h = require('helper')
 
 local PLAN_JSON = vim.json.encode({
   {
@@ -30,27 +29,14 @@ local PLAN_JSON = vim.json.encode({
 describe('explain tree: query-buffer wiring', function()
   local d, query_bufs, saved_run_many, ran_specs, canned
 
+  -- Default 'echo' connector (returns the url) so the buffer connection is live.
   local function make_drawer(g_dbs)
-    local cfg = config.resolve({ save_location = '/tmp/dbui_explain_wire', drawer = { show_help = false } })
-    local instance = state.new(cfg):populate({ env = {}, g_dbs = g_dbs, file_entries = {} })
-    local dr = drawer_mod.new(instance)
-    dr.connector = function(url)
-      return url
-    end
-    return dr
-  end
-
-  local function entry_named(dr, name)
-    for _, record in ipairs(dr.instance.dbs_list) do
-      if record.name == name then
-        return dr.instance.dbs[record.key_name]
-      end
-    end
+    return h.make_drawer({ g_dbs = g_dbs })
   end
 
   local function open_query_buffer(name, sql)
     d:open()
-    local entry = entry_named(d, name)
+    local entry = h.entry_named(d, name)
     d:query():open({ type = 'query', key_name = entry.key_name }, 'edit')
     query_bufs[#query_bufs + 1] = vim.api.nvim_get_current_buf()
     vim.api.nvim_buf_set_lines(0, 0, -1, false, vim.split(sql, '\n'))
@@ -58,7 +44,7 @@ describe('explain tree: query-buffer wiring', function()
   end
 
   before_each(function()
-    require('helper').clean_ui()
+    h.clean_ui()
     query_bufs, ran_specs, canned = {}, {}, nil
     saved_run_many = bridge.run_many
     -- Capture the headless command specs; feed back the canned client result.
@@ -164,7 +150,7 @@ describe('explain tree: api pre-flight', function()
 
   it('reports an unknown connection', function()
     vim.g.dbs = { dev = 'postgres://u@h/dev' }
-    state.setup({ save_location = '/tmp/dbui_explain_wire_api' })
+    state.setup({ save_location = h.tmp_dir() })
     state.get()
     local ok, err = api.explain_tree('nope', 'select 1')
     assert.is_false(ok)
@@ -173,7 +159,7 @@ describe('explain tree: api pre-flight', function()
 
   it('reports an adapter without a structured plan format', function()
     vim.g.dbs = { qa = 'sqlite:/tmp/qa.db' }
-    state.setup({ save_location = '/tmp/dbui_explain_wire_api' })
+    state.setup({ save_location = h.tmp_dir() })
     state.get()
     local ok, err = api.explain_tree('qa', 'select 1')
     assert.is_false(ok)
