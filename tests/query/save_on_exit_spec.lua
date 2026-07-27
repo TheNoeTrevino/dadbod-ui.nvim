@@ -3,44 +3,27 @@
 -- change" prompt once per buffer. Saved queries are real files the user named,
 -- so the sweep must leave them alone. Nothing is executed here.
 
-local drawer_mod = require('dadbod-ui.drawer')
-local state = require('dadbod-ui.state')
-local config = require('dadbod-ui.config')
+local h = require('helper')
 
-local SAVE_ROOT = '/tmp/dbui_exit_save'
-local TMP_ROOT = '/tmp/dbui_exit_tmp'
+local SAVE_ROOT = h.tmp_dir()
+local TMP_ROOT = h.tmp_dir()
 
 -- A drawer whose scratch buffers land in TMP_ROOT when `tmp` is true; otherwise
 -- `tmp_query_location` stays unset and state falls back to the session temp dir.
 local function make_drawer(save_on_exit, tmp)
-  vim.fn.delete(SAVE_ROOT, 'rf')
-  vim.fn.delete(TMP_ROOT, 'rf')
-  local cfg = config.resolve({
-    save_location = SAVE_ROOT,
-    tmp_query_location = tmp and TMP_ROOT or '',
-    drawer = { show_help = false },
-    query = { save_on_exit = save_on_exit },
+  return h.make_drawer({
+    config = {
+      save_location = SAVE_ROOT,
+      tmp_query_location = tmp and TMP_ROOT or '',
+      query = { save_on_exit = save_on_exit },
+    },
   })
-  local instance = state.new(cfg):populate({ env = {}, g_dbs = { qa = 'sqlite:/tmp/qa.db' }, file_entries = {} })
-  local d = drawer_mod.new(instance)
-  d.connector = function(url)
-    return url
-  end
-  return d
-end
-
-local function entry_qa(d)
-  for _, record in ipairs(d.instance.dbs_list) do
-    if record.name == 'qa' then
-      return d.instance.dbs[record.key_name]
-    end
-  end
 end
 
 -- Open a scratch query buffer and leave it modified, as if the user typed in it
 -- and never ran/saved it. Returns its bufnr.
 local function open_modified_scratch(d)
-  local entry = entry_qa(d)
+  local entry = h.entry_named(d, 'qa')
   d:query():open({ type = 'query', key_name = entry.key_name }, 'edit')
   local bufnr = vim.api.nvim_get_current_buf()
   vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { 'select 1;' })
@@ -53,7 +36,7 @@ describe('query: save_on_exit', function()
   local bufs = {}
 
   before_each(function()
-    require('helper').clean_ui()
+    h.clean_ui()
   end)
 
   after_each(function()
@@ -122,7 +105,7 @@ describe('query: save_on_exit', function()
   it('never sweeps a saved query, which is a real file the user named', function()
     d = make_drawer('auto', true)
     d:open()
-    local entry = entry_qa(d)
+    local entry = h.entry_named(d, 'qa')
     vim.fn.mkdir(entry.save_path, 'p')
     local saved = entry.save_path .. '/report.sql'
     vim.fn.writefile({ 'select 1;' }, saved)
@@ -143,18 +126,13 @@ describe('query: save_on_exit', function()
   it('does not execute the query when writing under execute_on_save', function()
     local bridge = require('dadbod-ui.bridge')
 
-    vim.fn.delete(TMP_ROOT, 'rf')
-    local cfg = config.resolve({
-      save_location = SAVE_ROOT,
-      tmp_query_location = TMP_ROOT,
-      drawer = { show_help = false },
-      query = { save_on_exit = 'auto', execute_on_save = true },
+    d = h.make_drawer({
+      config = {
+        save_location = SAVE_ROOT,
+        tmp_query_location = TMP_ROOT,
+        query = { save_on_exit = 'auto', execute_on_save = true },
+      },
     })
-    local instance = state.new(cfg):populate({ env = {}, g_dbs = { qa = 'sqlite:/tmp/qa.db' }, file_entries = {} })
-    d = drawer_mod.new(instance)
-    d.connector = function(url)
-      return url
-    end
     d:open()
     local bufnr = open_modified_scratch(d)
     bufs[#bufs + 1] = bufnr

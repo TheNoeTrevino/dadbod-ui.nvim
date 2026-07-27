@@ -1,18 +1,6 @@
 -- Specs for the `User DBUIOpened` autocmd fired on a real drawer open.
 
-local drawer_mod = require('dadbod-ui.drawer')
-local state = require('dadbod-ui.state')
-local config = require('dadbod-ui.config')
-
-local function make_drawer(g_dbs)
-  local cfg = config.resolve({ save_location = '/tmp/dbui_events', drawer = { show_help = false } })
-  local instance = state.new(cfg):populate({ env = {}, g_dbs = g_dbs, file_entries = {} })
-  local d = drawer_mod.new(instance)
-  d.connector = function(url)
-    return url
-  end
-  return d
-end
+local h = require('helper')
 
 describe('User DBUIOpened', function()
   local d
@@ -24,7 +12,7 @@ describe('User DBUIOpened', function()
   end)
 
   it('fires once on a real open, not when focusing an already-open drawer', function()
-    d = make_drawer({ qa = 'sqlite:/tmp/qa.db' })
+    d = h.make_drawer()
     local fired = 0
     local group = vim.api.nvim_create_augroup('dbui_opened_test', { clear = true })
     vim.api.nvim_create_autocmd('User', {

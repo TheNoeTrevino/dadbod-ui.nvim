@@ -4,33 +4,12 @@
 -- dependency injection -- an injected connector spy, stubbed bridge functions,
 -- and config carrying spy hooks -- so no live DB is touched.
 
-local drawer_mod = require('dadbod-ui.drawer')
-local state = require('dadbod-ui.state')
 local config = require('dadbod-ui.config')
 local hooks = require('dadbod-ui.hooks')
 local notifications = require('dadbod-ui.notifications')
 local bridge = require('dadbod-ui.bridge')
 local dbout = require('dadbod-ui.dbout')
-
-local function make_drawer(g_dbs, overrides)
-  local cfg = config.resolve(
-    vim.tbl_extend('force', { save_location = '/tmp/dbui_hooks', drawer = { show_help = false } }, overrides or {})
-  )
-  local instance = state.new(cfg):populate({ env = {}, g_dbs = g_dbs, file_entries = {} })
-  local d = drawer_mod.new(instance)
-  d.connector = function(url)
-    return url
-  end
-  return d
-end
-
-local function entry_named(d, name)
-  for _, record in ipairs(d.instance.dbs_list) do
-    if record.name == name then
-      return d.instance.dbs[record.key_name]
-    end
-  end
-end
+local h = require('helper')
 
 -- The dispatch module in isolation -----------------------------------------
 
@@ -140,25 +119,28 @@ describe('hooks: on_connect (url rewrite)', function()
   -- not the engine's url spelling.
 
   it('no hooks: connect is unchanged and uses the original url', function()
-    d = make_drawer({ dev = 'postgres://h/dev' })
+    d = h.make_drawer({ g_dbs = { dev = 'postgres://h/dev' } })
     local got
     d.connector = function(url)
       got = url
       return url
     end
-    local entry = entry_named(d, 'dev')
+    local entry = h.entry_named(d, 'dev')
     d:introspect():connect(entry)
     assert.equals(entry.url, got)
     assert.equals(entry.url, entry.conn)
   end)
 
   it('rewrites the connection url before connecting (password use case)', function()
-    d = make_drawer({ dev = 'sqlite:/tmp/qa.db' }, {
-      hooks = {
-        on_connect = function(e)
-          -- simulate swapping a placeholder for a secret fetched from a manager
-          return e.url .. '?password=secret'
-        end,
+    d = h.make_drawer({
+      g_dbs = { dev = 'sqlite:/tmp/qa.db' },
+      config = {
+        hooks = {
+          on_connect = function(e)
+            -- simulate swapping a placeholder for a secret fetched from a manager
+            return e.url .. '?password=secret'
+          end,
+        },
       },
     })
     local got
@@ -166,7 +148,7 @@ describe('hooks: on_connect (url rewrite)', function()
       got = url
       return url
     end
-    local entry = entry_named(d, 'dev')
+    local entry = h.entry_named(d, 'dev')
     local rewritten = entry.url .. '?password=secret'
     d:introspect():connect(entry)
     -- the connector saw the rewritten url, and the live handle downstream
@@ -176,11 +158,14 @@ describe('hooks: on_connect (url rewrite)', function()
   end)
 
   it('uses the original url when on_connect returns nil', function()
-    d = make_drawer({ dev = 'postgres://h/dev' }, {
-      hooks = {
-        on_connect = function()
-          return nil
-        end,
+    d = h.make_drawer({
+      g_dbs = { dev = 'postgres://h/dev' },
+      config = {
+        hooks = {
+          on_connect = function()
+            return nil
+          end,
+        },
       },
     })
     local got
@@ -188,17 +173,20 @@ describe('hooks: on_connect (url rewrite)', function()
       got = url
       return url
     end
-    local entry = entry_named(d, 'dev')
+    local entry = h.entry_named(d, 'dev')
     d:introspect():connect(entry)
     assert.equals(entry.url, got)
   end)
 
   it('uses the original url when on_connect returns a non-string', function()
-    d = make_drawer({ dev = 'postgres://h/dev' }, {
-      hooks = {
-        on_connect = function()
-          return { not_a = 'string' }
-        end,
+    d = h.make_drawer({
+      g_dbs = { dev = 'postgres://h/dev' },
+      config = {
+        hooks = {
+          on_connect = function()
+            return { not_a = 'string' }
+          end,
+        },
       },
     })
     local got
@@ -206,17 +194,20 @@ describe('hooks: on_connect (url rewrite)', function()
       got = url
       return url
     end
-    local entry = entry_named(d, 'dev')
+    local entry = h.entry_named(d, 'dev')
     d:introspect():connect(entry)
     assert.equals(entry.url, got)
   end)
 
   it('isolates a throwing on_connect; connect proceeds with the original url', function()
-    d = make_drawer({ dev = 'postgres://h/dev' }, {
-      hooks = {
-        on_connect = function()
-          error('secret fetch failed')
-        end,
+    d = h.make_drawer({
+      g_dbs = { dev = 'postgres://h/dev' },
+      config = {
+        hooks = {
+          on_connect = function()
+            error('secret fetch failed')
+          end,
+        },
       },
     })
     local got
@@ -224,7 +215,7 @@ describe('hooks: on_connect (url rewrite)', function()
       got = url
       return url
     end
-    local entry = entry_named(d, 'dev')
+    local entry = h.entry_named(d, 'dev')
     d:introspect():connect(entry)
     assert.equals(entry.url, got)
     assert.equals(entry.url, entry.conn)
@@ -244,14 +235,17 @@ describe('hooks: on_connect_post', function()
 
   it('fires after a successful connect with the outcome and handle', function()
     local ev
-    d = make_drawer({ dev = 'postgres://h/dev' }, {
-      hooks = {
-        on_connect_post = function(e)
-          ev = e
-        end,
+    d = h.make_drawer({
+      g_dbs = { dev = 'postgres://h/dev' },
+      config = {
+        hooks = {
+          on_connect_post = function(e)
+            ev = e
+          end,
+        },
       },
     })
-    local entry = entry_named(d, 'dev')
+    local entry = h.entry_named(d, 'dev')
     d:introspect():connect(entry)
     assert.is_true(ev.success)
     assert.equals(entry.conn, ev.conn)
@@ -260,17 +254,20 @@ describe('hooks: on_connect_post', function()
 
   it('fires with the error when the connect fails', function()
     local ev
-    d = make_drawer({ dev = 'postgres://h/dev' }, {
-      hooks = {
-        on_connect_post = function(e)
-          ev = e
-        end,
+    d = h.make_drawer({
+      g_dbs = { dev = 'postgres://h/dev' },
+      config = {
+        hooks = {
+          on_connect_post = function(e)
+            ev = e
+          end,
+        },
       },
     })
     d.connector = function()
       error('connection refused')
     end
-    d:introspect():connect(entry_named(d, 'dev'))
+    d:introspect():connect(h.entry_named(d, 'dev'))
     assert.is_false(ev.success)
     assert.is_truthy(ev.error)
     assert.is_nil(ev.conn)
@@ -316,15 +313,17 @@ describe('hooks: on_execute_query', function()
 
   it('fires before dispatch with the sql, url, bufnr and visual flag', function()
     local ev
-    d = make_drawer({ qa = 'sqlite:/tmp/qa.db' }, {
-      hooks = {
-        on_execute_query = function(e)
-          ev = e
-        end,
+    d = h.make_drawer({
+      config = {
+        hooks = {
+          on_execute_query = function(e)
+            ev = e
+          end,
+        },
       },
     })
     d:open()
-    local entry = entry_named(d, 'qa')
+    local entry = h.entry_named(d, 'qa')
     d:query():open({ type = 'query', key_name = entry.key_name }, 'edit')
     query_buf = vim.api.nvim_get_current_buf()
     vim.api.nvim_buf_set_lines(0, 0, -1, false, { 'SELECT 1;' })
@@ -358,11 +357,13 @@ describe('hooks: on_execute_query_post', function()
 
   it('fires with a rows accessor, the query, runtime and exit_status', function()
     local ev
-    d = make_drawer({ qa = 'sqlite:/tmp/qa.db' }, {
-      hooks = {
-        on_execute_query_post = function(e)
-          ev = e
-        end,
+    d = h.make_drawer({
+      config = {
+        hooks = {
+          on_execute_query_post = function(e)
+            ev = e
+          end,
+        },
       },
     })
     -- Attach the drawer directly so dbout reads ITS config (with the hook)
@@ -425,18 +426,20 @@ describe('hooks: cancel', function()
     bridge.cancel = function(bufnr)
       order[#order + 1] = 'cancel:' .. tostring(bufnr)
     end
-    d = make_drawer({ qa = 'sqlite:/tmp/qa.db' }, {
-      hooks = {
-        on_cancel_query = function()
-          order[#order + 1] = 'pre'
-        end,
-        on_cancel_query_post = function()
-          order[#order + 1] = 'post'
-        end,
+    d = h.make_drawer({
+      config = {
+        hooks = {
+          on_cancel_query = function()
+            order[#order + 1] = 'pre'
+          end,
+          on_cancel_query_post = function()
+            order[#order + 1] = 'post'
+          end,
+        },
       },
     })
     d:open()
-    local entry = entry_named(d, 'qa')
+    local entry = h.entry_named(d, 'qa')
     d:query():open({ type = 'query', key_name = entry.key_name }, 'edit')
     query_buf = vim.api.nvim_get_current_buf()
 
@@ -453,18 +456,20 @@ describe('hooks: cancel', function()
     bridge.cancel = function()
       fired = true
     end
-    d = make_drawer({ qa = 'sqlite:/tmp/qa.db' }, {
-      hooks = {
-        on_cancel_query = function()
-          fired = true
-        end,
-        on_cancel_query_post = function()
-          fired = true
-        end,
+    d = h.make_drawer({
+      config = {
+        hooks = {
+          on_cancel_query = function()
+            fired = true
+          end,
+          on_cancel_query_post = function()
+            fired = true
+          end,
+        },
       },
     })
     d:open()
-    local entry = entry_named(d, 'qa')
+    local entry = h.entry_named(d, 'qa')
     d:query():open({ type = 'query', key_name = entry.key_name }, 'edit')
     query_buf = vim.api.nvim_get_current_buf()
 

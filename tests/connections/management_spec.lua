@@ -1,49 +1,21 @@
-local drawer_mod = require('dadbod-ui.drawer')
 local ids = require('dadbod-ui.drawer.ids')
-local state = require('dadbod-ui.state')
-local config = require('dadbod-ui.config')
 local connections = require('dadbod-ui.connections')
 local notifications = require('dadbod-ui.notifications')
+local h = require('helper')
 
 -- A drawer over an instance seeded with injected sources. `save_location`
--- points at a real temp dir so connections.json round-trips on disk.
+-- points at a real temp dir so connections.json round-trips on disk. Wraps the
+-- shared fixture with this spec's info-notification config and a default-true
+-- confirm answer (management flows never connect, so the echo connector is inert).
 local function make_drawer(opts)
   opts = opts or {}
-  local cfg = config.resolve({
-    save_location = opts.save_location,
-    drawer = { show_help = false },
-    notifications = { disable_info = false },
-  })
-  local instance = state.new(cfg):populate({
-    env = {},
+  return h.make_drawer({
+    config = { save_location = opts.save_location, notifications = { disable_info = false } },
     g_dbs = opts.g_dbs or {},
     file_entries = opts.file_entries or {},
+    inputs = opts.inputs or {},
+    confirm = opts.confirm == nil and true or opts.confirm,
   })
-  local d = drawer_mod.new(instance)
-  -- Drive prompts from a queue and confirmations from a fixed answer.
-  local queue = opts.inputs or {}
-  local idx = 0
-  d.input = function(_, on_confirm)
-    idx = idx + 1
-    on_confirm(queue[idx])
-  end
-  d.confirm = function()
-    if opts.confirm == nil then
-      return true
-    end
-    return opts.confirm
-  end
-  return d
-end
-
--- Find a populated entry by connection name.
-local function entry_named(d, name)
-  for _, r in ipairs(d.instance.dbs_list) do
-    if r.name == name then
-      return d.instance.dbs[r.key_name]
-    end
-  end
-  return nil
 end
 
 local function stored(path)
@@ -53,6 +25,7 @@ end
 describe('connection management: add', function()
   local d, dir
   before_each(function()
+    h.clean_ui()
     dir = vim.fn.tempname()
   end)
   after_each(function()
@@ -71,7 +44,7 @@ describe('connection management: add', function()
     local file = stored(d.instance.connections_path)
     assert.equals(1, #file)
     assert.equals('qa', file[1].name)
-    assert.is_not_nil(entry_named(d, 'qa'))
+    assert.is_not_nil(h.entry_named(d, 'qa'))
     assert.is_truthy(vim.tbl_contains(vim.api.nvim_buf_get_lines(d.bufnr, 0, -1, false), '▸ qa'))
   end)
 
@@ -108,7 +81,7 @@ describe('connection management: add', function()
 
     -- the original corrupt bytes are still on disk, untouched
     assert.equals('{ corrupt not an array', vim.fn.readfile(path)[1])
-    assert.is_nil(entry_named(d, 'qa'))
+    assert.is_nil(h.entry_named(d, 'qa'))
     assert.is_truthy(notifications.get_last_msg():find('refusing to overwrite'))
   end)
 
@@ -133,13 +106,14 @@ describe('connection management: add', function()
     vim.api.nvim_win_set_cursor(d.winid, { 2, 0 })
     assert.equals('add_connection', d:get_current_item().type)
     d:toggle_line()
-    assert.is_not_nil(entry_named(d, 'qa'))
+    assert.is_not_nil(h.entry_named(d, 'qa'))
   end)
 end)
 
 describe('connection management: rename', function()
   local d, dir
   before_each(function()
+    h.clean_ui()
     dir = vim.fn.tempname()
   end)
   after_each(function()
@@ -162,11 +136,11 @@ describe('connection management: rename', function()
       end
     end)()
 
-    d:connections():rename_connection(entry_named(d, 'old'))
+    d:connections():rename_connection(h.entry_named(d, 'old'))
     local file = stored(d.instance.connections_path)
     assert.equals('new', file[1].name)
-    assert.is_not_nil(entry_named(d, 'new'))
-    assert.is_nil(entry_named(d, 'old'))
+    assert.is_not_nil(h.entry_named(d, 'new'))
+    assert.is_nil(h.entry_named(d, 'old'))
   end)
 
   it('refuses to rename onto an existing connection name and writes nothing', function()
@@ -185,17 +159,17 @@ describe('connection management: rename', function()
       end
     end)()
 
-    d:connections():rename_connection(entry_named(d, 'Geekom2'))
+    d:connections():rename_connection(h.entry_named(d, 'Geekom2'))
     local file = stored(d.instance.connections_path)
     assert.equals(2, #file) -- nothing merged or dropped
-    assert.is_not_nil(entry_named(d, 'Geekom'))
-    assert.is_not_nil(entry_named(d, 'Geekom2'))
+    assert.is_not_nil(h.entry_named(d, 'Geekom'))
+    assert.is_not_nil(h.entry_named(d, 'Geekom2'))
     assert.is_truthy(notifications.get_last_msg():find('already exists'))
   end)
 
   it('refuses to rename a non-file connection', function()
     d = make_drawer({ save_location = dir, g_dbs = { dev = 'postgres://h/dev' } })
-    d:connections():rename_connection(entry_named(d, 'dev'))
+    d:connections():rename_connection(h.entry_named(d, 'dev'))
     assert.is_truthy(notifications.get_last_msg():find('via variables'))
   end)
 end)
@@ -203,6 +177,7 @@ end)
 describe('connection management: duplicate', function()
   local d, dir
   before_each(function()
+    h.clean_ui()
     dir = vim.fn.tempname()
   end)
   after_each(function()
@@ -223,12 +198,12 @@ describe('connection management: duplicate', function()
       inputs = { 'analytics', 'sqlite:' .. dir .. '/analytics.db', '' },
     })
 
-    d:connections():duplicate_connection(entry_named(d, 'main'))
+    d:connections():duplicate_connection(h.entry_named(d, 'main'))
     local file = stored(d.instance.connections_path)
     assert.equals(2, #file)
-    assert.is_not_nil(entry_named(d, 'main')) -- source kept
-    assert.is_not_nil(entry_named(d, 'analytics')) -- copy added
-    assert.equals('sqlite:' .. dir .. '/analytics.db', entry_named(d, 'analytics').url)
+    assert.is_not_nil(h.entry_named(d, 'main')) -- source kept
+    assert.is_not_nil(h.entry_named(d, 'analytics')) -- copy added
+    assert.equals('sqlite:' .. dir .. '/analytics.db', h.entry_named(d, 'analytics').url)
   end)
 
   it('prefills the group prompt with the source group', function()
@@ -245,7 +220,7 @@ describe('connection management: duplicate', function()
       end
     end)()
 
-    d:connections():duplicate_connection(entry_named(d, 'pg'))
+    d:connections():duplicate_connection(h.entry_named(d, 'pg'))
     local copy = vim.tbl_filter(function(c)
       return c.name == 'pg2'
     end, stored(d.instance.connections_path))[1]
@@ -258,7 +233,7 @@ describe('connection management: duplicate', function()
     -- keep the name, change only the group: geekom/postgres -> pi/postgres
     d = make_drawer({ save_location = dir, file_entries = seed, inputs = { 'postgres', 'postgres://pi/db', 'pi' } })
 
-    d:connections():duplicate_connection(entry_named(d, 'postgres'))
+    d:connections():duplicate_connection(h.entry_named(d, 'postgres'))
     local file = stored(d.instance.connections_path)
     assert.equals(2, #file)
     local groups = vim.tbl_map(function(c)
@@ -273,7 +248,7 @@ describe('connection management: duplicate', function()
     connections.write_file(dir .. '/connections.json', seed)
     d = make_drawer({ save_location = dir, file_entries = seed, inputs = { 'a', 'sqlite:' .. dir .. '/b.db', '' } })
 
-    d:connections():duplicate_connection(entry_named(d, 'a'))
+    d:connections():duplicate_connection(h.entry_named(d, 'a'))
     assert.equals(1, #stored(d.instance.connections_path))
     assert.is_truthy(notifications.get_last_msg():find('already exists'))
   end)
@@ -284,7 +259,7 @@ describe('connection management: duplicate', function()
       g_dbs = { dev = 'postgres://h/dev' },
       inputs = { 'dev_file', 'postgres://h/dev', '' },
     })
-    d:connections():duplicate_connection(entry_named(d, 'dev'))
+    d:connections():duplicate_connection(h.entry_named(d, 'dev'))
     local file = stored(d.instance.connections_path)
     assert.equals(1, #file)
     assert.equals('dev_file', file[1].name)
@@ -294,6 +269,7 @@ end)
 describe('connection management: group', function()
   local d, dir
   before_each(function()
+    h.clean_ui()
     dir = vim.fn.tempname()
   end)
   after_each(function()
@@ -305,7 +281,7 @@ describe('connection management: group', function()
   end)
 
   local function lines(drawer)
-    return vim.api.nvim_buf_get_lines(drawer.bufnr, 0, -1, false)
+    return h.buf_lines(drawer.bufnr)
   end
 
   it('assigns a file connection to a group: drawer header + json both update', function()
@@ -313,10 +289,10 @@ describe('connection management: group', function()
     connections.write_file(dir .. '/connections.json', seed)
     d = make_drawer({ save_location = dir, file_entries = seed, inputs = { 'Local' } })
     d:open()
-    d:connections():set_group(entry_named(d, 'qa'))
+    d:connections():set_group(h.entry_named(d, 'qa'))
 
     assert.equals('Local', stored(d.instance.connections_path)[1].group)
-    assert.equals('Local', entry_named(d, 'qa').group)
+    assert.equals('Local', h.entry_named(d, 'qa').group)
     -- a group header now precedes the connection in the tree
     local l = lines(d)
     assert.is_truthy(l[1]:find('Local'))
@@ -351,7 +327,7 @@ describe('connection management: group', function()
 
   it('refuses to group a non-file connection', function()
     d = make_drawer({ save_location = dir, g_dbs = { dev = 'postgres://h/dev' } })
-    d:connections():set_group(entry_named(d, 'dev'))
+    d:connections():set_group(h.entry_named(d, 'dev'))
     assert.is_truthy(notifications.get_last_msg():find('via variables'))
   end)
 
@@ -380,6 +356,7 @@ end)
 describe('connection management: delete', function()
   local d, dir
   before_each(function()
+    h.clean_ui()
     dir = vim.fn.tempname()
   end)
   after_each(function()
@@ -397,9 +374,9 @@ describe('connection management: delete', function()
       file_entries = { { name = 'qa', url = 'sqlite:' .. dir .. '/qa.db' } },
       confirm = true,
     })
-    d:connections():delete_connection(entry_named(d, 'qa'))
+    d:connections():delete_connection(h.entry_named(d, 'qa'))
     assert.equals(0, #stored(d.instance.connections_path))
-    assert.is_nil(entry_named(d, 'qa'))
+    assert.is_nil(h.entry_named(d, 'qa'))
   end)
 
   it('does nothing when the confirmation is declined', function()
@@ -409,7 +386,7 @@ describe('connection management: delete', function()
       file_entries = { { name = 'qa', url = 'sqlite:' .. dir .. '/qa.db' } },
       confirm = false,
     })
-    d:connections():delete_connection(entry_named(d, 'qa'))
+    d:connections():delete_connection(h.entry_named(d, 'qa'))
     assert.equals(1, #stored(d.instance.connections_path))
   end)
 
@@ -425,7 +402,7 @@ describe('connection management: delete', function()
     -- Even called directly, the controller must refuse a variable-source entry so
     -- it can't rewrite connections.json (or drop a file entry sharing name+url).
     d = make_drawer({ save_location = dir, g_dbs = { dev = 'postgres://h/dev' }, confirm = true })
-    d:connections():delete_connection(entry_named(d, 'dev'))
+    d:connections():delete_connection(h.entry_named(d, 'dev'))
     assert.is_truthy(notifications.get_last_msg():find('via variables'))
   end)
 
@@ -449,6 +426,7 @@ end)
 describe('connection management: reorder', function()
   local d, dir
   before_each(function()
+    h.clean_ui()
     dir = vim.fn.tempname()
   end)
   after_each(function()
@@ -504,7 +482,7 @@ describe('connection management: reorder', function()
 
   it('refuses to move a discovered (variable) connection', function()
     d = make_drawer({ save_location = dir, g_dbs = { dev = 'postgres://h/dev' } })
-    d:connections():move_connection(entry_named(d, 'dev'), 'down')
+    d:connections():move_connection(h.entry_named(d, 'dev'), 'down')
     assert.is_truthy(notifications.get_last_msg():find('via variables'))
   end)
 
@@ -549,6 +527,7 @@ end)
 describe('connection management: redraw', function()
   local d, dir
   before_each(function()
+    h.clean_ui()
     dir = vim.fn.tempname()
   end)
   after_each(function()
@@ -566,22 +545,23 @@ describe('connection management: redraw', function()
     assert.has_no.errors(function()
       d:redraw()
     end)
-    assert.is_not_nil(entry_named(d, 'dev'))
+    assert.is_not_nil(h.entry_named(d, 'dev'))
   end)
 
   it('preserves an expanded connection across a redraw', function()
     d = make_drawer({ save_location = dir, g_dbs = { dev = 'postgres://h/dev' } })
     d:open()
-    d:set_expanded(ids.db(entry_named(d, 'dev').key_name), true)
+    d:set_expanded(ids.db(h.entry_named(d, 'dev').key_name), true)
     vim.api.nvim_win_set_cursor(d.winid, { 1, 0 })
     d:redraw()
-    assert.is_true(d:is_expanded(ids.db(entry_named(d, 'dev').key_name)))
+    assert.is_true(d:is_expanded(ids.db(h.entry_named(d, 'dev').key_name)))
   end)
 end)
 
 describe('connection management: preserves state across an edit', function()
   local d, dir
   before_each(function()
+    h.clean_ui()
     dir = vim.fn.tempname()
   end)
   after_each(function()
@@ -599,16 +579,17 @@ describe('connection management: preserves state across an edit', function()
       inputs = { 'sqlite:' .. dir .. '/qa.db', 'qa' },
     })
     d:open()
-    d:set_expanded(ids.db(entry_named(d, 'dev').key_name), true)
+    d:set_expanded(ids.db(h.entry_named(d, 'dev').key_name), true)
     d:connections():add_connection()
-    assert.is_not_nil(entry_named(d, 'qa')) -- the add landed
-    assert.is_true(d:is_expanded(ids.db(entry_named(d, 'dev').key_name))) -- and dev stayed open
+    assert.is_not_nil(h.entry_named(d, 'qa')) -- the add landed
+    assert.is_true(d:is_expanded(ids.db(h.entry_named(d, 'dev').key_name))) -- and dev stayed open
   end)
 end)
 
 describe('connection management: color (issue #91)', function()
   local d, dir
   before_each(function()
+    h.clean_ui()
     dir = vim.fn.tempname()
   end)
   after_each(function()
@@ -624,10 +605,10 @@ describe('connection management: color (issue #91)', function()
     connections.write_file(dir .. '/connections.json', seed)
     d = make_drawer({ save_location = dir, file_entries = seed, inputs = { '#FF0000' } })
     d:open()
-    d:connections():set_connection_color(entry_named(d, 'qa'))
+    d:connections():set_connection_color(h.entry_named(d, 'qa'))
 
     assert.equals('#ff0000', stored(d.instance.connections_path)[1].color)
-    assert.equals('#ff0000', entry_named(d, 'qa').color)
+    assert.equals('#ff0000', h.entry_named(d, 'qa').color)
   end)
 
   it('empty input clears the connection color', function()
@@ -635,10 +616,10 @@ describe('connection management: color (issue #91)', function()
     connections.write_file(dir .. '/connections.json', seed)
     d = make_drawer({ save_location = dir, file_entries = seed, inputs = { '' } })
     d:open()
-    d:connections():set_connection_color(entry_named(d, 'qa'))
+    d:connections():set_connection_color(h.entry_named(d, 'qa'))
 
     assert.is_nil(stored(d.instance.connections_path)[1].color)
-    assert.is_nil(entry_named(d, 'qa').color)
+    assert.is_nil(h.entry_named(d, 'qa').color)
   end)
 
   it('rejects a non-hex color and writes nothing', function()
@@ -646,7 +627,7 @@ describe('connection management: color (issue #91)', function()
     connections.write_file(dir .. '/connections.json', seed)
     d = make_drawer({ save_location = dir, file_entries = seed, inputs = { 'red' } })
     d:open()
-    d:connections():set_connection_color(entry_named(d, 'qa'))
+    d:connections():set_connection_color(h.entry_named(d, 'qa'))
 
     assert.is_truthy(notifications.get_last_msg():find('hex color'))
     assert.is_nil(stored(d.instance.connections_path)[1].color)
@@ -654,7 +635,7 @@ describe('connection management: color (issue #91)', function()
 
   it('refuses to color a non-file connection', function()
     d = make_drawer({ save_location = dir, g_dbs = { dev = 'postgres://h/dev' }, inputs = { '#ff0000' } })
-    d:connections():set_connection_color(entry_named(d, 'dev'))
+    d:connections():set_connection_color(h.entry_named(d, 'dev'))
     assert.is_truthy(notifications.get_last_msg():find('via variables'))
   end)
 
@@ -677,8 +658,8 @@ describe('connection management: color (issue #91)', function()
     assert.is_nil(file[2].url)
     assert.same({ prod = '#aa0000' }, d.instance.group_colors)
     -- Both members inherit the effective color, whatever their source.
-    assert.equals('#aa0000', d.instance:connection_color(entry_named(d, 'qa')))
-    assert.equals('#aa0000', d.instance:connection_color(entry_named(d, 'dev')))
+    assert.equals('#aa0000', d.instance:connection_color(h.entry_named(d, 'qa')))
+    assert.equals('#aa0000', d.instance:connection_color(h.entry_named(d, 'dev')))
   end)
 
   it('clearing the group color removes the row', function()
@@ -709,7 +690,7 @@ describe('connection management: color (issue #91)', function()
     -- Line 2 is the member db line: color the connection itself.
     vim.api.nvim_win_set_cursor(d.winid, { 2, 0 })
     d:set_color_line()
-    assert.equals('#ff0000', entry_named(d, 'qa').color)
+    assert.equals('#ff0000', h.entry_named(d, 'qa').color)
   end)
 
   it('a duplicate carries the source connection color', function()
@@ -721,7 +702,7 @@ describe('connection management: color (issue #91)', function()
       inputs = { 'qa', 'sqlite:' .. dir .. '/qa.db', 'pi' },
     })
     d:open()
-    d:connections():duplicate_connection(entry_named(d, 'qa'))
+    d:connections():duplicate_connection(h.entry_named(d, 'qa'))
 
     local file = stored(d.instance.connections_path)
     assert.equals(2, #file)

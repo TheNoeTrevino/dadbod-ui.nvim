@@ -3,23 +3,13 @@
 -- open window, stores it on self.content (navigation indexes that), and returns
 -- it. These assert the node shapes directly -- never calling d:open().
 
-local drawer_mod = require('dadbod-ui.drawer')
 local ids = require('dadbod-ui.drawer.ids')
-local state = require('dadbod-ui.state')
-local config = require('dadbod-ui.config')
+local h = require('helper')
 
 -- A drawer over an instance seeded with injected connections, connector stubbed
--- offline. Mirrors tests/schema_introspection_spec.lua's helper.
+-- offline.
 local function make_drawer(g_dbs, overrides)
-  local cfg = config.resolve(
-    vim.tbl_extend('force', { save_location = '/tmp/dbui_schemas', drawer = { show_help = false } }, overrides or {})
-  )
-  local instance = state.new(cfg):populate({ env = {}, g_dbs = g_dbs, file_entries = {} })
-  local d = drawer_mod.new(instance)
-  d.connector = function()
-    return ''
-  end
-  return d
+  return h.make_drawer({ g_dbs = g_dbs, config = overrides, connector = 'offline' })
 end
 
 describe('drawer build_content (no window)', function()

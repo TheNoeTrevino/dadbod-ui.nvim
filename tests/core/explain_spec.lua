@@ -6,12 +6,12 @@
 local explain = require('dadbod-ui.explain')
 local api = require('dadbod-ui.api')
 local state = require('dadbod-ui.state')
+local h = require('helper')
 
 -- Seed the session singleton with injected connections (mirrors api_spec).
 local function seed(g_dbs, overrides)
   vim.g.dbs = g_dbs
-  local opts =
-    vim.tbl_extend('force', { save_location = '/tmp/dbui_explain', drawer = { show_help = false } }, overrides or {})
+  local opts = vim.tbl_extend('force', { save_location = h.tmp_dir(), drawer = { show_help = false } }, overrides or {})
   state.setup(opts)
   state.get()
 end
@@ -166,34 +166,21 @@ describe('explain: api error paths', function()
 end)
 
 describe('explain: sqlite end-to-end (guarded)', function()
-  local dir, db_path
+  local url
   before_each(function()
-    if vim.fn.executable('sqlite3') ~= 1 then
-      return
+    url = h.sqlite_db("CREATE TABLE contacts(id INTEGER, name TEXT); INSERT INTO contacts VALUES (1, 'ada');")
+    if url then
+      seed({ qa = url })
     end
-    dir = vim.fn.tempname()
-    vim.fn.mkdir(dir, 'p')
-    db_path = dir .. '/qa.db'
-    vim.fn.system({
-      'sqlite3',
-      db_path,
-      "CREATE TABLE contacts(id INTEGER, name TEXT); INSERT INTO contacts VALUES (1, 'ada');",
-    })
-    seed({ qa = 'sqlite:' .. db_path })
   end)
   after_each(function()
     vim.g.dbs = nil
     state.reset()
-    if dir then
-      vim.fn.delete(dir, 'rf')
-      dir, db_path = nil, nil
-    end
   end)
 
   it('explain_sync returns the query plan output', function()
-    if vim.fn.executable('sqlite3') ~= 1 then
-      pending('sqlite3 not installed')
-      return
+    if not url then
+      return pending('sqlite3 not installed')
     end
     local rows, err = api.explain_sync('qa', 'select * from contacts')
     assert.is_nil(err)
@@ -213,32 +200,12 @@ end)
 -- `execute_lines` lets us assert the wrapped SQL with no DB binary -- mirroring
 -- how query_buffers_spec drives a query buffer offline.
 describe('explain: buffer-level (explain_query)', function()
-  local drawer_mod = require('dadbod-ui.drawer')
-  local config = require('dadbod-ui.config')
   local bridge = require('dadbod-ui.bridge')
   local notifications = require('dadbod-ui.notifications')
 
-  local function make_drawer(g_dbs)
-    local cfg = config.resolve({ save_location = '/tmp/dbui_explain_buf', drawer = { show_help = false } })
-    local instance = state.new(cfg):populate({ env = {}, g_dbs = g_dbs, file_entries = {} })
-    local d = drawer_mod.new(instance)
-    d.connector = function(url)
-      return url
-    end
-    return d
-  end
-
-  local function entry_named(d, name)
-    for _, record in ipairs(d.instance.dbs_list) do
-      if record.name == name then
-        return d.instance.dbs[record.key_name]
-      end
-    end
-  end
-
   local d, query_bufs, saved_execute_lines, sent
   before_each(function()
-    require('helper').clean_ui()
+    h.clean_ui()
     query_bufs = {}
     sent = nil
     -- Capture what the engine is asked to run instead of touching a real DB.
@@ -261,7 +228,7 @@ describe('explain: buffer-level (explain_query)', function()
   -- Open a query buffer bound to `name`, seed it with `sql`, and focus it.
   local function open_query_buffer(name, sql)
     d:open()
-    local entry = entry_named(d, name)
+    local entry = h.entry_named(d, name)
     d:query():open({ type = 'query', key_name = entry.key_name }, 'edit')
     query_bufs[#query_bufs + 1] = vim.api.nvim_get_current_buf()
     vim.api.nvim_buf_set_lines(0, 0, -1, false, vim.split(sql, '\n'))
@@ -269,14 +236,14 @@ describe('explain: buffer-level (explain_query)', function()
   end
 
   it('wraps the current buffer SQL in EXPLAIN and runs that', function()
-    d = make_drawer({ qa = 'sqlite:/tmp/qa.db' })
+    d = h.make_drawer()
     open_query_buffer('qa', 'select * from contacts')
     d:query():explain_query(false)
     assert.same({ 'EXPLAIN QUERY PLAN select * from contacts' }, sent)
   end)
 
   it('surfaces the unsupported-adapter error and runs nothing', function()
-    d = make_drawer({ mssql = 'sqlserver://sa@h/db' })
+    d = h.make_drawer({ g_dbs = { mssql = 'sqlserver://sa@h/db' } })
     open_query_buffer('mssql', 'select 1')
     d:query():explain_query(false)
     assert.is_nil(sent) -- engine never invoked
@@ -284,7 +251,7 @@ describe('explain: buffer-level (explain_query)', function()
   end)
 
   it('rejects analyze on an adapter with no executing form', function()
-    d = make_drawer({ qa = 'sqlite:/tmp/qa.db' })
+    d = h.make_drawer()
     open_query_buffer('qa', 'select 1')
     d:query():explain_query(false, { analyze = true })
     assert.is_nil(sent)
@@ -292,7 +259,7 @@ describe('explain: buffer-level (explain_query)', function()
   end)
 
   it('errors on a buffer not attached to any database', function()
-    d = make_drawer({ qa = 'sqlite:/tmp/qa.db' })
+    d = h.make_drawer()
     d:open()
     vim.cmd('enew') -- a plain buffer, no b:dbui_db_key_name
     query_bufs[#query_bufs + 1] = vim.api.nvim_get_current_buf()

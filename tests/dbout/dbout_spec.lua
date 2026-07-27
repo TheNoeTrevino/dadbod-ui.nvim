@@ -2,39 +2,27 @@
 -- Query results section, sort order, and a guarded end-to-end execute-on-save
 -- that runs real SQL through dadbod and renders the rows in a .dbout buffer.
 
-local drawer_mod = require('dadbod-ui.drawer')
 local ids = require('dadbod-ui.drawer.ids')
-local state = require('dadbod-ui.state')
-local config = require('dadbod-ui.config')
 local dbout = require('dadbod-ui.dbout')
+local h = require('helper')
 
+-- Shared across the Query results specs: the dbout entries are keyed by path, so
+-- the drawer's save_location and the recorded result paths must agree.
+local save_dir = h.tmp_dir()
+
+-- Default 'echo' connector (returns the url) so entries "connect".
 local function make_drawer(g_dbs, overrides)
-  local cfg = config.resolve(
-    vim.tbl_extend('force', { save_location = '/tmp/dbui_dbout', drawer = { show_help = false } }, overrides or {})
-  )
-  local instance = state.new(cfg):populate({ env = {}, g_dbs = g_dbs or {}, file_entries = {} })
-  local d = drawer_mod.new(instance)
-  d.connector = function(url)
-    return url
-  end
-  return d
-end
-
-local function lines(d)
-  return vim.api.nvim_buf_get_lines(d.bufnr, 0, -1, false)
-end
-
-local function has_line(d, pattern)
-  for _, line in ipairs(lines(d)) do
-    if line:find(pattern, 1, true) then
-      return true
-    end
-  end
-  return false
+  return h.make_drawer({
+    g_dbs = g_dbs or {},
+    config = vim.tbl_deep_extend('force', { save_location = save_dir }, overrides or {}),
+  })
 end
 
 describe('dbout: Query results section', function()
   local d
+  before_each(function()
+    h.clean_ui()
+  end)
   after_each(function()
     if d then
       d:close()
@@ -45,19 +33,19 @@ describe('dbout: Query results section', function()
   it('records an executed result and shows the Query results header', function()
     d = make_drawer()
     d:open()
-    dbout.save_dbout('/tmp/dbui_dbout/12.dbout')
-    assert.is_not_nil(d.instance.dbout_list['/tmp/dbui_dbout/12.dbout'])
-    assert.is_true(has_line(d, 'Query results (1)'))
+    dbout.save_dbout(save_dir .. '/12.dbout')
+    assert.is_not_nil(d.instance.dbout_list[save_dir .. '/12.dbout'])
+    assert.is_true(h.has_line(d.bufnr, 'Query results (1)'))
   end)
 
   it('lists result files under the expanded section, sorted ascending', function()
     d = make_drawer()
     d:open()
-    dbout.save_dbout('/tmp/dbui_dbout/30.dbout')
-    dbout.save_dbout('/tmp/dbui_dbout/2.dbout')
+    dbout.save_dbout(save_dir .. '/30.dbout')
+    dbout.save_dbout(save_dir .. '/2.dbout')
     d:set_expanded(ids.DBOUT, true)
     d:render()
-    local body = lines(d)
+    local body = h.buf_lines(d.bufnr)
     local i2, i30
     for idx, line in ipairs(body) do
       if line:find('2.dbout', 1, true) then
@@ -82,63 +70,34 @@ end)
 
 describe('dbout: execute on save (sqlite)', function()
   local d
-  local fixture = '/tmp/dbui_dbout_qa.db'
-  local query_bufs = {}
-
   before_each(function()
-    if vim.fn.executable('sqlite3') == 1 then
-      vim.fn.delete(fixture)
-      vim.fn.system({
-        'sqlite3',
-        fixture,
-        "CREATE TABLE contacts(id INTEGER, name TEXT); INSERT INTO contacts VALUES (1,'ada'),(2,'alan');",
-      })
-    end
+    h.clean_ui()
   end)
-
   after_each(function()
-    for _, b in ipairs(query_bufs) do
-      pcall(vim.api.nvim_buf_delete, b, { force = true })
-    end
-    query_bufs = {}
-    for _, b in ipairs(vim.api.nvim_list_bufs()) do
-      if vim.api.nvim_buf_get_name(b):match('%.dbout$') then
-        pcall(vim.api.nvim_buf_delete, b, { force = true })
-      end
-    end
     if d then
       d:close()
       d = nil
     end
-    vim.fn.delete(fixture)
   end)
 
   it('runs the buffer on :w and renders rows in a .dbout buffer', function()
-    if vim.fn.executable('sqlite3') ~= 1 then
+    local url =
+      h.sqlite_db("CREATE TABLE contacts(id INTEGER, name TEXT); INSERT INTO contacts VALUES (1,'ada'),(2,'alan');")
+    if not url then
       return pending('sqlite3 not installed')
     end
-    d = make_drawer({ qa = 'sqlite:' .. fixture }, { query = { execute_on_save = true } })
+    d = make_drawer({ qa = url }, { query = { execute_on_save = true } })
     d.connector = require('dadbod-ui.bridge').connect -- real connection
     d:open()
-    local entry
-    for _, record in ipairs(d.instance.dbs_list) do
-      if record.name == 'qa' then
-        entry = d.instance.dbs[record.key_name]
-      end
-    end
+    local entry = h.entry_named(d, 'qa')
     d:query():open({ type = 'query', key_name = entry.key_name }, 'edit')
-    query_bufs[#query_bufs + 1] = vim.api.nvim_get_current_buf()
     vim.api.nvim_buf_set_lines(0, 0, -1, false, { 'SELECT name FROM contacts ORDER BY name;' })
     vim.cmd('silent write')
 
     local function dbout_has(text)
-      for _, b in ipairs(vim.api.nvim_list_bufs()) do
-        if vim.api.nvim_buf_get_name(b):match('%.dbout$') then
-          for _, line in ipairs(vim.api.nvim_buf_get_lines(b, 0, -1, false)) do
-            if line:find(text, 1, true) then
-              return true
-            end
-          end
+      for _, b in ipairs(h.dbout_bufs()) do
+        if h.has_line(b, text) then
+          return true
         end
       end
       return false

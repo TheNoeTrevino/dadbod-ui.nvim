@@ -4,13 +4,17 @@
 
 local api = require('dadbod-ui.api')
 local state = require('dadbod-ui.state')
+local h = require('helper')
+
+-- A fresh store location shared by the seed()-default cases (nothing writes to
+-- it), so parallel checkouts cannot collide on a fixed /tmp path.
+local save_dir = h.tmp_dir()
 
 -- Seed the session singleton with injected connections. The API reads through
 -- `state.get()`, so we drive discovery via `vim.g.dbs` and reset around it.
 local function seed(g_dbs, overrides)
   vim.g.dbs = g_dbs
-  local opts =
-    vim.tbl_extend('force', { save_location = '/tmp/dbui_api', drawer = { show_help = false } }, overrides or {})
+  local opts = vim.tbl_extend('force', { save_location = save_dir, drawer = { show_help = false } }, overrides or {})
   state.setup(opts)
   state.get() -- force discovery now
 end

@@ -6,10 +6,9 @@
 
 local highlights = require('dadbod-ui.highlights')
 local painter = require('dadbod-ui.drawer.paint')
-local drawer_mod = require('dadbod-ui.drawer')
-local state = require('dadbod-ui.state')
 local config = require('dadbod-ui.config')
 local icons_mod = require('dadbod-ui.icons')
+local h = require('helper')
 
 local INDENT = 2
 local icons = icons_mod.resolve(config.resolve({ use_nerd_fonts = false }))
@@ -35,15 +34,9 @@ local function by_group(hls, group)
 end
 
 -- A drawer over an instance seeded with injected file entries, connector
--- stubbed offline (mirrors tests/drawer/content_spec.lua's helper).
+-- stubbed offline.
 local function make_drawer(file_entries)
-  local cfg = config.resolve({ save_location = '/tmp/dbui_colors', drawer = { show_help = false } })
-  local instance = state.new(cfg):populate({ env = {}, g_dbs = {}, file_entries = file_entries })
-  local d = drawer_mod.new(instance)
-  d.connector = function()
-    return ''
-  end
-  return d
+  return h.make_drawer({ g_dbs = {}, file_entries = file_entries, connector = 'offline' })
 end
 
 describe('drawer colors: highlight ranges', function()

@@ -7,54 +7,21 @@
 local drawer_mod = require('dadbod-ui.drawer')
 local ids = require('dadbod-ui.drawer.ids')
 local state = require('dadbod-ui.state')
-local config = require('dadbod-ui.config')
 local notifications = require('dadbod-ui.notifications')
+local h = require('helper')
 
+-- Offline connector; the deferring async_connector mirrors the non-blocking
+-- connect path `expand_db` uses so specs never dispatch a real probe.
+-- Individual specs override it to simulate success/failure/latency.
 local function make_drawer(g_dbs, overrides)
-  local cfg = config.resolve(
-    vim.tbl_extend('force', { save_location = '/tmp/dbui_loading', drawer = { show_help = false } }, overrides or {})
-  )
-  local instance = state.new(cfg):populate({ env = {}, g_dbs = g_dbs, file_entries = {} })
-  local d = drawer_mod.new(instance)
-  d.connector = function()
-    return ''
-  end
-  -- Mirror the sync fake for the non-blocking connect path `expand_db` uses, so
-  -- specs never dispatch a real `vim.system` probe at a fake url. Individual
-  -- specs override this to simulate success/failure/latency.
-  d.async_connector = function(_, on_result)
-    -- Defer like the real (vim.system-backed) backend so the loading spinner is
-    -- observable between expand and resolution.
-    vim.schedule(function()
-      on_result(true, '')
-    end)
-  end
-  return d
-end
-
-local function lines(d)
-  return vim.api.nvim_buf_get_lines(d.bufnr, 0, -1, false)
-end
-
-local function has_line(d, text)
-  for _, line in ipairs(lines(d)) do
-    if line:find(text, 1, true) then
-      return true
-    end
-  end
-  return false
-end
-
-local function entry_named(d, name)
-  for _, record in ipairs(d.instance.dbs_list) do
-    if record.name == name then
-      return d.instance.dbs[record.key_name]
-    end
-  end
+  return h.make_drawer({ g_dbs = g_dbs, config = overrides, connector = 'offline', async_connector = 'defer' })
 end
 
 describe('drawer loading: line_for', function()
   local d
+  before_each(function()
+    h.clean_ui()
+  end)
   after_each(function()
     if d then
       d:close()
@@ -65,7 +32,7 @@ describe('drawer loading: line_for', function()
   it('produces a line identical to a full paint for every node type', function()
     d = make_drawer({ dev = 'postgres://h/dev' })
     d:open()
-    local entry = entry_named(d, 'dev')
+    local entry = h.entry_named(d, 'dev')
     -- exercise several node kinds at once: db, sections, schema, table, help
     d:set_expanded(ids.db(entry.key_name), true)
     d:set_expanded(ids.section(entry.key_name, 'schemas'), true)
@@ -73,7 +40,7 @@ describe('drawer loading: line_for', function()
     entry.schemas.list = { 'public' }
     entry.schemas.items = { public = { 'users' } }
     d:render()
-    local rendered = lines(d)
+    local rendered = h.buf_lines(d.bufnr)
     assert.is_true(#rendered > 4)
     for i, node in ipairs(d.content) do
       assert.equals(rendered[i], drawer_mod._line_for(node))
@@ -83,6 +50,9 @@ end)
 
 describe('drawer loading: repaint_db_node', function()
   local d
+  before_each(function()
+    h.clean_ui()
+  end)
   after_each(function()
     if d then
       d:close()
@@ -93,11 +63,11 @@ describe('drawer loading: repaint_db_node', function()
   it('appends the frame to exactly the db line, locating it by key_name', function()
     d = make_drawer({ a = 'postgres://h/a', b = 'postgres://h/b' })
     d:open()
-    local before = lines(d)
-    local entry_b = entry_named(d, 'b')
+    local before = h.buf_lines(d.bufnr)
+    local entry_b = h.entry_named(d, 'b')
     entry_b.loading = true
     d:repaint_db_node(entry_b.key_name, '@@')
-    local after = lines(d)
+    local after = h.buf_lines(d.bufnr)
     -- the matching db line gained a trailing frame; its leading icon + name stay
     local changed = {}
     for i = 1, math.max(#before, #after) do
@@ -112,19 +82,19 @@ describe('drawer loading: repaint_db_node', function()
   it('leaves the buffer untouched for an unknown / not-loading key', function()
     d = make_drawer({ a = 'postgres://h/a' })
     d:open()
-    local before = lines(d)
+    local before = h.buf_lines(d.bufnr)
     d:repaint_db_node('does-not-exist', '@@')
-    assert.same(before, lines(d))
+    assert.same(before, h.buf_lines(d.bufnr))
     -- a known connection that is not loading renders no frame either
-    d:repaint_db_node(entry_named(d, 'a').key_name, '@@')
-    assert.same(before, lines(d))
+    d:repaint_db_node(h.entry_named(d, 'a').key_name, '@@')
+    assert.same(before, h.buf_lines(d.bufnr))
   end)
 
   it('keeps the db line highlighted after a repaint (does not go uncolored)', function()
     local highlights = require('dadbod-ui.highlights')
     d = make_drawer({ a = 'postgres://h/a' })
     d:open()
-    local entry = entry_named(d, 'a')
+    local entry = h.entry_named(d, 'a')
     -- find the db line index
     local idx
     for i, node in ipairs(d.content) do
@@ -144,6 +114,9 @@ end)
 
 describe('drawer loading: lifecycle marker', function()
   local d
+  before_each(function()
+    h.clean_ui()
+  end)
   after_each(function()
     if d then
       d:close()
@@ -155,12 +128,12 @@ describe('drawer loading: lifecycle marker', function()
     local spinners = require('dadbod-ui.spinners')
     d = make_drawer({ dev = 'postgres://h/dev' })
     d:open()
-    local idle = lines(d)[1] -- fold icon + name, no trailer
-    local entry = entry_named(d, 'dev')
+    local idle = h.buf_lines(d.bufnr)[1] -- fold icon + name, no trailer
+    local entry = h.entry_named(d, 'dev')
     entry.loading = true
     d:render()
     -- same leading fold icon + name, with the connection spinner (dots) appended
-    assert.equals(idle .. ' ' .. spinners.dots[1], lines(d)[1])
+    assert.equals(idle .. ' ' .. spinners.dots[1], h.buf_lines(d.bufnr)[1])
   end)
 
   it('a connect error clears the marker, shows the error icon, and still notifies', function()
@@ -171,7 +144,7 @@ describe('drawer loading: lifecycle marker', function()
       end)
     end
     d:open()
-    local entry = entry_named(d, 'dev')
+    local entry = h.entry_named(d, 'dev')
     d:set_expanded(ids.db(entry.key_name), true)
     d:introspect():expand_db(entry)
     vim.wait(1000, function()
@@ -180,7 +153,7 @@ describe('drawer loading: lifecycle marker', function()
     assert.is_falsy(entry.loading)
     assert.is_truthy(entry.conn_error and entry.conn_error ~= '')
     d:render()
-    assert.is_true(has_line(d, d.icons.connection_error))
+    assert.is_true(h.has_line(d.bufnr, d.icons.connection_error))
     assert.is_truthy(notifications.get_last_msg():find('Error connecting'))
   end)
 
@@ -192,7 +165,7 @@ describe('drawer loading: lifecycle marker', function()
       end)
     end
     d:open()
-    local entry = entry_named(d, 'dev')
+    local entry = h.entry_named(d, 'dev')
     d:set_expanded(ids.db(entry.key_name), true)
     d:introspect():expand_db(entry)
     vim.wait(1000, function()
@@ -204,35 +177,26 @@ describe('drawer loading: lifecycle marker', function()
 end)
 
 describe('drawer loading: sqlite end-to-end (guarded)', function()
-  local d, dir, db_path
+  local d
   before_each(function()
-    if vim.fn.executable('sqlite3') ~= 1 then
-      return
-    end
-    dir = vim.fn.tempname()
-    vim.fn.mkdir(dir, 'p')
-    db_path = dir .. '/qa.db'
-    vim.fn.system({ 'sqlite3', db_path, 'CREATE TABLE contacts(id INTEGER, name TEXT);' })
+    h.clean_ui()
   end)
   after_each(function()
     if d then
       d:close()
       d = nil
     end
-    if dir then
-      vim.fn.delete(dir, 'rf')
-      dir, db_path = nil, nil
-    end
   end)
 
   it('clears the marker and shows the ok icon once tables land', function()
-    if vim.fn.executable('sqlite3') ~= 1 then
+    local url = h.sqlite_db('CREATE TABLE contacts(id INTEGER, name TEXT);')
+    if not url then
       return pending('sqlite3 not installed')
     end
-    d = make_drawer({ qa = 'sqlite:' .. db_path })
+    d = make_drawer({ qa = url })
     d.async_connector = require('dadbod-ui.bridge').connect_async
     d:open()
-    local entry = entry_named(d, 'qa')
+    local entry = h.entry_named(d, 'qa')
     d:set_expanded(ids.db(entry.key_name), true)
     d:introspect():expand_db(entry)
     local ok = vim.wait(3000, function()
@@ -241,6 +205,6 @@ describe('drawer loading: sqlite end-to-end (guarded)', function()
     assert.is_true(ok, 'expected tables to load and the loading marker to clear')
     assert.is_true(state.is_connected(entry))
     d:render()
-    assert.is_true(has_line(d, d.icons.connection_ok))
+    assert.is_true(h.has_line(d.bufnr, d.icons.connection_ok))
   end)
 end)

@@ -1,38 +1,26 @@
-local drawer_mod = require('dadbod-ui.drawer')
-local state = require('dadbod-ui.state')
-local config = require('dadbod-ui.config')
 local ids = require('dadbod-ui.drawer.ids')
 local helper = require('helper')
 
 -- A drawer over one schema connection (postgres) and one flat one (sqlite),
 -- with introspection data seeded directly -- reveal/goto work purely off
--- entry data, no live connection.
+-- entry data, no live connection. The deferring async_connector keeps any
+-- expansion offline.
 local function make_drawer()
-  local cfg = config.resolve({ save_location = '/tmp/dbui_reveal', drawer = { show_help = false } })
-  local instance = state.new(cfg):populate({
-    env = {},
+  local d = helper.make_drawer({
     g_dbs = {
       { name = 'pg', url = 'postgres://h/pg' },
       { name = 'lite', url = 'sqlite:/tmp/dbui_reveal.db' },
     },
-    file_entries = {},
+    connector = 'offline',
+    async_connector = 'defer',
   })
-  local d = drawer_mod.new(instance)
-  d.connector = function()
-    return ''
-  end
-  d.async_connector = function(_, on_result)
-    vim.schedule(function()
-      on_result(true, '')
-    end)
-  end
-  local pg = instance.dbs[instance.dbs_list[1].key_name]
+  local pg = helper.entry_named(d, 'pg')
   pg.tables = { 'logs', 'orders', 'users' }
   pg.schemas = {
     list = { 'audit', 'public' },
     items = { public = { 'orders', 'users' }, audit = { 'logs', 'users' } },
   }
-  local lite = instance.dbs[instance.dbs_list[2].key_name]
+  local lite = helper.entry_named(d, 'lite')
   lite.tables = { 'inventory', 'users' }
   return d, pg, lite
 end

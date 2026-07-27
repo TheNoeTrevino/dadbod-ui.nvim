@@ -1,32 +1,18 @@
-local drawer_mod = require('dadbod-ui.drawer')
-local state = require('dadbod-ui.state')
-local config = require('dadbod-ui.config')
+local h = require('helper')
 
--- array form keeps a deterministic order
+-- Navigation specs stay offline (expansion would otherwise connect). The
+-- deferring async_connector returns an empty conn so no real probe is spawned.
+-- Array form keeps a deterministic order.
 local function make_drawer()
-  local cfg = config.resolve({ save_location = '/tmp/dbui_nav', drawer = { show_help = false } })
-  local instance = state.new(cfg):populate({
-    env = {},
+  return h.make_drawer({
     g_dbs = {
       { name = 'a', url = 'postgres://h/a' },
       { name = 'b', url = 'postgres://h/b' },
       { name = 'c', url = 'postgres://h/c' },
     },
-    file_entries = {},
+    connector = 'offline',
+    async_connector = 'defer',
   })
-  local d = drawer_mod.new(instance)
-  -- Keep navigation specs offline: expansion would otherwise try to connect.
-  -- The expand path connects via `async_connector`; return an empty conn so no
-  -- real probe is spawned (state.is_connected treats '' as not connected).
-  d.connector = function()
-    return ''
-  end
-  d.async_connector = function(_, on_result)
-    vim.schedule(function()
-      on_result(true, '')
-    end)
-  end
-  return d
 end
 
 local function cursor_line(d)
@@ -36,6 +22,7 @@ end
 describe('drawer: sibling navigation', function()
   local d
   before_each(function()
+    h.clean_ui()
     d = make_drawer()
     d:open()
   end)
@@ -94,6 +81,7 @@ end)
 describe('drawer: node navigation', function()
   local d
   before_each(function()
+    h.clean_ui()
     d = make_drawer()
     d:open()
   end)

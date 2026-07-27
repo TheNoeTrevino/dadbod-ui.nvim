@@ -5,30 +5,8 @@
 -- (fast `%DB` path preserved), rewrite runs from a temp file, and composition with
 -- the bind-param substitution that runs BEFORE the transform.
 
-local drawer_mod = require('dadbod-ui.drawer')
-local state = require('dadbod-ui.state')
-local config = require('dadbod-ui.config')
 local bridge = require('dadbod-ui.bridge')
-
-local function make_drawer(overrides)
-  local cfg = config.resolve(
-    vim.tbl_extend('force', { save_location = '/tmp/dbui_tx', drawer = { show_help = false } }, overrides or {})
-  )
-  local instance = state.new(cfg):populate({ env = {}, g_dbs = { qa = 'sqlite:/tmp/qa.db' }, file_entries = {} })
-  local d = drawer_mod.new(instance)
-  d.connector = function(url)
-    return url
-  end
-  return d
-end
-
-local function entry_named(d, name)
-  for _, record in ipairs(d.instance.dbs_list) do
-    if record.name == name then
-      return d.instance.dbs[record.key_name]
-    end
-  end
-end
+local h = require('helper')
 
 describe('execute: transform hook', function()
   local d, query_buf
@@ -36,6 +14,7 @@ describe('execute: transform hook', function()
   local calls
 
   before_each(function()
+    h.clean_ui()
     calls = { buffer = 0, files = {} }
     saved = {
       execute_buffer = bridge.execute_buffer,
@@ -74,14 +53,14 @@ describe('execute: transform hook', function()
 
   local function open_query(lines)
     d:open()
-    local entry = entry_named(d, 'qa')
+    local entry = h.entry_named(d, 'qa')
     d:query():open({ type = 'query', key_name = entry.key_name }, 'edit')
     query_buf = vim.api.nvim_get_current_buf()
     vim.api.nvim_buf_set_lines(0, 0, -1, false, lines)
   end
 
   it('runs the rewritten SQL from a temp file, dropping the %DB fast path', function()
-    d = make_drawer()
+    d = h.make_drawer()
     open_query({ 'SELECT 1' })
     -- Wrapping in EXPLAIN QUERY PLAN is non-paginatable, so it runs verbatim (no
     -- LIMIT/OFFSET) via the tempfile path -- and never through %DB.
@@ -90,11 +69,11 @@ describe('execute: transform hook', function()
     end)
     assert.equals(0, calls.buffer)
     assert.same({ { 'EXPLAIN QUERY PLAN', 'SELECT 1' } }, calls.files)
-    assert.equals(entry_named(d, 'qa').conn, calls.last_url)
+    assert.equals(h.entry_named(d, 'qa').conn, calls.last_url)
   end)
 
   it('passes the buffer SQL as a single string to the transform', function()
-    d = make_drawer()
+    d = h.make_drawer()
     open_query({ 'SELECT 1', 'FROM t' })
     local seen
     d:query():execute_query(false, function(sql)
@@ -105,7 +84,7 @@ describe('execute: transform hook', function()
   end)
 
   it('runs the query unchanged when the transform returns nil', function()
-    d = make_drawer()
+    d = h.make_drawer()
     open_query({ 'SELECT 1' })
     d:query():execute_query(false, function(_sql)
       return nil
@@ -117,7 +96,7 @@ describe('execute: transform hook', function()
   end)
 
   it('substitutes bind params BEFORE the transform sees the SQL', function()
-    d = make_drawer()
+    d = h.make_drawer()
     open_query({ 'SELECT * FROM contacts WHERE id = :id' })
     d:query().input = function(_opts, on_confirm)
       on_confirm('5')
@@ -133,7 +112,7 @@ describe('execute: transform hook', function()
   end)
 
   it('omitting the transform preserves the %DB fast path', function()
-    d = make_drawer()
+    d = h.make_drawer()
     open_query({ 'SELECT 1 LIMIT 10' }) -- already paged: stays on the raw %DB path
     d:query():execute_query()
     assert.equals(1, calls.buffer)
