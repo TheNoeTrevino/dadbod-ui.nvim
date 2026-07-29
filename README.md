@@ -10,26 +10,27 @@ familiar workflow, but API-first, deeply configurable, and typed to the teeth.
 
 <!--toc:start-->
 
-- [Features](#features)
-- [Requirements](#requirements)
-- [Installation](#installation)
-- [Configuration](#configuration)
-- [Usage](#usage)
-  - [Prefer `:DBUI*` commands?](#prefer-dbui-commands)
-  - [Drawer](#drawer)
-  - [Connections](#connections)
-  - [Querying](#querying)
-  - [Introspection](#introspection)
-  - [Export](#export)
-  - [Events](#events)
-- [Migrating from vim-dadbod-ui](#migrating-from-vim-dadbod-ui)
-- [Contributing](#contributing)
-
-<!--toc:end-->
+- [dadbod-ui.nvim](#dadbod-uinvim)
+  - [Features](#features)
+  - [Requirements](#requirements)
+  - [Installation](#installation)
+  - [Configuration](#configuration)
+  - [Usage](#usage)
+    - [Drawer](#drawer)
+    - [Connections](#connections)
+    - [Querying](#querying)
+    - [Introspection](#introspection)
+    - [Export](#export)
+    - [Events](#events)
+    - [Custom adapters](#custom-adapters)
+  - [Migrating from vim-dadbod-ui](#migrating-from-vim-dadbod-ui)
+  - [Support](#support)
+  - [Contributing](#contributing)
+  <!--toc:end-->
 
 > [!NOTE]
 > Considering migrating from [kristijanhusak/vim-dadbod-ui](https://github.com/kristijanhusak/vim-dadbod-ui)?
-> Read the [migration guide](MIGRATION.md) for a tutorial
+> Read the [migration guide](./MIGRATION.md) for a tutorial
 
 ## Features
 
@@ -133,7 +134,7 @@ vim.g.dbs = {
 
 The block above is a curated slice. For the **complete option reference** -
 every setting, its default, and how to use it, plus the deep dive on keymaps,
-custom actions, and hooks - see [`CONFIGURATION.md`](CONFIGURATION.md).
+custom actions, and hooks - see [`CONFIGURATION.md`](./CONFIGURATION.md).
 
 ## Usage
 
@@ -224,17 +225,52 @@ api.off(handle)  -- unsubscribe
 Events: `on_connect`, `on_connect_post`, `on_execute_query`, `on_execute_query_post`,
 `on_cancel_query`, `on_cancel_query_post`.
 
+### Custom adapters
+
+Some adapters that are supported by `vim-dadbod` are not supported by us yet. Make your own
+with the public API:
+
+<details>
+<summary>Register an adapter</summary>
+
+```lua
+require('dadbod-ui.api').register_adapter({
+  name = 'snowflake',                                       -- required; doubles as the url scheme
+  table_helpers = { List = 'SELECT * FROM "{table}" LIMIT 200' },
+  explain = { plain = 'EXPLAIN {sql}' },
+  pagination = 'limit_offset',
+})
+```
+
+Feel free to contribute the configuration.
+
+The `name` doubles as the url scheme, so it has to be one
+[vim-dadbod](https://github.com/tpope/vim-dadbod) can already connect to (it
+ships `snowflake`, `presto`, `redis`, and more that dadbod-ui has no built-in
+spec for) - dadbod does the connecting and querying, this spec adds dadbod-ui's
+features on top.
+
+Only `name` is required; every other field is optional, and an absent field
+just means that capability is off for the adapter. Reusing a built-in's name
+replaces it completely (no merge), so extend a built-in by copying its spec
+first.
+
+The full field-by-field breakdown lives in [`docs/ADAPTERS.md`](./docs/ADAPTERS.md).
+The `DadbodUI.Adapter` type is annotated in [`lua/dadbod-ui/types.lua`](lua/dadbod-ui/types.lua).
+
+</details>
+
 ## Migrating from vim-dadbod-ui
 
 Every `g:db_ui_*` global maps to a grouped `opts` field, your connections and
 default keys carry over untouched, and the old `:DBUI*` commands are a few lines
-away. See [`MIGRATION.md`](MIGRATION.md) for the full mapping.
+away. See [`MIGRATION.md`](./MIGRATION.md) for the full mapping.
 
 ## Support
 
-[`CURRENT_SUPPORT.md`](CURRENT_SUPPORT.md) has the full feature-by-adapter
+[`CURRENT_SUPPORT.md`](./CURRENT_SUPPORT.md) has the full feature-by-adapter
 support matrix. The roadmap lives in the [GitHub milestones](https://github.com/TheNoeTrevino/dadbod-ui.nvim/milestones).
 
 ## Contributing
 
-See [`CONTRIBUTING.md`](CONTRIBUTING.md)
+See [`CONTRIBUTING.md`](./CONTRIBUTING.md)
