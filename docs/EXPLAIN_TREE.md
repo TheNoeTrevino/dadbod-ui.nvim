@@ -175,18 +175,19 @@ the keymaps.
 | mysql ≥5.7 | `EXPLAIN FORMAT=JSON` | full | no executing JSON form (`EXPLAIN ANALYZE` emits TREE text -- parse later, not now) |
 | mariadb | `EXPLAIN FORMAT=JSON` | full | `ANALYZE FORMAT=JSON` gives real per-node `r_*` timings |
 | sqlite | `EXPLAIN QUERY PLAN` | flat text, no JSON | stays on the existing plain path |
-| duckdb | `EXPLAIN (FORMAT JSON)` exists | text only for now | JSON output is preceded by a box-art banner and node shape differs; parser deferred to #127. NOTE: `EXPLAIN ANALYZE` executes the statement |
+| duckdb | `EXPLAIN (FORMAT JSON)` | full | shell's box-art banner stripped pre-decode; `EXPLAIN (ANALYZE, FORMAT JSON)` gives real per-node timings, DML analyze rolled back (analyzed INSERTs hit a duckdb profiler bug and surface an error instead of a tree) |
 | sqlserver / oracle / bigquery / mongodb | ✗ (xml/table shaped) | ✗ | honestly unsupported per the issue |
 
 ## Testing
 
-- Parsers and metrics: inline JSON fixtures in `tests/explain/plan_spec.lua`
-  and `tests/explain/mysql_plan_spec.lua`, pure decode→normalize→assert.
+- Parsers and metrics: inline JSON fixtures in `tests/explain/plan_spec.lua`,
+  `tests/explain/mysql_plan_spec.lua` and `tests/explain/duckdb_plan_spec.lua`,
+  pure decode→normalize→assert.
 - Render: row text + highlight ranges computed buffer-free
   (`tests/explain/render_spec.lua`), same posture as `highlights_spec.lua`.
 - Window and wiring: `tests/explain/tree_spec.lua` (real windows, no DB) and
   `tests/explain/wiring_spec.lua` (keymap/api plumbing, stubbed bridge).
 - End to end: `integration/query/explain_tree_spec.lua` drives the real
   clients against live servers per JSON-capable adapter -- tree render,
-  error path, analyzed timings, and the postgres proof that analyzed DML
-  rolls back.
+  error path, analyzed timings, and the postgres/duckdb proof that analyzed
+  DML rolls back.

@@ -70,10 +70,21 @@ return {
     References = "SELECT * FROM duckdb_constraints() WHERE constraint_type = 'FOREIGN KEY' AND referenced_table = '{table}' AND schema_name = '{schema}'",
     ['Primary Keys'] = "SELECT * FROM duckdb_constraints() WHERE constraint_type = 'PRIMARY KEY' AND table_name = '{table}' AND schema_name = '{schema}'",
   },
-  -- Text-only for now: EXPLAIN (FORMAT JSON) exists but emits a banner before
-  -- the JSON and needs its own parser. NOTE: EXPLAIN ANALYZE executes the
-  -- statement (an analyzed INSERT commits), same caveat as postgres.
-  explain = { plain = 'EXPLAIN {sql}', analyze = 'EXPLAIN ANALYZE {sql}' },
+  explain = {
+    plain = 'EXPLAIN {sql}',
+    analyze = 'EXPLAIN ANALYZE {sql}',
+    json = 'EXPLAIN (FORMAT JSON) {sql}',
+    -- ANALYZE executes the statement, so the JSON form runs inside a
+    -- rolled-back transaction (postgres convention) -- an analyzed DML
+    -- statement must never commit its effects.
+    json_analyze = 'BEGIN; EXPLAIN (ANALYZE, FORMAT JSON) {sql}; ROLLBACK;',
+    -- The shell prints EXPLAIN results raw in every output mode, so the only
+    -- flag needed is `-no-init` (a ~/.duckdbrc must not change modes or
+    -- inject output). The box-art `Physical Plan` banner the shell prints
+    -- before the plain JSON is stripped by the parser's `clean`.
+    json_args = { '-no-init' },
+    parser = 'dadbod-ui.explain.parsers.duckdb',
+  },
   pagination = 'limit_offset',
   statements = {},
   export = {

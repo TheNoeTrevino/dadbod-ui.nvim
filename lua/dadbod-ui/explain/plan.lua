@@ -95,7 +95,9 @@ end
 --- Decode the raw CLI output of a JSON EXPLAIN into an annotated plan.
 --- Returns `nil, err` (user-facing) when the scheme has no parser, the output
 --- is not valid JSON (e.g. the server reported an error instead of a plan), or
---- the JSON is not shaped like a plan.
+--- the JSON is not shaped like a plan. A parser may declare `clean(raw)` to
+--- scrub non-JSON framing its CLI prints around the document (duckdb's box-art
+--- `Physical Plan` banner) before the decode.
 ---@param scheme string
 ---@param raw string  the client's stdout, as captured by the bridge
 ---@return DadbodUI.ExplainPlan|nil plan
@@ -107,11 +109,15 @@ function M.decode(scheme, raw)
     return nil,
       string.format('no structured plan parser for adapter %s', tostring(adapters.canonical(scheme) or scheme))
   end
+  local parser_mod = require(parser)
+  if parser_mod.clean ~= nil then
+    raw = parser_mod.clean(raw or '')
+  end
   local ok, decoded = pcall(vim.json.decode, vim.trim(raw or ''))
   if not ok or type(decoded) ~= 'table' then
     return nil, 'could not decode EXPLAIN JSON output: ' .. vim.trim(raw or ''):sub(1, 200)
   end
-  local plan, err = require(parser).parse(decoded)
+  local plan, err = parser_mod.parse(decoded)
   if plan == nil then
     return nil, err
   end

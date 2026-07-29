@@ -68,8 +68,16 @@ describe('explain: wrap', function()
     assert.is_truthy(analyzed:match('ROLLBACK;$'))
   end)
 
+  it('wraps the duckdb JSON forms (analyze inside a rolled-back transaction)', function()
+    assert.equals('EXPLAIN (FORMAT JSON) select 1', explain.wrap('duckdb', 'select 1', { format = 'json' }))
+    local analyzed = explain.wrap('duckdb', 'delete from t', { format = 'json', analyze = true })
+    assert.is_truthy(analyzed:match('^BEGIN;'))
+    assert.is_truthy(analyzed:match('EXPLAIN %(ANALYZE, FORMAT JSON%) delete from t'))
+    assert.is_truthy(analyzed:match('ROLLBACK;$'))
+  end)
+
   it('errors on the JSON form for text-only EXPLAIN dialects', function()
-    for _, scheme in ipairs({ 'sqlite', 'clickhouse', 'oracle', 'duckdb' }) do
+    for _, scheme in ipairs({ 'sqlite', 'clickhouse', 'oracle' }) do
       local sql, err = explain.wrap(scheme, 'select 1', { format = 'json' })
       assert.is_nil(sql)
       assert.is_truthy(err and err:match('JSON explain plan is not supported'))
@@ -106,9 +114,10 @@ describe('explain: supports / supported_schemes', function()
     assert.is_true(explain.supports_json('postgresql')) -- alias resolves
     assert.is_true(explain.supports_json('mysql'))
     assert.is_true(explain.supports_json('mariadb'))
+    assert.is_true(explain.supports_json('duckdb'))
     assert.is_false(explain.supports_json('sqlite')) -- text-only EXPLAIN
     assert.is_false(explain.supports_json('sqlserver')) -- no EXPLAIN at all
-    assert.same({ 'mariadb', 'mysql', 'postgres' }, explain.json_schemes())
+    assert.same({ 'duckdb', 'mariadb', 'mysql', 'postgres' }, explain.json_schemes())
   end)
 
   it('rejects JSON analyze where the dialect has no executing JSON form', function()

@@ -161,7 +161,7 @@
 ---@field json? string     structured-plan form (e.g. EXPLAIN (FORMAT JSON))
 ---@field json_analyze? string  executing structured form; wrap DML safely (BEGIN/ROLLBACK) where the dialect allows
 ---@field json_args? string[]   extra client argv for raw, parseable JSON output
----@field parser? string    module path of the dialect's plan parser (explain/parsers/*); json support = template AND parser
+---@field parser? string    module path of the dialect's plan parser (explain/parsers/*), exposing `parse(decoded)` and optionally `clean(raw)` to scrub non-JSON CLI framing pre-decode; json support = template AND parser
 
 --- One node of a normalized explain plan: the dialect-agnostic shape every
 --- plan parser targets, so the tree renderer never branches on

@@ -10,12 +10,14 @@ local explain = require('dadbod-ui.explain')
 local tree = require('dadbod-ui.explain.tree')
 
 -- Per-adapter expectations: text the rendered tree must contain for
--- `SELECT * FROM people` (each dialect's scan spelling), and whether the
--- dialect has an executing JSON form (json_analyze).
+-- `SELECT * FROM people` (each dialect's scan spelling), whether the dialect
+-- has an executing JSON form (json_analyze), and whether its plain plan
+-- carries a cost metric (duckdb's carries only cardinality estimates).
 local EXPECT = {
-  postgres = { scan = 'Seq Scan on people', analyze = true },
-  mysql = { scan = 'Full Table Scan on people', analyze = false },
-  mariadb = { scan = 'Full Table Scan on people', analyze = true },
+  postgres = { scan = 'Seq Scan on people', analyze = true, cost = true, rollback = true },
+  mysql = { scan = 'Full Table Scan on people', analyze = false, cost = true },
+  mariadb = { scan = 'Full Table Scan on people', analyze = true, cost = true },
+  duckdb = { scan = 'Seq Scan on', analyze = true, cost = false, rollback = true },
 }
 
 --- The concatenated text of the open tree buffer ('' when closed).
@@ -68,9 +70,12 @@ for _, adapter in ipairs(h.adapters) do
       assert.is_true(wait_for_tree(expect.scan), ('expected %q in the tree:\n%s'):format(expect.scan, tree_text()))
       local t = assert(tree.get())
       assert.equals('dbui-explain', vim.bo[t.bufnr].filetype)
-      -- The metric cells rendered: a cost (plain plans) and a rows estimate.
+      -- The metric cells rendered: a rows estimate, and a cost where the
+      -- dialect's plain plan carries one.
       assert.is_truthy(tree_text():match('rows ~'))
-      assert.is_truthy(tree_text():match('cost '))
+      if expect.cost then
+        assert.is_truthy(tree_text():match('cost '))
+      end
       assert.same({}, cap.errors)
     end)
 
@@ -98,7 +103,7 @@ for _, adapter in ipairs(h.adapters) do
       end)
     end
 
-    if adapter.name == 'postgres' then
+    if expect.rollback then
       it('rolls back DML under JSON analyze (never commits)', function()
         d = h.make_drawer(adapter)
         -- orders has no inbound foreign keys, so the DELETE itself is valid --
