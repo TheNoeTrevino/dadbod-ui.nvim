@@ -2,37 +2,9 @@
 -- results into the entry, honoring hide_schemas, rendering the Schemas/Tables
 -- sections, schema-support detection, and a guarded end-to-end sqlite expand.
 
-local drawer_mod = require('dadbod-ui.drawer')
 local ids = require('dadbod-ui.drawer.ids')
-local state = require('dadbod-ui.state')
-local config = require('dadbod-ui.config')
 local notifications = require('dadbod-ui.notifications')
-
--- A drawer over an instance seeded with injected connections. The connector is
--- stubbed offline by default; integration tests opt back into the real one.
-local function make_drawer(g_dbs, overrides)
-  local cfg = config.resolve(
-    vim.tbl_extend('force', { save_location = '/tmp/dbui_schemas', drawer = { show_help = false } }, overrides or {})
-  )
-  local instance = state.new(cfg):populate({ env = {}, g_dbs = g_dbs, file_entries = {} })
-  local d = drawer_mod.new(instance)
-  d.connector = function()
-    return ''
-  end
-  return d
-end
-
-local function lines(d)
-  return vim.api.nvim_buf_get_lines(d.bufnr, 0, -1, false)
-end
-
-local function entry_named(d, name)
-  for _, record in ipairs(d.instance.dbs_list) do
-    if record.name == name then
-      return d.instance.dbs[record.key_name]
-    end
-  end
-end
+local h = require('helper')
 
 describe('schema introspection: apply_schemas', function()
   local d
@@ -44,8 +16,8 @@ describe('schema introspection: apply_schemas', function()
   end)
 
   it('folds schemas and (schema, table) rows into the entry', function()
-    d = make_drawer({ dev = 'postgres://h/dev' })
-    local entry = entry_named(d, 'dev')
+    d = h.make_drawer({ g_dbs = { dev = 'postgres://h/dev' }, connector = 'offline' })
+    local entry = h.entry_named(d, 'dev')
     d:introspect():apply_schemas(entry, { 'public', 'app' }, {
       { 'public', 'users' },
       { 'public', 'posts' },
@@ -59,8 +31,12 @@ describe('schema introspection: apply_schemas', function()
   end)
 
   it('drops schemas and tables matching hide_schemas', function()
-    d = make_drawer({ dev = 'postgres://h/dev' }, { hide_schemas = { 'information_schema', 'pg_' } })
-    local entry = entry_named(d, 'dev')
+    d = h.make_drawer({
+      g_dbs = { dev = 'postgres://h/dev' },
+      connector = 'offline',
+      config = { hide_schemas = { 'information_schema', 'pg_' } },
+    })
+    local entry = h.entry_named(d, 'dev')
     d:introspect():apply_schemas(entry, { 'public', 'information_schema', 'pg_catalog' }, {
       { 'public', 'users' },
       { 'information_schema', 'tables' },
@@ -82,9 +58,9 @@ describe('schema introspection: rendering', function()
   end)
 
   it('renders Schemas -> schema -> tables -> helpers for a schema adapter', function()
-    d = make_drawer({ dev = 'postgres://h/dev' })
+    d = h.make_drawer({ g_dbs = { dev = 'postgres://h/dev' }, connector = 'offline' })
     d:open()
-    local entry = entry_named(d, 'dev')
+    local entry = h.entry_named(d, 'dev')
     d:set_expanded(ids.db(entry.key_name), true)
     d:set_expanded(ids.section(entry.key_name, 'schemas'), true)
     d:set_expanded(ids.schema(entry.key_name, 'public'), true)
@@ -92,7 +68,7 @@ describe('schema introspection: rendering', function()
     entry.schemas.list = { 'public' }
     entry.schemas.items = { public = { 'users' } }
     d:render()
-    local l = lines(d)
+    local l = h.buf_lines(d.bufnr)
     assert.equals('▾ dev', l[1])
     assert.equals('  + New query', l[2])
     assert.equals('  ▸ Saved queries (0)', l[3]) -- always shown, between New query and Schemas
@@ -104,15 +80,15 @@ describe('schema introspection: rendering', function()
   end)
 
   it('renders a Tables section directly for a non-schema adapter (sqlite)', function()
-    d = make_drawer({ qa = 'sqlite:/tmp/whatever.db' })
+    d = h.make_drawer({ g_dbs = { qa = 'sqlite:/tmp/whatever.db' }, connector = 'offline' })
     d:open()
-    local entry = entry_named(d, 'qa')
+    local entry = h.entry_named(d, 'qa')
     assert.is_false(entry.schema_support)
     d:set_expanded(ids.db(entry.key_name), true)
     d:set_expanded(ids.section(entry.key_name, 'tables'), true)
     entry.tables = { 'contacts' }
     d:render()
-    local l = lines(d)
+    local l = h.buf_lines(d.bufnr)
     assert.equals('▾ qa', l[1])
     assert.is_truthy(vim.tbl_contains(l, '  ▾ Tables (1)'))
     assert.is_truthy(vim.tbl_contains(l, '    ▸ contacts'))
@@ -131,12 +107,12 @@ describe('schema introspection: connect', function()
   end)
 
   it('records the connect time on the entry without a popup', function()
-    d = make_drawer({ dev = 'postgres://h/dev' })
+    d = h.make_drawer({ g_dbs = { dev = 'postgres://h/dev' }, connector = 'offline' })
     d.connector = function()
       return 'postgres://h/dev'
     end
     d:open()
-    local entry = entry_named(d, 'dev')
+    local entry = h.entry_named(d, 'dev')
     local before = notifications.get_last_msg()
     d:introspect():connect(entry)
     -- the timing is captured on the entry, and the connect emitted no message
@@ -145,55 +121,40 @@ describe('schema introspection: connect', function()
   end)
 
   it('surfaces the connect time in the details view, not a notification', function()
-    d = make_drawer({ dev = 'postgres://h/dev' })
+    d = h.make_drawer({ g_dbs = { dev = 'postgres://h/dev' }, connector = 'offline' })
     d.connector = function()
       return 'postgres://h/dev'
     end
     d:open()
-    local entry = entry_named(d, 'dev')
+    local entry = h.entry_named(d, 'dev')
     d:introspect():connect(entry)
     d.show_details = true
     d:render()
     -- e.g. "▾ dev ✓ (postgres - g:dbs - 3ms)"
-    assert.is_truthy(lines(d)[1]:match('%- %d+ms%)$'))
+    assert.is_truthy(h.buf_lines(d.bufnr)[1]:match('%- %d+ms%)$'))
   end)
 end)
 
 describe('schema introspection: sqlite end-to-end (guarded)', function()
-  local d, dir, db_path
+  local d, url
   before_each(function()
-    if vim.fn.executable('sqlite3') ~= 1 then
-      return
-    end
-    dir = vim.fn.tempname()
-    vim.fn.mkdir(dir, 'p')
-    db_path = dir .. '/qa.db'
-    vim.fn.system({
-      'sqlite3',
-      db_path,
-      'CREATE TABLE contacts(id INTEGER, name TEXT); CREATE TABLE notes(id INTEGER);',
-    })
+    url = h.sqlite_db('CREATE TABLE contacts(id INTEGER, name TEXT); CREATE TABLE notes(id INTEGER);')
   end)
   after_each(function()
     if d then
       d:close()
       d = nil
     end
-    if dir then
-      vim.fn.delete(dir, 'rf')
-      dir, db_path = nil, nil
-    end
   end)
 
   it('connects and lists real tables directly under the connection', function()
-    if vim.fn.executable('sqlite3') ~= 1 then
-      pending('sqlite3 not installed')
-      return
+    if not url then
+      return pending('sqlite3 not installed')
     end
-    d = make_drawer({ qa = 'sqlite:' .. db_path })
+    d = h.make_drawer({ g_dbs = { qa = url }, connector = 'offline' })
     d.connector = require('dadbod-ui.bridge').connect -- real connect for sqlite (offline)
     d:open()
-    local entry = entry_named(d, 'qa')
+    local entry = h.entry_named(d, 'qa')
     d:introspect():connect(entry)
     assert.is_truthy(entry.conn ~= nil and entry.conn ~= '')
     d:introspect():populate_tables(entry)

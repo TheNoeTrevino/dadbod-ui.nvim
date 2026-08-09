@@ -1,0 +1,6 @@
+| id | name | note | amount |
+| --- | --- | --- | --- |
+| 1 | Ann |  | 10.5 |
+| 2 | O'Brien | has, comma | 20.0 |
+| 3 | Zoe | line1<br>line2 | 3.25 |
+| 4 | Ünïcödé | tab	here & <b> |  |

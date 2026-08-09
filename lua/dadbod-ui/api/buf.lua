@@ -10,6 +10,7 @@
 ---@class DadbodUI.ApiBufModule
 ---@field switch fun(name?: string): boolean, string|nil
 ---@field find fun()
+---@field goto_table fun()
 ---@field rename fun()
 ---@field execute fun(transform?: DadbodUI.SqlTransform)
 ---@field execute_selection fun(transform?: DadbodUI.SqlTransform)
@@ -17,6 +18,8 @@
 ---@field last_query_info fun()
 ---@field explain fun(opts?: DadbodUI.ExplainOpts)
 ---@field explain_selection fun(opts?: DadbodUI.ExplainOpts)
+---@field explain_tree fun(opts?: DadbodUI.ExplainOpts)
+---@field explain_tree_selection fun(opts?: DadbodUI.ExplainOpts)
 ---@field export fun()
 ---@field export_selection fun()
 
@@ -57,6 +60,15 @@ end
 --- Find/adopt the query buffer for the current db context.
 function M.find()
   dbui.find_buffer()
+end
+
+--- Jump to the table under the cursor in the drawer (expanding its parents) --
+--- the Lua equivalent of the `goto_table` (`gd`) mapping. Aliases and schema
+--- qualification resolve through the treesitter `sql` parser when one is
+--- installed; a word that is not a table of this buffer's connection is a
+--- quiet no-op.
+function M.goto_table()
+  dbui.goto_table()
 end
 
 --- Rename the current query buffer's on-disk file.
@@ -120,6 +132,25 @@ end
 ---@param opts? DadbodUI.ExplainOpts
 function M.explain_selection(opts)
   dbui.explain_selection(opts)
+end
+
+--- Explain the current query buffer's SQL as an interactive plan TREE: the
+--- JSON explain runs through the adapter's own client (no `.dbout` window) and
+--- the parsed plan opens in the explain-tree split, with costs, est-vs-actual
+--- rows, timings and heat on the expensive nodes. Same connection/bind-param
+--- reuse as `explain`; `{ analyze = true }` runs the executing form (rolled
+--- back for DML on adapters that allow it). Postgres-first; adapters without a
+--- structured plan format surface a clear unsupported error.
+---@param opts? DadbodUI.ExplainOpts
+function M.explain_tree(opts)
+  dbui.explain_tree(opts)
+end
+
+--- Explain the current visual selection as a plan tree -- the tree dual of
+--- `explain_selection`.
+---@param opts? DadbodUI.ExplainOpts
+function M.explain_tree_selection(opts)
+  dbui.explain_tree_selection(opts)
 end
 
 --- Export the current query buffer's results to a file: run its SQL and write the

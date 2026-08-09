@@ -51,7 +51,7 @@
 ---@field can_cancel fun(): boolean
 ---@field cancel fun(bufnr: integer|nil)
 ---@field command fun(url: string, mode: string|nil): string[]
----@field query_command fun(conn: string, sql: string): DadbodUI.CommandSpec
+---@field query_command fun(conn: string, sql: string, args?: string[]): DadbodUI.CommandSpec
 ---@field run_many fun(specs: DadbodUI.CommandSpec[], on_done: DadbodUI.RunManyCallback)
 ---@field run_many_sync fun(specs: DadbodUI.CommandSpec[], timeout_ms: integer|nil): DadbodUI.SystemCompleted[]
 ---@field execute fun(url: string, sql: string, quiet?: boolean, vertical?: boolean)
@@ -366,16 +366,22 @@ end
 --- result window. This is the headless dual of `execute`: adapters that read
 --- their query from stdin (`filter`) get `sql` as `stdin`, the rest take it as
 --- a trailing argument on the `interactive` command (mirroring how
---- `schemas.command_spec` builds an introspection query). Pair it with
+--- `schemas.command_spec` builds an introspection query). `args` are extra
+--- client flags folded in BEFORE the trailing sql, so flags stay flags -- only
+--- this module knows where the sql sits in the argv. Pair it with
 --- `run_many` / `run_many_sync` to get the raw, adapter-formatted output back.
 ---@param conn string  resolved connection url (e.g. from `connect`)
 ---@param sql string
+---@param args? string[]  extra client argv (e.g. an adapter's explain.json_args)
 ---@return DadbodUI.CommandSpec
-function M.query_command(conn, sql)
+function M.query_command(conn, sql, args)
   if M.supports(conn, 'filter') then
-    return { cmd = M.command(conn, 'filter'), stdin = sql }
+    local cmd = M.command(conn, 'filter')
+    vim.list_extend(cmd, args or {})
+    return { cmd = cmd, stdin = sql }
   end
   local cmd = M.command(conn, 'interactive')
+  vim.list_extend(cmd, args or {})
   cmd[#cmd + 1] = sql
   return { cmd = cmd }
 end

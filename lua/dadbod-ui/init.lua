@@ -36,6 +36,8 @@
 ---@field execute_selection fun(transform?: DadbodUI.SqlTransform)
 ---@field explain_query fun(opts?: DadbodUI.ExplainOpts)
 ---@field explain_selection fun(opts?: DadbodUI.ExplainOpts)
+---@field explain_tree fun(opts?: DadbodUI.ExplainOpts)
+---@field explain_tree_selection fun(opts?: DadbodUI.ExplainOpts)
 ---@field export_query fun()
 ---@field export_selection fun()
 ---@field cancel_query fun()
@@ -44,6 +46,7 @@
 ---@field switch_buffer fun(name?: string): boolean|nil, string|nil
 ---@field open_query fun(key_name: string, edit_action?: string)
 ---@field reveal fun(key_name: string)
+---@field goto_table fun()
 ---@field refresh fun(key_name: string)
 ---@field rename_buffer fun()
 ---@field print_last_query_info fun()
@@ -151,6 +154,22 @@ function M.explain_selection(opts)
   drawer():query():explain_query(true, opts)
 end
 
+--- Explain the current query buffer as an interactive plan TREE (JSON explain
+--- parsed and rendered, not the `.dbout` text). Backs `api.buf.explain_tree`.
+---@param opts? DadbodUI.ExplainOpts
+---@return nil
+function M.explain_tree(opts)
+  drawer():query():explain_tree(false, opts)
+end
+
+--- Explain the current visual selection as a plan tree. Backs
+--- `api.buf.explain_tree_selection`.
+---@param opts? DadbodUI.ExplainOpts
+---@return nil
+function M.explain_tree_selection(opts)
+  drawer():query():explain_tree(true, opts)
+end
+
 --- Export the current query buffer: run its SQL and write the results to a file,
 --- prompting for format + path. Backs `api.buf.export`.
 ---@return nil
@@ -235,6 +254,15 @@ end
 ---@return nil
 function M.reveal(key_name)
   drawer():reveal_db(key_name)
+end
+
+--- Jump from the current query buffer to the table under the cursor in the
+--- drawer (expanding its parents). Quiet no-op when the word is not a table of
+--- the buffer's connection. Backs `dadbod-ui.api.buf.goto_table` and the `gd`
+--- query-buffer mapping.
+---@return nil
+function M.goto_table()
+  drawer():goto_table()
 end
 
 --- Re-introspect the connection `key_name` (reload saved queries + re-scan

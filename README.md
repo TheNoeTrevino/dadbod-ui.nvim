@@ -36,11 +36,15 @@ familiar workflow, but API-first, deeply configurable, and typed to the teeth.
 
 - A drawer for your databases
   - browse connections, schemas, tables, saved queries, and stored procedures
+- Connection & group colors - paint prod red in the drawer and the query
+  buffer's winbar, so you notice before you run the query
 - Scratch & saved query buffers
   - SQL filetype so formatters and LSPs attach and work as expected
 - Paginated result buffers
   - don't bomb your ran, keep things quick and responsive
 - Inline query timing and row counts, right where you executed
+- An interactive EXPLAIN plan tree (postgres, mysql, mariadb)
+  - costs, estimated vs actual rows, timings, expensive nodes highlighted
 - Native CLI export to CSV / TSV / JSON (and consistent Lua formatters as a fallback)
 - A connection picker backed by `snacks.nvim`, `telescope.nvim`, or `fzf-lua`
 - Fully remappable, per-buffer keymaps - and your own named actions
@@ -57,6 +61,11 @@ familiar workflow, but API-first, deeply configurable, and typed to the teeth.
   [fzf-lua](https://github.com/ibhagwan/fzf-lua) - connection picker. _(optional)_
 - [nvim-notify](https://github.com/rcarriga/nvim-notify) - prettier
   notifications. _(optional)_
+- a treesitter `sql` parser (e.g. via
+  [nvim-treesitter](https://github.com/nvim-treesitter/nvim-treesitter)) - lets
+  `gd` (jump to the table under the cursor) resolve aliases like `u` in
+  `u.id` and schema-qualified names precisely; without it a plain word match
+  still handles `users` and `public.users`. _(optional)_
 
 ## Installation
 
@@ -169,6 +178,8 @@ api.add({ name = 'dev', url = 'postgres://localhost/dev', group = 'local' })
 api.rename('dev', 'development')
 api.duplicate('development', 'dev-copy', 'scratch')  -- clone into another group
 api.set_group('dev-copy', 'archive')                 -- '' to ungroup
+api.set_color('analytics/prod', '#ff0000')           -- own color ('' clears)
+api.set_group_color('analytics', '#aa0000')          -- members inherit it
 api.move('development', 'up')                         -- reorder among siblings
 api.remove('dev-copy')
 
@@ -190,6 +201,11 @@ local rows, err = api.query_sync('dev', 'select 1')  -- blocking dual for script
 api.execute('dev', 'select * from users')            -- run through :DB, open .dbout
 api.open_query('dev')                                -- fresh scratch buffer bound to dev
 api.buf.switch('prod')                               -- reassign the current query buffer
+
+-- The EXPLAIN plan tree (also on <Leader>P / <Leader>A in a query buffer):
+api.explain_tree('dev', 'select * from users order by created_at')
+api.buf.explain_tree()                               -- current query buffer
+api.buf.explain_tree({ analyze = true })             -- real timings; DML rolls back
 ```
 
 ### Introspection

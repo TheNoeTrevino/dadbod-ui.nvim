@@ -6,30 +6,8 @@
 -- rest, a throwing hook degrades cleanly to prompting, and the hook is not called
 -- when the query has no placeholders.
 
-local drawer_mod = require('dadbod-ui.drawer')
-local state = require('dadbod-ui.state')
-local config = require('dadbod-ui.config')
 local bridge = require('dadbod-ui.bridge')
-
-local function make_drawer(overrides)
-  local cfg = config.resolve(
-    vim.tbl_extend('force', { save_location = '/tmp/dbui_resolve', drawer = { show_help = false } }, overrides or {})
-  )
-  local instance = state.new(cfg):populate({ env = {}, g_dbs = { qa = 'sqlite:/tmp/qa.db' }, file_entries = {} })
-  local d = drawer_mod.new(instance)
-  d.connector = function(url)
-    return url
-  end
-  return d
-end
-
-local function entry_named(d, name)
-  for _, record in ipairs(d.instance.dbs_list) do
-    if record.name == name then
-      return d.instance.dbs[record.key_name]
-    end
-  end
-end
+local h = require('helper')
 
 describe('bind params: resolve_bind_params hook', function()
   local d, query_buf
@@ -37,6 +15,7 @@ describe('bind params: resolve_bind_params hook', function()
   local calls
 
   before_each(function()
+    h.clean_ui()
     calls = { buffer = 0, files = {} }
     saved = {
       execute_buffer = bridge.execute_buffer,
@@ -75,18 +54,20 @@ describe('bind params: resolve_bind_params hook', function()
 
   local function open_query(lines)
     d:open()
-    local entry = entry_named(d, 'qa')
+    local entry = h.entry_named(d, 'qa')
     d:query():open({ type = 'query', key_name = entry.key_name }, 'edit')
     query_buf = vim.api.nvim_get_current_buf()
     vim.api.nvim_buf_set_lines(0, 0, -1, false, lines)
   end
 
   it('uses resolved values without prompting, and persists them', function()
-    d = make_drawer({
-      hooks = {
-        resolve_bind_params = function(_names, _known)
-          return { [':id'] = '5' }
-        end,
+    d = h.make_drawer({
+      config = {
+        hooks = {
+          resolve_bind_params = function(_names, _known)
+            return { [':id'] = '5' }
+          end,
+        },
       },
     })
     open_query({ 'SELECT * FROM contacts WHERE id = :id' })
@@ -103,11 +84,13 @@ describe('bind params: resolve_bind_params hook', function()
   end)
 
   it('prompts only for the params the hook did not resolve', function()
-    d = make_drawer({
-      hooks = {
-        resolve_bind_params = function(_names, _known)
-          return { [':a'] = '1' } -- leaves :b to the prompt
-        end,
+    d = h.make_drawer({
+      config = {
+        hooks = {
+          resolve_bind_params = function(_names, _known)
+            return { [':a'] = '1' } -- leaves :b to the prompt
+          end,
+        },
       },
     })
     open_query({ 'SELECT * FROM t WHERE a = :a AND b = :b' })
@@ -124,11 +107,13 @@ describe('bind params: resolve_bind_params hook', function()
   end)
 
   it('degrades to prompting when the hook throws', function()
-    d = make_drawer({
-      hooks = {
-        resolve_bind_params = function(_names, _known)
-          error('boom')
-        end,
+    d = h.make_drawer({
+      config = {
+        hooks = {
+          resolve_bind_params = function(_names, _known)
+            error('boom')
+          end,
+        },
       },
     })
     open_query({ 'SELECT * FROM contacts WHERE id = :id' })
@@ -145,11 +130,13 @@ describe('bind params: resolve_bind_params hook', function()
 
   it('is not called when the query has no placeholders', function()
     local called = false
-    d = make_drawer({
-      hooks = {
-        resolve_bind_params = function(_names, _known)
-          called = true
-        end,
+    d = h.make_drawer({
+      config = {
+        hooks = {
+          resolve_bind_params = function(_names, _known)
+            called = true
+          end,
+        },
       },
     })
     open_query({ 'SELECT 1' })

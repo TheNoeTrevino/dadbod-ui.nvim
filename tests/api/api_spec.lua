@@ -4,13 +4,17 @@
 
 local api = require('dadbod-ui.api')
 local state = require('dadbod-ui.state')
+local h = require('helper')
+
+-- A fresh store location shared by the seed()-default cases (nothing writes to
+-- it), so parallel checkouts cannot collide on a fixed /tmp path.
+local save_dir = h.tmp_dir()
 
 -- Seed the session singleton with injected connections. The API reads through
 -- `state.get()`, so we drive discovery via `vim.g.dbs` and reset around it.
 local function seed(g_dbs, overrides)
   vim.g.dbs = g_dbs
-  local opts =
-    vim.tbl_extend('force', { save_location = '/tmp/dbui_api', drawer = { show_help = false } }, overrides or {})
+  local opts = vim.tbl_extend('force', { save_location = save_dir, drawer = { show_help = false } }, overrides or {})
   state.setup(opts)
   state.get() -- force discovery now
 end
@@ -58,6 +62,8 @@ describe('api: surface', function()
       'rename',
       'duplicate',
       'set_group',
+      'set_color',
+      'set_group_color',
       'move',
       'disconnect',
       'reveal',
@@ -292,6 +298,38 @@ describe('api: connection mutation (store CRUD)', function()
     local ok2, err2 = api.set_group('envs/stage', '')
     assert.is_true(ok2, err2)
     assert.is_truthy(api.info('stage')) -- back to ungrouped
+  end)
+
+  it('set_color colors the addressed clone, clears with an empty string, rejects non-hex', function()
+    local ok, err = api.set_color('billing/prod', '#FF0000')
+    assert.is_true(ok, err)
+    local store = require('dadbod-ui.connections').read_file(dir .. '/connections.json')
+    assert.is_nil(store[1].color) -- analytics/prod untouched
+    assert.equals('#ff0000', store[2].color) -- billing/prod colored, lowercased
+    assert.equals('#ff0000', state.get():connection_color(state.get().dbs['billing_prod_file']))
+
+    local ok2, err2 = api.set_color('billing/prod', '')
+    assert.is_true(ok2, err2)
+    assert.is_nil(require('dadbod-ui.connections').read_file(dir .. '/connections.json')[2].color)
+
+    local bad, berr = api.set_color('billing/prod', 'red')
+    assert.is_false(bad)
+    assert.is_truthy(berr and berr:find('hex color'))
+  end)
+
+  it('set_group_color writes the group row and members inherit it', function()
+    local ok, err = api.set_group_color('billing', '#aa0000')
+    assert.is_true(ok, err)
+    assert.equals('#aa0000', state.get().group_colors.billing)
+    assert.equals('#aa0000', state.get():connection_color(state.get().dbs['billing_prod_file']))
+
+    local ok2, err2 = api.set_group_color('billing', '')
+    assert.is_true(ok2, err2)
+    assert.is_nil(state.get().group_colors.billing)
+
+    local bad, berr = api.set_group_color('', '#aa0000')
+    assert.is_false(bad)
+    assert.is_truthy(berr and berr:find('group'))
   end)
 
   it('move reorders siblings and rejects a bad direction', function()

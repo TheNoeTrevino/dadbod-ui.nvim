@@ -11,10 +11,10 @@
 -- which stands up the databases, seeds them, and sets the env vars below:
 --   DBUI_IT_MODE       'check' (default) | 'record' (write goldens)
 --   DBUI_IT_GOLDEN_DIR absolute path to integration/golden
---   DBUI_IT_{PG,MYSQL,MARIADB,SQLITE}_URL  per-adapter connection urls ('' = skip)
+--   DBUI_IT_{PG,MYSQL,MARIADB,SQLITE,DUCKDB}_URL  per-adapter connection urls ('' = skip)
 
 local export = require('dadbod-ui.export')
-local adapters = require('dadbod-ui.export_adapters')
+local adapters = require('dadbod-ui.export.adapters')
 local config = require('dadbod-ui.config')
 
 local MODE = vim.env.DBUI_IT_MODE or 'check'
@@ -36,6 +36,7 @@ local ADAPTERS = {
   { name = 'mysql', scheme = 'mysql', url = vim.env.DBUI_IT_MYSQL_URL or '' },
   { name = 'mariadb', scheme = 'mysql', url = vim.env.DBUI_IT_MARIADB_URL or '' },
   { name = 'sqlite', scheme = 'sqlite', url = vim.env.DBUI_IT_SQLITE_URL or '' },
+  { name = 'duckdb', scheme = 'duckdb', url = vim.env.DBUI_IT_DUCKDB_URL or '' },
 }
 
 -- Byte-exact file IO (no newline munging -- goldens store exactly what the

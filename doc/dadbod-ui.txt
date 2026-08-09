@@ -38,6 +38,8 @@ Fields ~
 {execute_selection} `(fun(transform?: DadbodUI.SqlTransform))`
 {explain_query} `(fun(opts?: DadbodUI.ExplainOpts))`
 {explain_selection} `(fun(opts?: DadbodUI.ExplainOpts))`
+{explain_tree} `(fun(opts?: DadbodUI.ExplainOpts))`
+{explain_tree_selection} `(fun(opts?: DadbodUI.ExplainOpts))`
 {export_query} `(fun())`
 {export_selection} `(fun())`
 {cancel_query} `(fun())`
@@ -46,6 +48,7 @@ Fields ~
 {switch_buffer} `(fun(name?: string): boolean|nil,)` string|nil
 {open_query} `(fun(key_name: string, edit_action?: string))`
 {reveal} `(fun(key_name: string))`
+{goto_table} `(fun())`
 {refresh} `(fun(key_name: string))`
 {rename_buffer} `(fun())`
 {print_last_query_info} `(fun())`
@@ -146,6 +149,26 @@ Return ~
 `(nil)`
 
 ------------------------------------------------------------------------------
+                                                              *M.explain_tree()*
+                            `M.explain_tree`({opts})
+Explain the current query buffer as an interactive plan TREE (JSON explain
+parsed and rendered, not the `.dbout` text). Backs `api.buf.explain_tree`.
+Parameters ~
+{opts} `(optional)` `(DadbodUI.ExplainOpts)`
+Return ~
+`(nil)`
+
+------------------------------------------------------------------------------
+                                                    *M.explain_tree_selection()*
+                       `M.explain_tree_selection`({opts})
+Explain the current visual selection as a plan tree. Backs
+`api.buf.explain_tree_selection`.
+Parameters ~
+{opts} `(optional)` `(DadbodUI.ExplainOpts)`
+Return ~
+`(nil)`
+
+------------------------------------------------------------------------------
                                                               *M.export_query()*
                                `M.export_query`()
 Export the current query buffer: run its SQL and write the results to a file,
@@ -227,6 +250,16 @@ Open the drawer, expand the connection `key_name` (introspecting it), and put
 the cursor on it. Backs `dadbod-ui.api.reveal`.
 Parameters ~
 {key_name} `(string)`
+Return ~
+`(nil)`
+
+------------------------------------------------------------------------------
+                                                                *M.goto_table()*
+                                `M.goto_table`()
+Jump from the current query buffer to the table under the cursor in the
+drawer (expanding its parents). Quiet no-op when the word is not a table of
+the buffer's connection. Backs `dadbod-ui.api.buf.goto_table` and the `gd`
+query-buffer mapping.
 Return ~
 `(nil)`
 

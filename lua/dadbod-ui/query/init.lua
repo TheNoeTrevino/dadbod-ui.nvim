@@ -20,11 +20,12 @@
 -- (`query/execute.lua`) are method mixins merged into `DadbodUI.Query` here,
 -- mirroring the drawer/dbout package layout.
 
+local highlights = require('dadbod-ui.highlights')
 local introspect = require('dadbod-ui.introspect')
 local utils = require('dadbod-ui.utils')
 
 ---@class DadbodUI.QueryModule
----@field connection_winbar fun(entry: DadbodUI.ConnectionEntry): string
+---@field connection_winbar fun(entry: DadbodUI.ConnectionEntry, color?: string): string
 ---@field new fun(drawer: DadbodUI.Drawer): DadbodUI.Query
 ---@field Query DadbodUI.Query  the class table, exported for the static `write_contract`
 
@@ -35,12 +36,17 @@ local M = {}
 --- The right-aligned connection winbar for a query buffer: `group/name` (or just
 --- `name` when the connection is ungrouped) in a padded, highlighted block pushed
 --- to the right edge with `%=`. `%` in the group/name is doubled so a name can't
---- inject statusline items. Pure (no window), for unit tests.
+--- inject statusline items. `color` (the entry's effective hex color, issue #91)
+--- swaps the muted default block for a solid block of that color -- the loud
+--- "you are on prod" surface; nil keeps today's look exactly. Pure with respect
+--- to windows, for unit tests (the color group is defined as a side effect).
 ---@param entry DadbodUI.ConnectionEntry
+---@param color? string
 ---@return string
-function M.connection_winbar(entry)
+function M.connection_winbar(entry, color)
   local text = utils.display_name(entry.name, entry.group)
-  return string.format('%%=%%#DadbodUIWinbarConnection# %s ', (text:gsub('%%', '%%%%')))
+  local group = color ~= nil and highlights.winbar_color_group(color) or 'DadbodUIWinbarConnection'
+  return string.format('%%=%%#%s# %s ', group, (text:gsub('%%', '%%%%')))
 end
 
 ---@class DadbodUI.Query

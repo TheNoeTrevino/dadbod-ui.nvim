@@ -10,6 +10,7 @@ describe('dbout export winbar spinner (single global export)', function()
   local win, buf
 
   before_each(function()
+    require('helper').clean_ui()
     buf = vim.api.nvim_create_buf(false, true)
     vim.bo[buf].filetype = 'dbout' -- render targets `.dbout` windows
     win = vim.api.nvim_get_current_win()

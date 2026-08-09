@@ -6,12 +6,16 @@ local state = require('dadbod-ui.state')
 local picker = require('dadbod-ui.picker')
 local picker_utils = require('dadbod-ui.picker.utils')
 local notifications = require('dadbod-ui.notifications')
+local h = require('helper')
+
+-- A fresh store location shared by the seed()-default cases, so parallel
+-- checkouts cannot collide on a fixed /tmp path.
+local save_dir = h.tmp_dir()
 
 -- Seed the session singleton with injected connections (see api_spec.lua).
 local function seed(g_dbs, overrides)
   vim.g.dbs = g_dbs
-  local opts =
-    vim.tbl_extend('force', { save_location = '/tmp/dbui_picker', drawer = { show_help = false } }, overrides or {})
+  local opts = vim.tbl_extend('force', { save_location = save_dir, drawer = { show_help = false } }, overrides or {})
   state.setup(opts)
   state.get() -- force discovery now
 end
@@ -97,7 +101,7 @@ describe('picker: fallback + routing', function()
   end)
 
   it('is a notified no-op when there are no connections', function()
-    seed({}, { save_location = '/tmp/dbui_picker_empty' })
+    seed({}, { save_location = h.tmp_dir() })
     local seen, restore = stub_select(nil)
     picker.show()
     restore()

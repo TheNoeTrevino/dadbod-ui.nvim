@@ -6,12 +6,12 @@
 local explain = require('dadbod-ui.explain')
 local api = require('dadbod-ui.api')
 local state = require('dadbod-ui.state')
+local h = require('helper')
 
 -- Seed the session singleton with injected connections (mirrors api_spec).
 local function seed(g_dbs, overrides)
   vim.g.dbs = g_dbs
-  local opts =
-    vim.tbl_extend('force', { save_location = '/tmp/dbui_explain', drawer = { show_help = false } }, overrides or {})
+  local opts = vim.tbl_extend('force', { save_location = h.tmp_dir(), drawer = { show_help = false } }, overrides or {})
   state.setup(opts)
   state.get()
 end
@@ -23,6 +23,7 @@ describe('explain: wrap', function()
     assert.equals('EXPLAIN select 1', explain.wrap('mariadb', 'select 1'))
     assert.equals('EXPLAIN QUERY PLAN select 1', explain.wrap('sqlite', 'select 1'))
     assert.equals('EXPLAIN select 1', explain.wrap('clickhouse', 'select 1'))
+    assert.equals('EXPLAIN select 1', explain.wrap('duckdb', 'select 1'))
     assert.is_truthy(explain.wrap('oracle', 'select 1'):match('^EXPLAIN PLAN FOR select 1;'))
     assert.is_truthy(explain.wrap('oracle', 'select 1'):match('DBMS_XPLAN%.DISPLAY'))
   end)
@@ -45,6 +46,8 @@ describe('explain: wrap', function()
     assert.equals('EXPLAIN ANALYZE select 1', explain.wrap('mysql', 'select 1', { analyze = true }))
     -- MariaDB spells the executing form `ANALYZE <stmt>`.
     assert.equals('ANALYZE select 1', explain.wrap('mariadb', 'select 1', { analyze = true }))
+    -- DuckDB's ANALYZE executes the statement, same caveat as postgres.
+    assert.equals('EXPLAIN ANALYZE select 1', explain.wrap('duckdb', 'select 1', { analyze = true }))
   end)
 
   it('errors when analyze is requested but the adapter has no executing form', function()
@@ -52,6 +55,25 @@ describe('explain: wrap', function()
       local sql, err = explain.wrap(scheme, 'select 1', { analyze = true })
       assert.is_nil(sql)
       assert.is_truthy(err and err:match('EXPLAIN ANALYZE is not supported'))
+    end
+  end)
+
+  it('wraps the structured JSON form when opts.format is json', function()
+    assert.equals('EXPLAIN (FORMAT JSON) select 1', explain.wrap('postgresql', 'select 1', { format = 'json' }))
+    -- The executing JSON form runs inside a rolled-back transaction so a DML
+    -- statement under analysis never commits.
+    local analyzed = explain.wrap('postgres', 'delete from t', { format = 'json', analyze = true })
+    assert.is_truthy(analyzed:match('^BEGIN;'))
+    assert.is_truthy(analyzed:match('EXPLAIN %(ANALYZE, BUFFERS, FORMAT JSON%) delete from t'))
+    assert.is_truthy(analyzed:match('ROLLBACK;$'))
+  end)
+
+  it('errors on the JSON form for text-only EXPLAIN dialects', function()
+    for _, scheme in ipairs({ 'sqlite', 'clickhouse', 'oracle', 'duckdb' }) do
+      local sql, err = explain.wrap(scheme, 'select 1', { format = 'json' })
+      assert.is_nil(sql)
+      assert.is_truthy(err and err:match('JSON explain plan is not supported'))
+      assert.is_truthy(err and err:match('supported:'))
     end
   end)
 
@@ -76,7 +98,34 @@ describe('explain: supports / supported_schemes', function()
 
   it('lists the supported schemes sorted (canonical adapter names)', function()
     local schemes = explain.supported_schemes()
-    assert.same({ 'clickhouse', 'mariadb', 'mysql', 'oracle', 'postgres', 'sqlite' }, schemes)
+    assert.same({ 'clickhouse', 'duckdb', 'mariadb', 'mysql', 'oracle', 'postgres', 'sqlite' }, schemes)
+  end)
+
+  it('gates the structured JSON form separately from text EXPLAIN', function()
+    assert.is_true(explain.supports_json('postgres'))
+    assert.is_true(explain.supports_json('postgresql')) -- alias resolves
+    assert.is_true(explain.supports_json('mysql'))
+    assert.is_true(explain.supports_json('mariadb'))
+    assert.is_false(explain.supports_json('sqlite')) -- text-only EXPLAIN
+    assert.is_false(explain.supports_json('sqlserver')) -- no EXPLAIN at all
+    assert.same({ 'mariadb', 'mysql', 'postgres' }, explain.json_schemes())
+  end)
+
+  it('rejects JSON analyze where the dialect has no executing JSON form', function()
+    -- MySQL's EXPLAIN ANALYZE emits TREE text, never JSON; MariaDB has
+    -- ANALYZE FORMAT=JSON.
+    local sql, err = explain.wrap('mysql', 'select 1', { format = 'json', analyze = true })
+    assert.is_nil(sql)
+    assert.is_truthy(err and err:match('JSON EXPLAIN ANALYZE is not supported'))
+    assert.equals(
+      'ANALYZE FORMAT=JSON select 1',
+      explain.wrap('mariadb', 'select 1', { format = 'json', analyze = true })
+    )
+  end)
+
+  it('exposes the raw-output client argv for JSON capture', function()
+    assert.same({ '--no-psqlrc', '--set=ON_ERROR_STOP=1', '-q', '-A', '-t' }, explain.json_args('postgresql'))
+    assert.same({}, explain.json_args('sqlite')) -- none needed / unsupported
   end)
 end)
 
@@ -117,34 +166,21 @@ describe('explain: api error paths', function()
 end)
 
 describe('explain: sqlite end-to-end (guarded)', function()
-  local dir, db_path
+  local url
   before_each(function()
-    if vim.fn.executable('sqlite3') ~= 1 then
-      return
+    url = h.sqlite_db("CREATE TABLE contacts(id INTEGER, name TEXT); INSERT INTO contacts VALUES (1, 'ada');")
+    if url then
+      seed({ qa = url })
     end
-    dir = vim.fn.tempname()
-    vim.fn.mkdir(dir, 'p')
-    db_path = dir .. '/qa.db'
-    vim.fn.system({
-      'sqlite3',
-      db_path,
-      "CREATE TABLE contacts(id INTEGER, name TEXT); INSERT INTO contacts VALUES (1, 'ada');",
-    })
-    seed({ qa = 'sqlite:' .. db_path })
   end)
   after_each(function()
     vim.g.dbs = nil
     state.reset()
-    if dir then
-      vim.fn.delete(dir, 'rf')
-      dir, db_path = nil, nil
-    end
   end)
 
   it('explain_sync returns the query plan output', function()
-    if vim.fn.executable('sqlite3') ~= 1 then
-      pending('sqlite3 not installed')
-      return
+    if not url then
+      return pending('sqlite3 not installed')
     end
     local rows, err = api.explain_sync('qa', 'select * from contacts')
     assert.is_nil(err)
@@ -164,32 +200,12 @@ end)
 -- `execute_lines` lets us assert the wrapped SQL with no DB binary -- mirroring
 -- how query_buffers_spec drives a query buffer offline.
 describe('explain: buffer-level (explain_query)', function()
-  local drawer_mod = require('dadbod-ui.drawer')
-  local config = require('dadbod-ui.config')
   local bridge = require('dadbod-ui.bridge')
   local notifications = require('dadbod-ui.notifications')
 
-  local function make_drawer(g_dbs)
-    local cfg = config.resolve({ save_location = '/tmp/dbui_explain_buf', drawer = { show_help = false } })
-    local instance = state.new(cfg):populate({ env = {}, g_dbs = g_dbs, file_entries = {} })
-    local d = drawer_mod.new(instance)
-    d.connector = function(url)
-      return url
-    end
-    return d
-  end
-
-  local function entry_named(d, name)
-    for _, record in ipairs(d.instance.dbs_list) do
-      if record.name == name then
-        return d.instance.dbs[record.key_name]
-      end
-    end
-  end
-
   local d, query_bufs, saved_execute_lines, sent
   before_each(function()
-    require('helper').clean_ui()
+    h.clean_ui()
     query_bufs = {}
     sent = nil
     -- Capture what the engine is asked to run instead of touching a real DB.
@@ -212,7 +228,7 @@ describe('explain: buffer-level (explain_query)', function()
   -- Open a query buffer bound to `name`, seed it with `sql`, and focus it.
   local function open_query_buffer(name, sql)
     d:open()
-    local entry = entry_named(d, name)
+    local entry = h.entry_named(d, name)
     d:query():open({ type = 'query', key_name = entry.key_name }, 'edit')
     query_bufs[#query_bufs + 1] = vim.api.nvim_get_current_buf()
     vim.api.nvim_buf_set_lines(0, 0, -1, false, vim.split(sql, '\n'))
@@ -220,14 +236,14 @@ describe('explain: buffer-level (explain_query)', function()
   end
 
   it('wraps the current buffer SQL in EXPLAIN and runs that', function()
-    d = make_drawer({ qa = 'sqlite:/tmp/qa.db' })
+    d = h.make_drawer()
     open_query_buffer('qa', 'select * from contacts')
     d:query():explain_query(false)
     assert.same({ 'EXPLAIN QUERY PLAN select * from contacts' }, sent)
   end)
 
   it('surfaces the unsupported-adapter error and runs nothing', function()
-    d = make_drawer({ mssql = 'sqlserver://sa@h/db' })
+    d = h.make_drawer({ g_dbs = { mssql = 'sqlserver://sa@h/db' } })
     open_query_buffer('mssql', 'select 1')
     d:query():explain_query(false)
     assert.is_nil(sent) -- engine never invoked
@@ -235,7 +251,7 @@ describe('explain: buffer-level (explain_query)', function()
   end)
 
   it('rejects analyze on an adapter with no executing form', function()
-    d = make_drawer({ qa = 'sqlite:/tmp/qa.db' })
+    d = h.make_drawer()
     open_query_buffer('qa', 'select 1')
     d:query():explain_query(false, { analyze = true })
     assert.is_nil(sent)
@@ -243,7 +259,7 @@ describe('explain: buffer-level (explain_query)', function()
   end)
 
   it('errors on a buffer not attached to any database', function()
-    d = make_drawer({ qa = 'sqlite:/tmp/qa.db' })
+    d = h.make_drawer()
     d:open()
     vim.cmd('enew') -- a plain buffer, no b:dbui_db_key_name
     query_bufs[#query_bufs + 1] = vim.api.nvim_get_current_buf()

@@ -1,11 +1,16 @@
 local state = require('dadbod-ui.state')
 local config = require('dadbod-ui.config')
+local h = require('helper')
+
+-- One shared save_location that several specs read back (save_path,
+-- connections_path, the grouped save_path); a fresh tmp dir per run.
+local save_dir = h.tmp_dir()
 
 describe('state: instance paths', function()
   it('resolves save and connections paths from config', function()
-    local inst = state.new(config.resolve({ save_location = '/tmp/dbui_test' }))
-    assert.equals('/tmp/dbui_test', inst.save_path)
-    assert.equals('/tmp/dbui_test/connections.json', inst.connections_path)
+    local inst = state.new(config.resolve({ save_location = save_dir }))
+    assert.equals(save_dir, inst.save_path)
+    assert.equals(save_dir .. '/connections.json', inst.connections_path)
   end)
 
   it('falls back to the session temp dir when tmp_query_location is unset', function()
@@ -17,7 +22,7 @@ describe('state: instance paths', function()
 end)
 
 describe('state: populate', function()
-  local cfg = config.resolve({ save_location = '/tmp/dbui_test' })
+  local cfg = config.resolve({ save_location = save_dir })
 
   it('builds dbs_list and a map keyed by key_name', function()
     local inst = state.new(cfg):populate({
@@ -52,7 +57,7 @@ describe('state: populate', function()
       g_dbs = { { name = 'pg', url = 'postgres://h/a', group = 'Local' } },
       file_entries = {},
     })
-    assert.equals('/tmp/dbui_test/Local_pg', inst.dbs['Local_pg_g:dbs'].save_path)
+    assert.equals(save_dir .. '/Local_pg', inst.dbs['Local_pg_g:dbs'].save_path)
   end)
 
   it('resolves the adapter query-input extension onto the entry', function()
@@ -72,7 +77,7 @@ describe('state: populate', function()
     local restored = tmp .. '/qa/query.sql'
     vim.fn.writefile({ 'select 1;' }, restored)
     vim.fn.writefile({ 'select 2;' }, tmp .. '/other/query.sql')
-    local inst = state.new(config.resolve({ save_location = '/tmp/dbui_test', tmp_query_location = tmp })):populate({
+    local inst = state.new(config.resolve({ save_location = save_dir, tmp_query_location = tmp })):populate({
       env = {},
       g_dbs = { qa = 'sqlite:/tmp/qa.db' },
       file_entries = {},
@@ -86,7 +91,7 @@ describe('state: populate', function()
     vim.fn.mkdir(tmp .. '/My DB', 'p')
     local restored = tmp .. '/My DB/query.sql'
     vim.fn.writefile({ 'select 1;' }, restored)
-    local inst = state.new(config.resolve({ save_location = '/tmp/dbui_test', tmp_query_location = tmp })):populate({
+    local inst = state.new(config.resolve({ save_location = save_dir, tmp_query_location = tmp })):populate({
       env = {},
       g_dbs = { ['My DB'] = 'sqlite:/tmp/mydb.db' },
       file_entries = {},
@@ -161,5 +166,66 @@ describe('state: public api', function()
     ui.setup({ save_location = vim.fn.tempname() }) -- empty dir, no file
     assert.is_table(ui.connections_list())
     ui.reset()
+  end)
+end)
+
+describe('state: connection colors (issue #91)', function()
+  local cfg = config.resolve({ save_location = save_dir })
+
+  it('carries a file connection color onto its entry and group rows onto the instance', function()
+    local inst = state.new(cfg):populate({
+      env = {},
+      g_dbs = {},
+      file_entries = {
+        { name = 'orders', url = 'sqlite:/tmp/orders.db', group = 'Prod', color = '#FF0000' },
+        { name = 'qa', url = 'sqlite:/tmp/qa.db', group = 'Prod' },
+        { group = 'Prod', color = '#AA0000' },
+      },
+    })
+    assert.equals('#ff0000', inst.dbs['Prod_orders_file'].color)
+    assert.is_nil(inst.dbs['Prod_qa_file'].color)
+    assert.same({ prod = '#aa0000' }, inst.group_colors)
+  end)
+
+  it('connection_color: own color wins over the group color; group color fills in; nil is the default', function()
+    local inst = state.new(cfg):populate({
+      env = {},
+      g_dbs = { { name = 'gvar', url = 'sqlite:/tmp/g.db', group = 'Prod' } },
+      file_entries = {
+        { name = 'orders', url = 'sqlite:/tmp/orders.db', group = 'Prod', color = '#ff0000' },
+        { name = 'qa', url = 'sqlite:/tmp/qa.db', group = 'Prod' },
+        { name = 'plain', url = 'sqlite:/tmp/plain.db' },
+        { group = 'prod', color = '#aa0000' },
+      },
+    })
+    assert.equals('#ff0000', inst:connection_color(inst.dbs['Prod_orders_file']))
+    assert.equals('#aa0000', inst:connection_color(inst.dbs['Prod_qa_file']))
+    assert.is_nil(inst:connection_color(inst.dbs['plain_file']))
+    -- A g:dbs member of a colored group inherits the group color too.
+    assert.equals('#aa0000', inst:connection_color(inst.dbs['Prod_gvar_g:dbs']))
+  end)
+
+  it('a recolor lands on a reused entry (same key_name + url) across populates', function()
+    local inst = state.new(cfg):populate({
+      env = {},
+      g_dbs = {},
+      file_entries = { { name = 'orders', url = 'sqlite:/tmp/orders.db', color = '#ff0000' } },
+    })
+    local entry = inst.dbs['orders_file']
+    inst:populate({
+      env = {},
+      g_dbs = {},
+      file_entries = { { name = 'orders', url = 'sqlite:/tmp/orders.db', color = '#00ff00' } },
+    })
+    -- Same entry object (interactive state survives), fresh color.
+    assert.equals(entry, inst.dbs['orders_file'])
+    assert.equals('#00ff00', entry.color)
+    -- And clearing the color clears the reused entry too.
+    inst:populate({
+      env = {},
+      g_dbs = {},
+      file_entries = { { name = 'orders', url = 'sqlite:/tmp/orders.db' } },
+    })
+    assert.is_nil(entry.color)
   end)
 end)

@@ -12,7 +12,8 @@
 ---
 --- The surface groups into: drawer control (`open`/`toggle`/`close`/`reveal`/
 --- `refresh`), connection management (`list`/`info`/`pick`/`add`/`remove`/
---- `rename`/`duplicate`/`set_group`/`move`/`connect`/`disconnect`), introspection
+--- `rename`/`duplicate`/`set_group`/`set_color`/`set_group_color`/`move`/
+--- `connect`/`disconnect`), introspection
 --- (`introspect`), queries (`query`/`query_sync`/`execute`/`execute_pick`/
 --- `explain`/`explain_pick`/`open_query`), export (`export`), a runtime event bus
 --- (`on`/`off`) for observing the connect/execute/cancel lifecycle, and two
@@ -98,6 +99,8 @@
 ---@field rename fun(name: string, new_name: string, new_url?: string): boolean, string|nil
 ---@field duplicate fun(name: string, new_name: string, group?: string): boolean, string|nil
 ---@field set_group fun(name: string, group: string): boolean, string|nil
+---@field set_color fun(name: string, color: string): boolean, string|nil
+---@field set_group_color fun(group: string, color: string): boolean, string|nil
 ---@field move fun(name: string, direction: 'up'|'down'): boolean, string|nil
 ---@field connect fun(name: string, cb?: DadbodUI.ApiOkCallback)
 ---@field disconnect fun(name: string): boolean, string|nil
@@ -110,6 +113,7 @@
 ---@field explain fun(name: string, sql: string, opts?: DadbodUI.ExplainOpts|DadbodUI.ApiResultCallback, cb?: DadbodUI.ApiResultCallback)
 ---@field explain_sync fun(name: string, sql: string, opts?: DadbodUI.ExplainOpts): string[]|nil, string|nil
 ---@field explain_execute fun(name: string, sql: string, opts?: DadbodUI.ExplainOpts): boolean, string|nil
+---@field explain_tree fun(name: string, sql: string, opts?: DadbodUI.ExplainOpts): boolean, string|nil
 ---@field export fun(spec: DadbodUI.ApiExportSpec): boolean, string|nil
 ---@field on fun(event: DadbodUI.EventName, cb: fun(event: DadbodUI.HookEvent)): DadbodUI.EventHandle|nil, string|nil
 ---@field off fun(handle: DadbodUI.EventHandle): boolean
@@ -126,6 +130,7 @@ local connections = require('dadbod-ui.connections')
 local introspect = require('dadbod-ui.introspect')
 local export = require('dadbod-ui.export')
 local explain = require('dadbod-ui.explain')
+local notify = require('dadbod-ui.notifications')
 local adapters = require('dadbod-ui.adapters')
 
 ---@private
@@ -489,7 +494,7 @@ function M.duplicate(name, new_name, group)
     return false, err
   end
   return apply_store(function(connections, list)
-    return connections.duplicate_connection(list, new_name, entry.url, group ~= nil and group or entry.group)
+    return connections.duplicate_connection(list, entry, new_name, entry.url, group ~= nil and group or entry.group)
   end)
 end
 
@@ -508,6 +513,40 @@ function M.set_group(name, group)
   end
   return apply_store(function(connections, list)
     return connections.set_group(list, entry.name, entry.url, group or '', entry.group)
+  end)
+end
+
+--- Set (or clear, with `''`) the OWN hex color of `name` (issue #91): the paint
+--- the drawer and query-buffer winbar warn with, persisted on the entry in
+--- connections.json. `#rrggbb` only -- validated by the store transform, whose
+--- refusal surfaces as `false, err`. Also `false, err` for an unknown / non-file
+--- connection (a discovered connection has nowhere to persist an own color --
+--- color its group instead).
+---@param name string
+---@param color string  hex `#rrggbb`, or '' to clear
+---@return boolean ok
+---@return string|nil err
+function M.set_color(name, color)
+  local entry, err = mutable_entry(name)
+  if entry == nil then
+    return false, err
+  end
+  return apply_store(function(conns, list)
+    return conns.set_connection_color(list, entry.name, entry.url, color, entry.group)
+  end)
+end
+
+--- Set (or clear, with `''`) `group`'s color (issue #91), stored as the group's
+--- own row in connections.json; every member without an own color inherits it,
+--- whatever its source. `#rrggbb` only; a bad color or empty group name is
+--- refused by the store transform and surfaces as `false, err`.
+---@param group string
+---@param color string  hex `#rrggbb`, or '' to clear
+---@return boolean ok
+---@return string|nil err
+function M.set_group_color(group, color)
+  return apply_store(function(conns, list)
+    return conns.set_group_color(list, group, color)
   end)
 end
 
@@ -582,16 +621,10 @@ function M.introspect(name, cb)
     if not ok then
       return cb(nil, err)
     end
-    -- `populate` re-renders (our no-op) once the fan-out lands; a once-guard
-    -- turns that first render into the one-shot completion. Flat adapters may
-    -- render again later when routines land -- the guard keeps the callback
-    -- single-fire, so those trail the returned snapshot.
-    local fired = false
-    ctrl.render = function()
-      if fired then
-        return
-      end
-      fired = true
+    -- `populate`'s completion fires once when schemas/tables land; flat
+    -- adapters may still be fetching routines then, so those can trail the
+    -- returned snapshot.
+    ctrl:populate(entry, function()
       -- Flatten grouped routines (schema adapters) or take the flat list --
       -- keyed on `schema_support`, exactly as `apply_routines` populates them
       -- (`.flat` is always an initialized table, so it can't discriminate).
@@ -608,8 +641,7 @@ function M.introspect(name, cb)
         tables = entry.tables,
         routines = routines,
       })
-    end
-    ctrl:populate(entry)
+    end)
   end
   if state.is_connected(entry) then
     connected(true)
@@ -763,6 +795,48 @@ function M.explain_execute(name, sql, opts)
     return false, err
   end
   return M.execute(name, explained)
+end
+
+--- Explain `sql` against `name` as an interactive plan TREE: the adapter's
+--- JSON EXPLAIN runs headlessly through its own client and the parsed plan
+--- opens in the explain-tree split (costs, est-vs-actual rows, timings, heat
+--- on the expensive nodes). Connects first if needed (non-blocking). Returns
+--- `false, err` for the synchronous pre-flight failures (unknown name,
+--- adapter without a structured plan format); async failures (connect, client,
+--- decode) surface as notifications. `{ analyze = true }` runs the executing
+--- form, rolled back for DML on adapters that allow it.
+---@param name string
+---@param sql string
+---@param opts? DadbodUI.ExplainOpts
+---@return boolean ok
+---@return string|nil err
+function M.explain_tree(name, sql, opts)
+  local entry = resolve(name)
+  if entry == nil then
+    return false, 'no connection named ' .. tostring(name)
+  end
+  -- Pre-flight with the REAL opts: an adapter without the structured plan
+  -- format -- or without an executing form when analyze is requested -- fails
+  -- synchronously here, not as an async notification after connecting.
+  local wrapped, wrap_err =
+    explain.wrap(entry.scheme, sql, { format = 'json', analyze = opts ~= nil and opts.analyze or nil })
+  if wrapped == nil then
+    return false, wrap_err
+  end
+  ensure_connected(entry, function(ok, err)
+    if not ok then
+      return notify.error(err)
+    end
+    -- Required here, not at module top: the tree stack (window, renderer,
+    -- float) should not load just because the api was.
+    require('dadbod-ui.explain.run').open_tree({
+      scheme = entry.scheme,
+      conn = entry.conn,
+      sql = sql,
+      analyze = opts ~= nil and opts.analyze or nil,
+    })
+  end)
+  return true
 end
 
 -- Export ---------------------------------------------------------------------

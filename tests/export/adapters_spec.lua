@@ -1,14 +1,14 @@
--- Specs for dadbod-ui.export_adapters: the export capability matrix (§4) +
+-- Specs for dadbod-ui.export.adapters: the export capability matrix (§4) +
 -- Appendix A argv. Pure data + small accessors, modelled on paginator_spec.
 
-local adapters = require('dadbod-ui.export_adapters')
+local adapters = require('dadbod-ui.export.adapters')
 
 -- The OS null device the adapter uses to skip sqlite's rc file (matches the module).
 local NULLDEV = vim.fn.has('win32') == 1 and 'NUL' or '/dev/null'
 
-describe('export_adapters.supports', function()
+describe('adapters.supports', function()
   it('supports postgres, mysql/mariadb, sqlite under raw + canonical names', function()
-    for _, s in ipairs({ 'postgres', 'postgresql', 'mysql', 'mariadb', 'sqlite', 'sqlite3' }) do
+    for _, s in ipairs({ 'postgres', 'postgresql', 'mysql', 'mariadb', 'sqlite', 'sqlite3', 'duckdb' }) do
       assert.is_true(adapters.supports(s), s .. ' should be supported')
     end
   end)
@@ -20,7 +20,7 @@ describe('export_adapters.supports', function()
   end)
 end)
 
-describe('export_adapters.formats_for', function()
+describe('adapters.formats_for', function()
   it('offers every format for a supported adapter', function()
     assert.are.same({ 'csv', 'json', 'markdown', 'html', 'xml', 'sql', 'tsv' }, adapters.formats_for('postgres'))
   end)
@@ -36,7 +36,7 @@ describe('export_adapters.formats_for', function()
   end)
 end)
 
-describe('export_adapters.extract_args + uses_stdin (Appendix A)', function()
+describe('adapters.extract_args + uses_stdin (Appendix A)', function()
   it('postgres extracts with --no-psqlrc --csv -c, query as arg', function()
     assert.are.same({ '--no-psqlrc', '--csv', '-c' }, adapters.extract_args('postgres'))
     assert.is_false(adapters.uses_stdin('postgres'))
@@ -45,6 +45,13 @@ describe('export_adapters.extract_args + uses_stdin (Appendix A)', function()
   it('sqlite extracts with -init NULLDEV -csv -header, query on stdin (leading-dash safe)', function()
     assert.are.same({ '-init', NULLDEV, '-csv', '-header' }, adapters.extract_args('sqlite3'))
     assert.is_true(adapters.uses_stdin('sqlite')) -- stdin, not a positional arg
+  end)
+
+  it('duckdb extracts with -no-init -nullvalue "" -csv, query on stdin (leading-dash safe)', function()
+    -- -nullvalue '' makes CSV NULLs empty like the other adapters (duckdb
+    -- defaults to the literal string NULL).
+    assert.are.same({ '-no-init', '-nullvalue', '', '-csv' }, adapters.extract_args('duckdb'))
+    assert.is_true(adapters.uses_stdin('duckdb'))
   end)
 
   it('mysql extracts with --batch, query on stdin', function()
@@ -58,7 +65,7 @@ describe('export_adapters.extract_args + uses_stdin (Appendix A)', function()
   end)
 end)
 
-describe('export_adapters.native_args + is_native (§4 matrix)', function()
+describe('adapters.native_args + is_native (§4 matrix)', function()
   it('sqlite emits csv/json natively (NOT markdown/html: not reproducible across versions)', function()
     assert.are.same({ '-init', NULLDEV, '-csv', '-header' }, adapters.native_args('sqlite', 'csv'))
     assert.are.same({ '-init', NULLDEV, '-json' }, adapters.native_args('sqlite', 'json'))
@@ -66,6 +73,13 @@ describe('export_adapters.native_args + is_native (§4 matrix)', function()
     assert.is_nil(adapters.native_args('sqlite', 'html')) -- T16: use the Lua formatter
     assert.is_nil(adapters.native_args('sqlite', 'xml'))
     assert.is_nil(adapters.native_args('sqlite', 'sql'))
+  end)
+
+  it('duckdb emits csv/json natively (rc-suppressed), nothing else', function()
+    assert.are.same({ '-no-init', '-nullvalue', '', '-csv' }, adapters.native_args('duckdb', 'csv'))
+    assert.are.same({ '-no-init', '-json' }, adapters.native_args('duckdb', 'json'))
+    assert.is_nil(adapters.native_args('duckdb', 'markdown')) -- Lua formatter, like sqlite
+    assert.is_nil(adapters.native_args('duckdb', 'html'))
   end)
 
   it('postgres emits csv + html natively (rc-suppressed), nothing else', function()

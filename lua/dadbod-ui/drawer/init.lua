@@ -400,6 +400,9 @@ function Drawer:drawer_handlers()
     set_group = function()
       self:set_group_line()
     end,
+    set_color = function()
+      self:set_color_line()
+    end,
     move_up = function()
       self:move_line('up')
     end,

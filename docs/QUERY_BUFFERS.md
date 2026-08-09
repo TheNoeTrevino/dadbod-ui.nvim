@@ -95,6 +95,31 @@ alone. Saved queries are deliberately not swept, you named those on purpose.
 The sweep writes with `noautocmd` so `execute_on_save` doesnt run every
 scratch query on the way out.
 
+## Go to declaration (`gd` / `goto_table`)
+
+`gd` in a query buffer jumps to the drawer node of the table under the cursor
+(issue #94): the drawer opens, the parent chain expands, and the cursor lands
+on the table. It is the `goto_table` builtin action (rebindable via
+`query.keys`), scriptable as `api.buf.goto_table()`.
+
+- Resolution lives in `dadbod-ui.declaration` (pure, no drawer):
+  `candidates()` reads the reference under the cursor, `match()` checks the
+  candidates against the entry's introspected schemas/tables. The stateful
+  orchestration (`Drawer:goto_table`) and the cursor placement
+  (`Drawer:reveal_table`, the table-level sibling of `reveal_db` /
+  `reveal_buffer`) live in `drawer/actions.lua`.
+- With a treesitter `sql` parser installed, aliases resolve through the from
+  clause (`u` in `u.id` -> `public.users`), and qualified/quoted names parse
+  precisely. Without one -- or inside a parse error while typing -- a word
+  match handles `users` and `public.users`; an alias is then a quiet no-op.
+- Unqualified names search the buffer's `b:dbui_schema_name` first, then the
+  adapter's default schema, then every schema. Matching is exact first, then
+  case-insensitive.
+- A connection with no introspected data yet (e.g. a buffer adopted via
+  `find_buffer`) is introspected once through a private one-shot controller,
+  then the match retried; anything that still isn't a known table stays a
+  quiet no-op.
+
 ## Gotchas
 
 - Its `QuitPre`, not `VimLeavePre`. Vim raises the save prompt while

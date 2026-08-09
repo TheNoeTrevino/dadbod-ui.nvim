@@ -9,13 +9,12 @@ local highlights = require('dadbod-ui.highlights')
 
 ---@class DadbodUI.DrawerPaint
 ---@field line_for fun(node: DadbodUI.Node): string
----@field apply_line_highlights fun(bufnr: integer, lnum: integer, hls: DadbodUI.Highlight[])
 ---@field paint fun(bufnr: integer, nodes: DadbodUI.Node[], icons: DadbodUI.Icons, prev?: DadbodUI.Painted): DadbodUI.Painted
 
 --- Snapshot of the last paint of a buffer: the rendered line texts plus each
---- line's highlight key -- the node fields `highlights_for` derives its ranges
---- from (`type` + `icon` + the `detail` flag; the line text is its only other
---- input and is compared directly). Returned by `paint` and fed back into the next one to diff
+--- line's `highlights.paint_key` (the node fields `highlights_for` derives its
+--- ranges from; the line text is its only other input and is compared
+--- directly). Returned by `paint` and fed back into the next one to diff
 --- against. `bufnr` makes a stale snapshot self-identifying: a recreated drawer
 --- buffer is repainted from scratch by construction, with no reset for the
 --- drawer to remember.
@@ -42,23 +41,6 @@ function M.line_for(node)
   local sep = node.icon ~= '' and ' ' or ''
   local trailer = node.loading_frame and (' ' .. node.loading_frame) or ''
   return indent .. node.icon .. sep .. node.label .. trailer
-end
-
---- Apply the highlight ranges for ONE line (0-based `lnum`) as extmarks in the
---- `dadbod_ui` namespace. The caller is responsible for clearing the namespace
---- over the affected range first. Shared by the full `paint` and the single-line
---- `repaint_db_node` so an animated frame keeps the same colors as a full render.
----@param bufnr integer
----@param lnum integer
----@param hls DadbodUI.Highlight[]
----@return nil
-function M.apply_line_highlights(bufnr, lnum, hls)
-  for _, hl in ipairs(hls) do
-    vim.api.nvim_buf_set_extmark(bufnr, highlights.NS, lnum, hl.col_start, {
-      end_col = hl.col_end,
-      hl_group = hl.group,
-    })
-  end
 end
 
 --- Paint a node list into `bufnr`: map each node to its display string (via
@@ -88,7 +70,7 @@ function M.paint(bufnr, nodes, icons, prev)
   local lines, keys = {}, {}
   vim.iter(ipairs(nodes)):each(function(i, node)
     lines[i] = M.line_for(node)
-    keys[i] = node.type .. '\0' .. node.icon .. (node.detail and '\0d' or '')
+    keys[i] = highlights.paint_key(node)
   end)
   local painted = { bufnr = bufnr, lines = lines, keys = keys }
 
@@ -137,7 +119,7 @@ function M.paint(bufnr, nodes, icons, prev)
   vim.api.nvim_buf_set_lines(bufnr, prefix, old_end, false, slice)
   bo.modifiable = false
   for i = prefix + 1, #lines - suffix do
-    M.apply_line_highlights(bufnr, i - 1, highlights.highlights_for(nodes[i], lines[i], icons))
+    highlights.apply_line_highlights(bufnr, i - 1, highlights.highlights_for(nodes[i], lines[i], icons))
   end
   return painted
 end

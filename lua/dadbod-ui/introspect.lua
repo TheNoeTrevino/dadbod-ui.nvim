@@ -165,14 +165,19 @@ function Introspect:connect_async(entry, on_done)
 end
 
 --- Introspect a connected entry: schema-supporting adapters fan out their
---- schema/table queries, the rest list tables directly.
+--- schema/table queries, the rest list tables directly. `on_done` fires once
+--- when the schema/table metadata has landed -- the completion seam for
+--- callers that act on the data (api.introspect, the drawer's goto_table).
+--- Flat adapters may still be fetching routines at that point, and a
+--- disconnected/failed entry never fires it.
 ---@param entry DadbodUI.ConnectionEntry
+---@param on_done? fun(): nil
 ---@return nil
-function Introspect:populate(entry)
+function Introspect:populate(entry, on_done)
   if entry.schema_support then
-    self:populate_schemas(entry)
+    self:populate_schemas(entry, on_done)
   else
-    self:populate_tables(entry)
+    self:populate_tables(entry, on_done)
   end
 end
 
@@ -189,8 +194,9 @@ end
 --- tables path stop it. (sqlite's `tables` call is a brief local block, so its
 --- frame may still sit for that moment.)
 ---@param entry DadbodUI.ConnectionEntry
+---@param on_done? fun(): nil  see `populate`
 ---@return nil
-function Introspect:expand_db(entry)
+function Introspect:expand_db(entry, on_done)
   self:load_saved_queries(entry)
   entry.loading = true
   self.render()
@@ -204,11 +210,7 @@ function Introspect:expand_db(entry)
       self.render()
       return
     end
-    if entry.schema_support then
-      self:populate_schemas(entry)
-    else
-      self:populate_tables(entry)
-    end
+    self:populate(entry, on_done)
   end)
 end
 
@@ -235,8 +237,9 @@ end
 --- Introspect schemas + tables concurrently and render, with the two queries
 --- fanned out via `run_many`.
 ---@param entry DadbodUI.ConnectionEntry
+---@param on_done? fun(): nil  see `populate`
 ---@return nil
-function Introspect:populate_schemas(entry)
+function Introspect:populate_schemas(entry, on_done)
   if not state.is_connected(entry) then
     entry.loading = false
     spinner.stop(entry.key_name)
@@ -273,6 +276,9 @@ function Introspect:populate_schemas(entry)
       self:apply_routines(entry, scheme_info, routine_rows)
     end
     self.render()
+    if on_done ~= nil then
+      on_done()
+    end
   end)
 end
 
@@ -370,8 +376,9 @@ end
 --- exposes routines (mysql pointed at a single database), those are fetched
 --- concurrently via `run_many` and folded in on land.
 ---@param entry DadbodUI.ConnectionEntry
+---@param on_done? fun(): nil  see `populate` (fires when TABLES land; routines may trail)
 ---@return nil
-function Introspect:populate_tables(entry)
+function Introspect:populate_tables(entry, on_done)
   entry.tables = {}
   if not state.is_connected(entry) then
     entry.loading = false
@@ -399,6 +406,9 @@ function Introspect:populate_tables(entry)
   entry.loading = false
   spinner.stop(entry.key_name)
   self.render()
+  if on_done ~= nil then
+    on_done()
+  end
 end
 
 M.Introspect = Introspect

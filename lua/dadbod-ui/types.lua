@@ -52,12 +52,24 @@
 ---@field source DadbodUI.Source
 ---@field group string  '' when ungrouped
 ---@field key_name string  name_source, or group_name_source when grouped
+---@field color? string  the connection's own hex color (`#rrggbb`, file source only)
 
---- A connections.json entry (stored form).
+--- A connections.json connection entry (stored form).
 ---@class DadbodUI.FileConnection
 ---@field name string
 ---@field url string
 ---@field group? string
+---@field color? string  own hex color (`#rrggbb`); wins over the group's
+
+--- A connections.json group-color row: a group's persisted color. A group is
+--- otherwise just a shared name on its member connections, so its color gets a
+--- row of its own (no name/url) in the same array.
+---@class DadbodUI.FileGroupColor
+---@field group string
+---@field color string  hex `#rrggbb`
+
+--- Anything stored in the connections.json array.
+---@alias DadbodUI.FileEntry DadbodUI.FileConnection|DadbodUI.FileGroupColor
 
 -- Pure domain containers: drawer expand/collapse state lives in the drawer's
 -- `expand` map (keyed by drawer/ids.lua ids), never on these.
@@ -86,24 +98,24 @@
 ---@field items table<string, DadbodUI.RoutineItem[]>  per-schema routines (schema adapters)
 ---@field flat DadbodUI.RoutineItem[]  routines, ungrouped (non-schema adapters)
 
---- One "Script As" action for a routine (e.g. `CREATE To`, `DROP To`,
+--- One "Script As" action for a database object (e.g. `CREATE To`, `DROP To`,
 --- `EXECUTE To`). `query` fetches the action's input from the database (absent =>
 --- build from the name/kind alone, no round-trip); `parse` turns that raw output
 --- into whatever `build` wants (defaults to reassembling statement text);
 --- `build` produces the final DDL.
----@class DadbodUI.RoutineScript
----@field label string  menu label, shown under the routine's "Script As" node
+---@class DadbodUI.ScriptAction
+---@field label string  menu label, shown under the object's "Script As" node
 ---@field query? fun(schema: string, name: string, kind: string): string  SQL fetching this action's input
 ---@field args? string[]  CLI args replacing the adapter's for this action's fetch (when the query needs different output formatting, e.g. sqlserver's untruncated `-y 0` mode)
 ---@field parse? fun(lines: string[]): any  parse the query output (default: reassemble statement text)
----@field build? fun(ctx: DadbodUI.RoutineScriptCtx): string  produce the DDL text (default: return the fetched data unchanged)
+---@field build? fun(ctx: DadbodUI.ScriptCtx): string|nil  produce the DDL text, nil when the data can't be scripted (default: return the fetched data unchanged)
 
---- The context handed to a `DadbodUI.RoutineScript.build`. `data` is the parsed
+--- The context handed to a `DadbodUI.ScriptAction.build`. `data` is the parsed
 --- result of the action's `query` (nil for a query-less action).
----@class DadbodUI.RoutineScriptCtx
+---@class DadbodUI.ScriptCtx
 ---@field schema string
 ---@field name string
----@field kind 'procedure' | 'function'
+---@field kind 'procedure' | 'function' | 'table'
 ---@field data? any  the parsed result of the action's `query` (e.g. source text, or a `DadbodUI.RoutineParam[]`)
 
 --- One routine parameter, parsed from an adapter's parameter query.
@@ -113,14 +125,14 @@
 
 --- An adapter's "Script As" capability: the ordered scripting actions. Absent on
 --- adapters that don't support DDL scripting -- their routine nodes stay plain
---- open leaves.
----@class DadbodUI.RoutineScripts
----@field actions DadbodUI.RoutineScript[]  ordered scripting actions
+--- open leaves (and their table nodes list only helpers).
+---@class DadbodUI.ScriptActions
+---@field actions DadbodUI.ScriptAction[]  ordered scripting actions
 
 --- One database adapter, registered under its canonical `name` and every
 --- `aliases` entry (dadbod-ui.adapters). The single per-scheme registry: each
 --- capability module (schemas, table_helpers, explain, paginator,
---- export_adapters) reads its data from here, so adding an adapter is one file
+--- export.adapters) reads its data from here, so adding an adapter is one file
 --- (or one `adapters.register` call) and aliasing is resolved exactly once.
 --- Every capability field is optional -- an absent field means the adapter
 --- doesn't support that feature.
@@ -129,12 +141,60 @@
 ---@field aliases? string[]  other url schemes that resolve to this adapter (e.g. 'postgresql')
 ---@field schema? fun(config?: DadbodUI.Config): DadbodUI.SchemaAdapter  introspection SQL + parsers + dbout metadata
 ---@field table_helpers? table<string, string>|fun(config: DadbodUI.Config): table<string, string>  helper name -> SQL template
----@field explain? { plain: string, analyze?: string }  EXPLAIN templates ({sql} placeholder)
+---@field explain? DadbodUI.ExplainTemplates  EXPLAIN templates ({sql} placeholder)
 ---@field pagination? 'limit_offset'|'limit_comma'  LIMIT clause style (absent: no pagination)
 ---@field statements? DadbodUI.StatementPatterns  dialect keywords for the statement classifier; ABSENT means the dialect is not SQL (mongodb) and classify() answers "cannot tell" instead of guessing
 ---@field export? { stdin: boolean, extract: string[], native: table<string, string[]> }  CLI export flags
 ---@field db_path_lists_tables? boolean  a url naming a database in its path lists tables directly instead of schemas (mysql/mariadb)
 ---@field normalize_tables? fun(raw: string[]): string[]  clean dadbod's raw `tables` output (sqlite splitting, mysql header filter)
+
+--- An adapter's EXPLAIN forms, all carrying the literal `{sql}` placeholder.
+--- `plain`/`analyze` produce the human-readable text plan (dadbod-ui.explain's
+--- original capability). The `json` pair produces the machine-readable plan the
+--- explain tree renders; adapters without a structured plan format simply omit
+--- them. `json_args` is the extra CLI argv that makes the client emit the raw
+--- JSON document instead of its human table framing (psql's `-Aqt`), mirroring
+--- how `SchemaAdapter.args` keeps introspection output parseable.
+---@class DadbodUI.ExplainTemplates
+---@field plain string
+---@field analyze? string  executing form with real timings; absent when the dialect has none
+---@field json? string     structured-plan form (e.g. EXPLAIN (FORMAT JSON))
+---@field json_analyze? string  executing structured form; wrap DML safely (BEGIN/ROLLBACK) where the dialect allows
+---@field json_args? string[]   extra client argv for raw, parseable JSON output
+---@field parser? string    module path of the dialect's plan parser (explain/parsers/*); json support = template AND parser
+
+--- One node of a normalized explain plan: the dialect-agnostic shape every
+--- plan parser targets, so the tree renderer never branches on
+--- adapter. Parsers fill the identity/estimate/actual fields (absent = the
+--- dialect or EXPLAIN mode doesn't report it); dadbod-ui.explain.plan derives
+--- the metrics fields after parse. `raw` keeps the node's own adapter keys
+--- (child/structure keys stripped by the parser) for the node-detail view.
+---@class DadbodUI.PlanNode
+---@field op string            operation name (e.g. 'Seq Scan', 'Hash Left Join')
+---@field relation? string     scanned table name
+---@field alias? string        the SQL alias the planner reports for the relation
+---@field cte_name? string     referenced WITH-clause name (CTE Scan)
+---@field index_name? string   index used by an index/bitmap scan
+---@field total_cost? number
+---@field plan_rows? number    planner's row estimate
+---@field actual_rows? number  per-loop actual rows (ANALYZE only)
+---@field actual_time_ms? number  per-loop actual total time in ms (ANALYZE only)
+---@field loops? number
+---@field exprs [string, string][]  ordered (label, deparsed text) pairs: Filter, Index Cond, Sort Key, ...
+---@field children DadbodUI.PlanNode[]
+---@field raw table            the node's own adapter keys (structure stripped) -- the detail-float payload
+---@field total_ms? number       derived: actual_time_ms * loops
+---@field exclusive_ms? number   derived: total_ms minus children's (the node's own time)
+---@field exclusive_cost? number derived: total_cost minus children's
+---@field frac? number           derived: exclusive share of the root total (time when analyzed, cost otherwise)
+---@field skew? number           derived: actual/estimated row ratio (misestimate signal)
+
+--- A parsed, annotated explain plan (dadbod-ui.explain.plan.decode).
+---@class DadbodUI.ExplainPlan
+---@field root DadbodUI.PlanNode
+---@field planning_ms? number
+---@field execution_ms? number
+---@field analyzed boolean  whether the plan carries actual (executed) measurements
 
 --- Dialect extensions to the statement classifier's shared SQL core
 --- (dadbod-ui.classifier). An empty table is meaningful: it declares "this
@@ -153,7 +213,8 @@
 ---@field procedures_query? string     SQL listing (schema, routine_name, kind) rows; kind is 'procedure'|'function'. Absent => the adapter has no stored procedures (e.g. sqlite): a clean no-op.
 ---@field tables_procedures_query? string  same shape as `procedures_query`, scoped to the connected database -- used on the tables-only path (e.g. mysql url naming a database) so routines from other schemas don't leak in. Falls back to `procedures_query` when absent.
 ---@field routine_definition? fun(schema: string, name: string, kind: string): string  SQL that renders one routine's DDL/source (identifiers escaped)
----@field routine_scripts? DadbodUI.RoutineScripts  SSMS-style "Script As" capability (absent => routine nodes open the definition query instead)
+---@field routine_scripts? DadbodUI.ScriptActions  SSMS-style "Script As" capability for routines (absent => routine nodes open the definition query instead)
+---@field table_scripts? DadbodUI.ScriptActions  SSMS-style "Script As" capability for tables (absent => table nodes list only their helpers)
 ---@field parse_results? fun(results: string[], min_len: integer): any[]
 ---@field default_scheme? string
 ---@field quote? boolean  whether the adapter quotes identifiers (postgres/oracle/clickhouse do; mysql/sqlserver do not)
@@ -183,6 +244,7 @@
 ---@field source DadbodUI.Source
 ---@field name string
 ---@field group string
+---@field color? string  own hex color (`#rrggbb`, file source only); resolve the effective color via Instance:connection_color
 ---@field key_name string
 ---@field save_name string  group-qualified identifier ({group}_{name} when grouped); names the save folder + tmp query folder
 ---@field scheme string  raw adapter scheme
@@ -204,7 +266,8 @@
 ---@field schemas DadbodUI.SchemasNode
 ---@field routines DadbodUI.RoutinesNode  stored procedures / functions for this connection
 ---@field routine_support boolean  does the adapter expose stored procedures/functions
----@field routine_scripts? DadbodUI.RoutineScripts  the adapter's "Script As" capability (nil => plain open-definition routine leaves)
+---@field routine_scripts? DadbodUI.ScriptActions  the adapter's "Script As" capability for routines (nil => plain open-definition routine leaves)
+---@field table_scripts? DadbodUI.ScriptActions  the adapter's "Script As" capability for tables (nil => helper leaves only)
 ---@field buffers string[]  open query buffers for this connection (full file paths)
 ---@field saved_queries string[]  persisted saved-query file paths under save_path
 
@@ -236,7 +299,7 @@
 ---@class DadbodUI.Node
 ---@field label string
 ---@field icon string
----@field type string  'group'|'db'|'query'|'schemas'|'tables'|'schema'|'table'|'table_helper'|'routines'|'routine_schema'|'routine'|'routine_script_as'|'routine_script'|'buffer'|'saved_query'|'buffers'|'saved_queries'|'dbout'|'dbout_list'|'help'|'add_connection'|...
+---@field type string  'group'|'db'|'query'|'schemas'|'tables'|'schema'|'table'|'table_helper'|'routines'|'routine_schema'|'routine'|'routine_script_as'|'routine_script'|'table_script_as'|'table_script'|'buffer'|'saved_query'|'buffers'|'saved_queries'|'dbout'|'dbout_list'|'help'|'add_connection'|...
 ---@field action string  'toggle'|'open'|'activate'|'noaction'
 ---@field id? string  stable expand-map id (drawer/ids.lua); present on every toggle node
 ---@field children? DadbodUI.Node[]  built only when the node is expanded
@@ -256,19 +319,21 @@
 ---@field saved? boolean  true for saved-query nodes (vs tmp/open buffers)
 ---@field detail? boolean  the label ends in a `(…)` detail suffix (stamped where the suffix is appended; renders dimmed)
 ---@field loading_frame? string  trailing spinner frame for a connecting db node (appended after the label; animated in place by repaint_db_node)
+---@field color? string  effective hex color for a db/group node's name (`#rrggbb`; absent = default styling)
+---@field name_len? integer  byte length of the connection/group name prefix of the label (what `color` paints; stamped on every db/group node)
 
 --- A command spec for the bridge concurrency helpers.
 ---@class DadbodUI.CommandSpec
 ---@field cmd string[]
 ---@field stdin? string
 
---- The canonical export intermediate (dadbod-ui.export_extract): a faithful,
+--- The canonical export intermediate (dadbod-ui.export.extract): a faithful,
 --- string-typed view of a result set parsed from a CLI's delimited output. SQL
---- NULL is the `export_formats.NULL` sentinel, never a Lua nil (arrays cannot hold
+--- NULL is the `export.formats.NULL` sentinel, never a Lua nil (arrays cannot hold
 --- nil holes, and a real NULL must be distinguishable from an empty string).
 ---@class DadbodUI.ExportData
 ---@field columns string[]   column names, in order
----@field rows table[]       each row is an array of (string | export_formats.NULL)
+---@field rows table[]       each row is an array of (string | export.formats.NULL)
 ---@field source? string     table/query name, for JSON-wrap + SQL INSERT target
 
 --- Parameters for dadbod-ui.export.export (one result export).
@@ -280,7 +345,7 @@
 ---@field path string        output file
 ---@field source? string     table/query name (JSON-wrap + SQL target)
 ---@field prefer_native? boolean  native passthrough when available (DECISION-001)
----@field format_opts? table  per-format options (see dadbod-ui.export_formats)
+---@field format_opts? table  per-format options (see dadbod-ui.export.formats)
 
 --- The `export` config block (see config defaults + specs/native-export.md §11).
 ---@class DadbodUI.ExportConfig
@@ -361,6 +426,7 @@
 ---@field drawer? DadbodUI.DrawerConfig
 ---@field query? DadbodUI.QueryConfig
 ---@field results? DadbodUI.ResultsConfig
+---@field explain? DadbodUI.ExplainConfig
 ---@field actions? table<string, DadbodUI.Action>  user-defined named actions
 ---@field buffer_name_generator? DadbodUI.BufferNameGenerator
 ---@field table_name_sorter? DadbodUI.TableNameSorter
@@ -400,6 +466,15 @@
 ---@field list_sort? 'asc'|'desc'
 ---@field query_time? DadbodUI.QueryTimeConfig
 ---@field export? DadbodUI.ExportConfig
+---@field keys? DadbodUI.Keymaps  `lhs -> action`, or `false` to disable the context
+
+--- The EXPLAIN plan-tree window (`explain`).
+---@class DadbodUI.ExplainConfig
+---@field position? 'left'|'right'|'top'|'bottom'  left/right split vertically (width), top/bottom horizontally (height)
+---@field width? integer   column count when position is left/right
+---@field height? integer  row count when position is top/bottom
+---@field heat? { warn: number, hot: number }  exclusive-share fractions where a node turns warm/hot
+---@field skew_threshold? number  actual/estimated row ratio that flags a misestimate
 ---@field keys? DadbodUI.Keymaps  `lhs -> action`, or `false` to disable the context
 
 --- Inline post-execute feedback (time + row count). See `query_time` in the
@@ -515,3 +590,4 @@
 ---@field drawer? DadbodUI.Drawer  the drawer instance (drawer context only)
 ---@field item? DadbodUI.Node  the node under the cursor (drawer context only)
 ---@field query? DadbodUI.Query  the query controller (query context only)
+---@field node? DadbodUI.PlanNode  the plan node under the cursor (explain-tree context only)

@@ -383,6 +383,45 @@ function Query:explain_query(is_visual, opts)
   end)
 end
 
+--- Explain the current query buffer (or visual selection) as an interactive
+--- plan TREE: wrap the SQL in the adapter's JSON EXPLAIN form, run it through
+--- the adapter's own client (headless -- no `.dbout` window), and open the
+--- parsed plan in the explain-tree split. The tree dual of `explain_query`,
+--- sharing its buffer read, connection and bind-parameter flow.
+--- `opts.analyze` runs the executing JSON form (rolled back for DML where the
+--- dialect allows). Connects first if needed (non-blocking, via the query
+--- controller's introspect backend -- the same connect-if-needed behavior as
+--- `api.explain_tree`); unsupported adapters surface `dadbod-ui.explain`'s
+--- user error.
+---@param is_visual? boolean
+---@param opts? DadbodUI.ExplainOpts
+---@return nil
+function Query:explain_tree(is_visual, opts)
+  local lines = self:get_lines(is_visual)
+  local entry = self.instance.dbs[vim.b.dbui_db_key_name]
+  if entry == nil then
+    return notify.error('Buffer not attached to any database')
+  end
+  self:with_resolved_sql(lines, 'explained', function(final_lines)
+    local sql = table.concat(final_lines, '\n')
+    self.introspect:connect_async(entry, function()
+      if entry.conn == nil or entry.conn == '' then
+        local detail = entry.conn_error
+        return notify.error(detail ~= nil and detail ~= '' and detail or 'connection failed')
+      end
+      -- Required here, not at module top: the tree stack (window, renderer,
+      -- float) should not load on every query-buffer setup.
+      require('dadbod-ui.explain.run').open_tree({
+        scheme = entry.scheme,
+        conn = entry.conn,
+        sql = sql,
+        analyze = opts ~= nil and opts.analyze or nil,
+      })
+      self.last_query = final_lines
+    end)
+  end)
+end
+
 --- Export the current query buffer (or visual selection) to a file: run its SQL
 --- and write the RESULTS in a chosen format, the export dual of `execute_query`
 --- and the query-buffer counterpart to `.dbout`'s `export_result`. Reuses the same

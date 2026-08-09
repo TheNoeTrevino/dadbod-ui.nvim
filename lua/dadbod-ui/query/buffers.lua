@@ -365,6 +365,15 @@ function Query:setup_buffer(entry, opts, name)
       cancel = function()
         self:cancel_query()
       end,
+      explain_tree = function(mode)
+        self:explain_tree(mode == 'v')
+      end,
+      explain_tree_analyze = function(mode)
+        self:explain_tree(mode == 'v', { analyze = true })
+      end,
+      goto_table = function()
+        self.drawer:goto_table()
+      end,
     }
     if is_tmp and is_sql then
       handlers.save_query = function()
@@ -417,8 +426,11 @@ function Query:setup_buffer(entry, opts, name)
     -- Required lazily: this mixin is loaded by query/init.lua, so a top-level
     -- require would be circular. By the time a buffer is set up the facade is
     -- fully loaded.
-    local winbar = require('dadbod-ui.query').connection_winbar(entry)
+    local query_mod = require('dadbod-ui.query')
     local function apply()
+      -- Rendered per apply (not once at setup) so a recolored connection paints
+      -- its new color the next time the buffer enters a window.
+      local winbar = query_mod.connection_winbar(entry, self.instance:connection_color(entry))
       for _, win in ipairs(vim.fn.win_findbuf(bufnr)) do
         pcall(vim.api.nvim_set_option_value, 'winbar', winbar, { win = win })
       end

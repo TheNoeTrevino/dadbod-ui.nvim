@@ -4,6 +4,7 @@
 
 local config = require('dadbod-ui.config')
 local dbout = require('dadbod-ui.dbout')
+local h = require('helper')
 
 describe('query_time: config', function()
   it('defaults to enabled with both placements and row count on', function()
@@ -112,82 +113,45 @@ describe('query_time: arm/disarm origin', function()
 end)
 
 describe('query_time: end-to-end (sqlite)', function()
-  local drawer_mod = require('dadbod-ui.drawer')
-  local state = require('dadbod-ui.state')
   local d
-  local fixture = '/tmp/dbui_query_time_qa.db'
-  local query_bufs = {}
 
   local function ns_id(name)
     return vim.api.nvim_get_namespaces()[name]
   end
 
   before_each(function()
-    if vim.fn.executable('sqlite3') == 1 then
-      vim.fn.delete(fixture)
-      vim.fn.system({
-        'sqlite3',
-        fixture,
-        "CREATE TABLE contacts(id INTEGER, name TEXT); INSERT INTO contacts VALUES (1,'ada'),(2,'alan');",
-      })
-    end
+    h.clean_ui()
   end)
-
   after_each(function()
-    for _, b in ipairs(query_bufs) do
-      pcall(vim.api.nvim_buf_delete, b, { force = true })
-    end
-    query_bufs = {}
-    for _, b in ipairs(vim.api.nvim_list_bufs()) do
-      if vim.api.nvim_buf_get_name(b):match('%.dbout$') then
-        pcall(vim.api.nvim_buf_delete, b, { force = true })
-      end
-    end
     if d then
       d:close()
       d = nil
     end
-    vim.fn.delete(fixture)
   end)
 
   it('paints the result-buffer virtual line and the query-buffer ghost text', function()
-    if vim.fn.executable('sqlite3') ~= 1 then
+    local url =
+      h.sqlite_db("CREATE TABLE contacts(id INTEGER, name TEXT); INSERT INTO contacts VALUES (1,'ada'),(2,'alan');")
+    if not url then
       return pending('sqlite3 not installed')
     end
-    local cfg = config.resolve({
-      save_location = '/tmp/dbui_query_time',
-      drawer = { show_help = false },
-      query = { execute_on_save = true },
+    d = h.make_drawer({
+      g_dbs = { qa = url },
+      config = { query = { execute_on_save = true } },
+      connector = require('dadbod-ui.bridge').connect,
     })
-    local instance = state.new(cfg):populate({
-      env = {},
-      g_dbs = { qa = 'sqlite:' .. fixture },
-      file_entries = {},
-    })
-    d = drawer_mod.new(instance)
-    d.connector = require('dadbod-ui.bridge').connect
     d:open()
 
-    local entry
-    for _, record in ipairs(d.instance.dbs_list) do
-      if record.name == 'qa' then
-        entry = d.instance.dbs[record.key_name]
-      end
-    end
+    local entry = h.entry_named(d, 'qa')
     d:query():open({ type = 'query', key_name = entry.key_name }, 'edit')
     local query_buf = vim.api.nvim_get_current_buf()
-    query_bufs[#query_bufs + 1] = query_buf
     vim.api.nvim_buf_set_lines(0, 0, -1, false, { 'SELECT name FROM contacts ORDER BY name;' })
     vim.cmd('silent write')
 
     local function dbout_buf()
-      for _, b in ipairs(vim.api.nvim_list_bufs()) do
-        if vim.api.nvim_buf_get_name(b):match('%.dbout$') then
-          for _, line in ipairs(vim.api.nvim_buf_get_lines(b, 0, -1, false)) do
-            if line:find('ada', 1, true) then
-              return b
-            end
-          end
+      for _, b in ipairs(h.dbout_bufs()) do
+        if h.has_line(b, 'ada') then
+          return b
         end
       end
     end

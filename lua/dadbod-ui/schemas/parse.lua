@@ -52,6 +52,17 @@ function P.sql_squote(s)
 end
 
 ---@private
+-- Escape a value for embedding inside a double-quoted SQL identifier
+-- (postgres / oracle): double every double quote. Used by the Lua-built DROP
+-- TABLE statements so an identifier containing a quote stays inside its
+-- delimiters.
+---@param s string
+---@return string
+function P.sql_dquote(s)
+  return (s:gsub('"', '""'))
+end
+
+---@private
 -- Escape a value for embedding inside a backtick-quoted MySQL identifier: double
 -- every backtick. Used by `SHOW CREATE PROCEDURE/FUNCTION`.
 ---@param s string

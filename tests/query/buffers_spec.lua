@@ -3,52 +3,15 @@
 -- Buffers drawer section. No DB binary is needed -- the connector is stubbed and
 -- nothing is executed here (execution is covered in dbout_spec).
 
-local drawer_mod = require('dadbod-ui.drawer')
 local ids = require('dadbod-ui.drawer.ids')
-local state = require('dadbod-ui.state')
-local config = require('dadbod-ui.config')
-
--- A drawer over an instance seeded with injected connections. The connector is
--- stubbed to echo the url back, so entries "connect" offline and b:db is set.
-local function make_drawer(g_dbs, overrides)
-  local cfg = config.resolve(
-    vim.tbl_extend('force', { save_location = '/tmp/dbui_query', drawer = { show_help = false } }, overrides or {})
-  )
-  local instance = state.new(cfg):populate({ env = {}, g_dbs = g_dbs, file_entries = {} })
-  local d = drawer_mod.new(instance)
-  d.connector = function(url)
-    return url
-  end
-  return d
-end
-
-local function entry_named(d, name)
-  for _, record in ipairs(d.instance.dbs_list) do
-    if record.name == name then
-      return d.instance.dbs[record.key_name]
-    end
-  end
-end
-
-local function lines(d)
-  return vim.api.nvim_buf_get_lines(d.bufnr, 0, -1, false)
-end
-
-local function has_line(d, pattern)
-  for _, line in ipairs(lines(d)) do
-    if line:find(pattern, 1, true) then
-      return true
-    end
-  end
-  return false
-end
+local h = require('helper')
 
 describe('query buffers: open', function()
   local d
   local query_bufs = {}
 
   before_each(function()
-    require('helper').clean_ui()
+    h.clean_ui()
   end)
 
   after_each(function()
@@ -63,9 +26,9 @@ describe('query buffers: open', function()
   end)
 
   it('opens an empty New query buffer with the b:dbui_* contract', function()
-    d = make_drawer({ qa = 'sqlite:/tmp/qa.db' })
+    d = h.make_drawer()
     d:open()
-    local entry = entry_named(d, 'qa')
+    local entry = h.entry_named(d, 'qa')
     d:query():open({ type = 'query', key_name = entry.key_name }, 'edit')
     query_bufs[#query_bufs + 1] = vim.api.nvim_get_current_buf()
 
@@ -78,9 +41,9 @@ describe('query buffers: open', function()
   end)
 
   it('pre-fills a table List helper buffer and sets the table name', function()
-    d = make_drawer({ qa = 'sqlite:/tmp/qa.db' })
+    d = h.make_drawer()
     d:open()
-    local entry = entry_named(d, 'qa')
+    local entry = h.entry_named(d, 'qa')
     d:query():open({
       type = 'table_helper',
       key_name = entry.key_name,
@@ -99,9 +62,9 @@ describe('query buffers: open', function()
     local bridge = require('dadbod-ui.bridge')
     local notifications = require('dadbod-ui.notifications')
 
-    d = make_drawer({ qa = 'sqlite:/tmp/qa.db' })
+    d = h.make_drawer()
     d:open()
-    local entry = entry_named(d, 'qa')
+    local entry = h.entry_named(d, 'qa')
     d:query():open({ type = 'query', key_name = entry.key_name }, 'edit')
     query_bufs[#query_bufs + 1] = vim.api.nvim_get_current_buf()
 
@@ -119,9 +82,9 @@ describe('query buffers: open', function()
   end)
 
   it('registers the opened buffer under the Buffers section', function()
-    d = make_drawer({ qa = 'sqlite:/tmp/qa.db' })
+    d = h.make_drawer()
     d:open()
-    local entry = entry_named(d, 'qa')
+    local entry = h.entry_named(d, 'qa')
     d:query():open({ type = 'query', key_name = entry.key_name }, 'edit')
     query_bufs[#query_bufs + 1] = vim.api.nvim_get_current_buf()
 
@@ -129,7 +92,7 @@ describe('query buffers: open', function()
     assert.is_true(d:is_expanded(ids.section(entry.key_name, 'buffers')))
     d:set_expanded(ids.db(entry.key_name), true)
     d:render()
-    assert.is_true(has_line(d, 'Buffers (1)'))
+    assert.is_true(h.has_line(d.bufnr, 'Buffers (1)'))
   end)
 end)
 
@@ -149,6 +112,7 @@ describe('query buffers: window reuse', function()
   end
 
   before_each(function()
+    h.clean_ui()
     saved_hidden = vim.o.hidden
   end)
 
@@ -165,9 +129,9 @@ describe('query buffers: window reuse', function()
   -- swap and split off a duplicate window ('bufhidden=hide' lets it just hide).
   it('reuses the one query window for a second query on the same connection (nohidden)', function()
     vim.o.hidden = false
-    d = make_drawer({ qa = 'sqlite:/tmp/qa.db' })
+    d = h.make_drawer()
     d:open()
-    local entry = entry_named(d, 'qa')
+    local entry = h.entry_named(d, 'qa')
 
     d:query():open({ type = 'query', key_name = entry.key_name }, 'edit')
     -- Dirty the buffer so it is modified + unsaved (the case that used to split).
@@ -184,6 +148,10 @@ end)
 describe('query buffers: filename extension', function()
   local d
 
+  before_each(function()
+    h.clean_ui()
+  end)
+
   after_each(function()
     if d then
       d:close()
@@ -191,18 +159,9 @@ describe('query buffers: filename extension', function()
     end
   end)
 
-  -- A fresh tmp root per test: without one the generator falls back to the
-  -- session-shared tempname dir, where files written by OTHER specs for a
-  -- same-named connection would (correctly) bump the collision counter.
-  local function fresh_tmp()
-    local tmp = vim.fn.tempname()
-    vim.fn.mkdir(tmp, 'p')
-    return tmp
-  end
-
   it('names a New query buffer inside the connection folder, with the adapter extension', function()
-    d = make_drawer({ qa = 'sqlite:/tmp/qa.db' }, { tmp_query_location = fresh_tmp() })
-    local entry = entry_named(d, 'qa')
+    d = h.make_drawer({ config = { tmp_query_location = h.tmp_dir() } })
+    local entry = h.entry_named(d, 'qa')
     assert.equals('sql', entry.extension)
     local name = d:query():generate_buffer_name(entry, { label = '', filetype = entry.filetype })
     -- <tmp>/qa/query.sql -- the folder records ownership; a real .sql file so
@@ -211,8 +170,8 @@ describe('query buffers: filename extension', function()
   end)
 
   it('bumps a counter instead of reusing a taken name', function()
-    d = make_drawer({ qa = 'sqlite:/tmp/qa.db' }, { tmp_query_location = fresh_tmp() })
-    local entry = entry_named(d, 'qa')
+    d = h.make_drawer({ config = { tmp_query_location = h.tmp_dir() } })
+    local entry = h.entry_named(d, 'qa')
     local first = d:query():generate_buffer_name(entry, { label = '', filetype = entry.filetype })
     table.insert(entry.buffers, first)
     local second = d:query():generate_buffer_name(entry, { label = '', filetype = entry.filetype })
@@ -220,16 +179,16 @@ describe('query buffers: filename extension', function()
   end)
 
   it('names a table-helper buffer with the extension too', function()
-    d = make_drawer({ qa = 'sqlite:/tmp/qa.db' })
-    local entry = entry_named(d, 'qa')
+    d = h.make_drawer()
+    local entry = h.entry_named(d, 'qa')
     local name = d:query()
       :generate_buffer_name(entry, { table = 'contacts', label = 'List', filetype = entry.filetype })
     assert.matches('/qa/contacts%-List%.sql$', name)
   end)
 
   it('uses the extension from the adapter, not a hardcoded sql (mysql -> sql ext, mysql filetype)', function()
-    d = make_drawer({ my = 'mysql://h/shop' })
-    local entry = entry_named(d, 'my')
+    d = h.make_drawer({ g_dbs = { my = 'mysql://h/shop' } })
+    local entry = h.entry_named(d, 'my')
     -- mysql's query-input extension is sql; its filetype is the distinct `mysql`.
     assert.equals('sql', entry.extension)
     assert.equals('mysql', entry.filetype)
@@ -238,9 +197,9 @@ describe('query buffers: filename extension', function()
   end)
 
   it('sets the buffer filetype to entry.filetype even with a .sql name', function()
-    d = make_drawer({ my = 'mysql://h/shop' })
+    d = h.make_drawer({ g_dbs = { my = 'mysql://h/shop' } })
     d:open()
-    local entry = entry_named(d, 'my')
+    local entry = h.entry_named(d, 'my')
     d:query():open({ type = 'query', key_name = entry.key_name }, 'edit')
     local bufnr = vim.api.nvim_get_current_buf()
     -- The explicit setlocal filetype= stays authoritative over the .sql name's
@@ -251,14 +210,70 @@ describe('query buffers: filename extension', function()
   end)
 
   it('respects buffer_name_generator without forcing an extension', function()
-    d = make_drawer({ qa = 'sqlite:/tmp/qa.db' }, {
-      buffer_name_generator = function()
-        return 'custom-name'
-      end,
+    d = h.make_drawer({
+      config = {
+        buffer_name_generator = function()
+          return 'custom-name'
+        end,
+      },
     })
-    local entry = entry_named(d, 'qa')
+    local entry = h.entry_named(d, 'qa')
     local name = d:query():generate_buffer_name(entry, { label = '', filetype = entry.filetype })
     assert.matches('/qa/custom%-name$', name)
     assert.is_nil(name:match('%.sql$'))
+  end)
+end)
+
+describe('query buffers: goto_table mapping', function()
+  local d
+  before_each(function()
+    h.clean_ui()
+  end)
+  after_each(function()
+    if d then
+      d:close()
+      d = nil
+    end
+  end)
+
+  it('binds gd by default and jumps to the table node in the drawer', function()
+    d = h.make_drawer()
+    d:open()
+    local entry = h.entry_named(d, 'qa')
+    entry.tables = { 'contacts', 'users' }
+    d:query():open({ type = 'query', key_name = entry.key_name }, 'edit')
+    local buf = vim.api.nvim_get_current_buf()
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, { 'select * from users' })
+    vim.api.nvim_win_set_cursor(0, { 1, 15 })
+
+    local map
+    for _, m in ipairs(vim.api.nvim_buf_get_keymap(buf, 'n')) do
+      if m.lhs == 'gd' then
+        map = m
+      end
+    end
+    assert.is_truthy(map)
+    map.callback()
+
+    local node = d.content[vim.api.nvim_win_get_cursor(d.winid)[1]]
+    assert.equals('table', node.type)
+    assert.equals('users', node.table)
+    pcall(vim.api.nvim_buf_delete, buf, { force = true })
+  end)
+
+  it('a user override rebinds the action away from gd', function()
+    d = h.make_drawer({ config = { query = { keys = { gd = false, gD = 'goto_table' } } } })
+    d:open()
+    local entry = h.entry_named(d, 'qa')
+    d:query():open({ type = 'query', key_name = entry.key_name }, 'edit')
+    local buf = vim.api.nvim_get_current_buf()
+
+    local lhs = {}
+    for _, m in ipairs(vim.api.nvim_buf_get_keymap(buf, 'n')) do
+      lhs[m.lhs] = true
+    end
+    assert.is_nil(lhs['gd'])
+    assert.is_truthy(lhs['gD'])
+    pcall(vim.api.nvim_buf_delete, buf, { force = true })
   end)
 end)
