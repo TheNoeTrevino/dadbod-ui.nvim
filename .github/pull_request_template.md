@@ -1,14 +1,3 @@
-## Checklist
-
-- [ ] Read `CONTRIBUTING.md`
-- [ ] Ran tests (`make test`) locally
-- [ ] Formatted with Stylua
-- [ ] Added tests if necessary
-- [ ] Updated documentation (inline to source code) if applicable
-- [ ] Updated support matrix (../CURRENT_SUPPORT.md) if adding new features for/or adapters
-
-## Summary
-
-<!-- What does this PR change and/or fix? -->
-
-<!-- Closes: #x (in footer, plz) -->
+> **This repository is a read-only mirror.** Pull requests opened here are not reviewed and cannot be merged.
+>
+> Development happens at https://git.thenoetrevino.com/noe.trevino/dadbod-ui.nvim. Sign in there with your GitHub account (one click, no approval), fork the repo, and open your pull request against `main`. Thank you!
