@@ -1,5 +1,8 @@
 # dadbod-ui.nvim
 
+> Development happens at https://git.thenoetrevino.com/noe.trevino/dadbod-ui.nvim.
+> GitHub is a read-only mirror. Please open issues and pull requests there.
+
 A Neovim-native user interface for [tpope/vim-dadbod](https://github.com/tpope/vim-dadbod),
 written in Lua.
 
